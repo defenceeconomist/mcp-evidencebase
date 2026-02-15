@@ -144,7 +144,31 @@
               tabindex="0"
             >
               <h1 class="h4 mb-3 text-primary">Document Meta</h1>
-              <p class="mb-0">Document metadata workflows will appear here.</p>
+              <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 w-100">
+                <div class="d-flex flex-wrap align-items-center gap-2">
+                  <button type="button" id="upload-pdf-btn" class="btn btn-primary">
+                    Upload PDF
+                  </button>
+                  <button type="button" id="fetch-meta-btn" class="btn btn-outline-primary">
+                    Fetch Meta
+                  </button>
+                </div>
+                <div class="d-flex align-items-center gap-2 ms-md-auto">
+                  <span id="meta-view-detail-label" class="small fw-semibold">Detail View</span>
+                  <div class="form-check form-switch mb-0">
+                    <input
+                      class="form-check-input"
+                      type="checkbox"
+                      role="switch"
+                      id="meta-view-mode-switch"
+                      aria-label="Toggle between detail view and bulk edit view"
+                    />
+                  </div>
+                  <span id="meta-view-bulk-label" class="small fw-semibold text-body-secondary">
+                    Bulk Edit View
+                  </span>
+                </div>
+              </div>
             </section>
             <section
               class="tab-pane fade h-100 p-3"
@@ -177,6 +201,9 @@
         const sidebar = document.getElementById("collections-sidebar");
         const mainPanel = document.getElementById("main-panel");
         const collectionToggles = document.querySelectorAll('[data-action="toggle-collections"]');
+        const metaViewModeSwitch = document.getElementById("meta-view-mode-switch");
+        const metaViewDetailLabel = document.getElementById("meta-view-detail-label");
+        const metaViewBulkLabel = document.getElementById("meta-view-bulk-label");
         const selectedBucketCookieName = "evidencebase_selected_bucket";
         let minioBuckets = [];
         let selectedBucketName = null;
@@ -239,6 +266,16 @@
         const setEmptyState = (message) => {
           bucketEmptyState.textContent = message;
           bucketEmptyState.classList.toggle("d-none", message.length === 0);
+        };
+
+        const setMetaViewModeLabelState = () => {
+          if (!metaViewModeSwitch || !metaViewDetailLabel || !metaViewBulkLabel) {
+            return;
+          }
+
+          const bulkModeEnabled = metaViewModeSwitch.checked;
+          metaViewDetailLabel.classList.toggle("text-body-secondary", bulkModeEnabled);
+          metaViewBulkLabel.classList.toggle("text-body-secondary", !bulkModeEnabled);
         };
 
         const updateRemoveTooltip = () => {
@@ -416,8 +453,10 @@
             setCollectionsCollapsed(!collectionsCollapsed);
           });
         });
+        metaViewModeSwitch?.addEventListener("change", setMetaViewModeLabelState);
 
         setCollectionsCollapsed(false);
+        setMetaViewModeLabelState();
         updateRemoveTooltip();
         void refreshBuckets();
       })();
