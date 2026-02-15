@@ -71,6 +71,9 @@
             </li>
           </ul>
           <ul class="navbar-nav ms-auto">
+            <li class="nav-item">
+              <a class="nav-link" data-path="/docs/" href="#">Docs</a>
+            </li>
             <li class="nav-item dropdown">
               <a
                 class="nav-link dropdown-toggle"
@@ -106,18 +109,20 @@
             <div class="btn-group" role="group" aria-label="Collection actions">
               <button
                 type="button"
+                id="add-collection-btn"
                 class="btn btn-outline-primary btn-sm"
                 data-bs-toggle="tooltip"
-                data-bs-title="Add a new collection (not wired yet)."
+                data-bs-title="Create a new collection bucket in MinIO."
                 aria-label="Add collection"
               >
                 +
               </button>
               <button
                 type="button"
+                id="remove-collection-btn"
                 class="btn btn-outline-danger btn-sm"
                 data-bs-toggle="tooltip"
-                data-bs-title="Remove the selected collection (not wired yet)."
+                data-bs-title="Select a collection, then remove its MinIO bucket."
                 aria-label="Remove collection"
               >
                 -
@@ -164,13 +169,54 @@
     <script>
       (function () {
         const origin = window.location.origin;
-        const minioBuckets = [];
+        const apiBasePath = origin + "/api";
         const bucketList = document.getElementById("bucket-list");
         const bucketEmptyState = document.getElementById("bucket-empty-state");
+        const addCollectionButton = document.getElementById("add-collection-btn");
+        const removeCollectionButton = document.getElementById("remove-collection-btn");
         const sidebar = document.getElementById("collections-sidebar");
         const mainPanel = document.getElementById("main-panel");
         const collectionToggles = document.querySelectorAll('[data-action="toggle-collections"]');
+        const selectedBucketCookieName = "evidencebase_selected_bucket";
+        let minioBuckets = [];
+        let selectedBucketName = null;
         let collectionsCollapsed = false;
+
+        const setCookie = (name, value, maxAgeSeconds) => {
+          document.cookie = [
+            `${name}=${encodeURIComponent(value)}`,
+            "Path=/",
+            "SameSite=Lax",
+            `Max-Age=${maxAgeSeconds}`,
+          ].join("; ");
+        };
+
+        const getCookie = (name) => {
+          const cookiePrefix = `${name}=`;
+          const cookieValue = document.cookie
+            .split(";")
+            .map((item) => item.trim())
+            .find((item) => item.startsWith(cookiePrefix));
+
+          if (!cookieValue) {
+            return null;
+          }
+
+          return decodeURIComponent(cookieValue.slice(cookiePrefix.length));
+        };
+
+        const clearCookie = (name) => {
+          document.cookie = `${name}=; Path=/; SameSite=Lax; Max-Age=0`;
+        };
+
+        const setSelectedBucketName = (bucketName) => {
+          selectedBucketName = bucketName;
+          if (bucketName) {
+            setCookie(selectedBucketCookieName, bucketName, 60 * 60 * 24 * 365);
+          } else {
+            clearCookie(selectedBucketCookieName);
+          }
+        };
 
         const setCollectionsCollapsed = (collapsed) => {
           collectionsCollapsed = collapsed;
@@ -183,6 +229,170 @@
           });
         };
 
+        const getTooltipInstance = (element) => bootstrap.Tooltip.getOrCreateInstance(element);
+
+        const setTooltipContent = (element, text) => {
+          element.setAttribute("data-bs-title", text);
+          getTooltipInstance(element).setContent({ ".tooltip-inner": text });
+        };
+
+        const setEmptyState = (message) => {
+          bucketEmptyState.textContent = message;
+          bucketEmptyState.classList.toggle("d-none", message.length === 0);
+        };
+
+        const updateRemoveTooltip = () => {
+          if (selectedBucketName) {
+            setTooltipContent(
+              removeCollectionButton,
+              `Remove selected collection bucket: ${selectedBucketName}.`
+            );
+            return;
+          }
+          setTooltipContent(
+            removeCollectionButton,
+            "Select a collection first, then remove its MinIO bucket."
+          );
+        };
+
+        const renderBuckets = () => {
+          bucketList.innerHTML = "";
+          if (minioBuckets.length === 0) {
+            setSelectedBucketName(null);
+            setEmptyState("No collections found. Use + to create one.");
+            updateRemoveTooltip();
+            return;
+          }
+
+          minioBuckets.forEach((bucketName) => {
+            const item = document.createElement("li");
+            item.className =
+              "list-group-item list-group-item-action user-select-none" +
+              (bucketName === selectedBucketName ? " active" : "");
+            item.textContent = bucketName;
+            item.setAttribute("role", "button");
+            item.setAttribute("tabindex", "0");
+            item.addEventListener("click", () => {
+              setSelectedBucketName(bucketName);
+              renderBuckets();
+            });
+            item.addEventListener("keydown", (event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                setSelectedBucketName(bucketName);
+                renderBuckets();
+              }
+            });
+            bucketList.appendChild(item);
+          });
+
+          setEmptyState("");
+          updateRemoveTooltip();
+        };
+
+        const parseErrorMessage = async (response) => {
+          try {
+            const payload = await response.json();
+            if (payload && typeof payload.detail === "string") {
+              return payload.detail;
+            }
+          } catch (error) {
+            // Ignore JSON parsing errors and fallback to status text.
+          }
+          return `${response.status} ${response.statusText}`;
+        };
+
+        const apiRequest = async (path, options = {}) => {
+          const response = await fetch(apiBasePath + path, {
+            headers: {
+              "Content-Type": "application/json",
+              ...(options.headers || {}),
+            },
+            ...options,
+          });
+
+          if (!response.ok) {
+            const message = await parseErrorMessage(response);
+            throw new Error(message);
+          }
+
+          return response.json();
+        };
+
+        const refreshBuckets = async () => {
+          try {
+            const payload = await apiRequest("/buckets");
+            minioBuckets = Array.isArray(payload.buckets) ? payload.buckets : [];
+            if (selectedBucketName && !minioBuckets.includes(selectedBucketName)) {
+              setSelectedBucketName(null);
+            }
+
+            if (!selectedBucketName) {
+              const storedBucketName = getCookie(selectedBucketCookieName);
+              if (storedBucketName && minioBuckets.includes(storedBucketName)) {
+                setSelectedBucketName(storedBucketName);
+              } else if (storedBucketName) {
+                clearCookie(selectedBucketCookieName);
+              }
+            }
+            renderBuckets();
+          } catch (error) {
+            minioBuckets = [];
+            setSelectedBucketName(null);
+            renderBuckets();
+            setEmptyState("Failed to load collections from API.");
+            alert("Could not load collections: " + error.message);
+          }
+        };
+
+        const addBucket = async () => {
+          const requestedBucketName = window.prompt("Enter a new collection bucket name:");
+          if (requestedBucketName === null) {
+            return;
+          }
+
+          const normalizedBucketName = requestedBucketName.trim();
+          if (normalizedBucketName.length === 0) {
+            alert("Bucket name cannot be empty.");
+            return;
+          }
+
+          try {
+            const payload = await apiRequest("/buckets", {
+              method: "POST",
+              body: JSON.stringify({ bucket_name: normalizedBucketName }),
+            });
+            if (!payload.created) {
+              alert(`Bucket '${normalizedBucketName}' already exists.`);
+            }
+            setSelectedBucketName(normalizedBucketName);
+            await refreshBuckets();
+          } catch (error) {
+            alert("Could not add bucket: " + error.message);
+          }
+        };
+
+        const removeBucket = async () => {
+          if (!selectedBucketName) {
+            alert("Select a collection bucket first.");
+            return;
+          }
+
+          if (!window.confirm(`Remove bucket '${selectedBucketName}'?`)) {
+            return;
+          }
+
+          try {
+            await apiRequest("/buckets/" + encodeURIComponent(selectedBucketName), {
+              method: "DELETE",
+            });
+            setSelectedBucketName(null);
+            await refreshBuckets();
+          } catch (error) {
+            alert("Could not remove bucket: " + error.message);
+          }
+        };
+
         document.querySelectorAll("[data-path]").forEach((anchor) => {
           const path = anchor.getAttribute("data-path") || "";
           anchor.href = origin + path;
@@ -190,21 +400,15 @@
           anchor.rel = "noopener noreferrer";
         });
 
-        if (minioBuckets.length === 0) {
-          bucketEmptyState.textContent =
-            "No collections found. Use + to create one, then use - to remove a selected collection.";
-        } else {
-          minioBuckets.forEach((bucketName) => {
-            const item = document.createElement("li");
-            item.className = "list-group-item";
-            item.textContent = bucketName;
-            bucketList.appendChild(item);
-          });
-          bucketEmptyState.classList.add("d-none");
-        }
-
         document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach((el) => {
           new bootstrap.Tooltip(el);
+        });
+
+        addCollectionButton.addEventListener("click", () => {
+          void addBucket();
+        });
+        removeCollectionButton.addEventListener("click", () => {
+          void removeBucket();
         });
 
         collectionToggles.forEach((toggle) => {
@@ -214,6 +418,8 @@
         });
 
         setCollectionsCollapsed(false);
+        updateRemoveTooltip();
+        void refreshBuckets();
       })();
     </script>
   </body>
