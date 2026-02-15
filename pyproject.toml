@@ -1,0 +1,51 @@
+[build-system]
+requires = ["hatchling>=1.26.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mcp-evidencebase"
+version = "0.1.0"
+description = "Manage evidence base metadata, semantic search, and GPT summaries."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+  "build>=1.2.2",
+  "celery[redis]>=5.4.0",
+  "flower>=2.0.1",
+  "mypy>=1.13.0",
+  "pytest>=8.3.4",
+  "pytest-cov>=6.0.0",
+  "ruff>=0.8.4",
+  "twine>=6.0.1",
+]
+
+[project.scripts]
+mcp-evidencebase = "mcp_evidencebase.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mcp_evidencebase"]
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-config --strict-markers --cov=mcp_evidencebase --cov-report=term-missing"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "RUF"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+mypy_path = "src"
+packages = ["mcp_evidencebase"]

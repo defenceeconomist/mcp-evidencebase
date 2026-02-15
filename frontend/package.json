@@ -1,0 +1,9 @@
+{
+  "name": "evidencebase-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Bootstrap frontend for Evidence Base",
+  "scripts": {
+    "build": "echo \"Static frontend served by nginx\""
+  }
+}
