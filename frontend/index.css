@@ -1,0 +1,297 @@
+:root {
+  --sidebar-width-lg: 16.666667%;
+}
+
+#document-meta-pane {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  min-height: 0;
+}
+
+#main-panel .tab-content {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+#main-panel .tab-content > .tab-pane {
+  min-height: 0;
+}
+
+#main-panel .tab-content > .tab-pane.active {
+  display: flex;
+  flex-direction: column;
+}
+
+#document-hot-wrapper {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+#detail-view-container {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+#detail-view-grid {
+  min-height: 0;
+}
+
+#detail-table-column,
+#detail-form-column {
+  min-height: 0;
+}
+
+#detail-table-card,
+#detail-form-card {
+  min-height: 0;
+}
+
+#detail-table-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+#detail-fields-form {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.detail-field-row {
+  border: 1px solid var(--bs-border-color);
+  border-radius: 0.5rem;
+  padding: 0.5rem;
+}
+
+.detail-field-row-required {
+  border-color: rgba(var(--bs-danger-rgb), 0.45);
+}
+
+.detail-field-row-recommended {
+  border-color: rgba(var(--bs-warning-rgb), 0.55);
+}
+
+.bibtex-status-tag {
+  font-size: 0.66rem;
+  letter-spacing: 0.02em;
+}
+
+.bibtex-status-required {
+  background-color: rgba(var(--bs-danger-rgb), 0.14);
+  color: var(--bs-danger-text-emphasis);
+}
+
+.bibtex-status-recommended {
+  background-color: rgba(var(--bs-warning-rgb), 0.2);
+  color: var(--bs-warning-text-emphasis);
+}
+
+.bibtex-status-optional {
+  background-color: rgba(var(--bs-secondary-rgb), 0.18);
+  color: var(--bs-secondary-text-emphasis);
+}
+
+#bulk-view-container {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.parse-action-btn {
+  font-size: 0.7rem;
+  line-height: 1.1;
+  padding: 0.1rem 0.35rem;
+}
+
+#document-hot-container {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.hot-parse-cell {
+  padding-top: 0.35rem !important;
+  padding-bottom: 0.35rem !important;
+}
+
+.hot-parse-cell .progress {
+  min-width: 8rem;
+  height: 1rem;
+}
+
+.json-tree {
+  font-family: var(--bs-font-monospace);
+  font-size: 0.85rem;
+}
+
+.json-tree ul {
+  list-style: none;
+  margin: 0;
+  padding-left: 1rem;
+  border-left: 1px solid var(--bs-border-color);
+}
+
+.json-tree li {
+  margin: 0.2rem 0;
+}
+
+.json-tree-node-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.json-tree-toggle {
+  border: 0;
+  background: transparent;
+  color: var(--bs-secondary-color);
+  padding: 0;
+  line-height: 1;
+  width: 0.85rem;
+}
+
+#collections-list-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+#collections-shell {
+  min-height: 0;
+}
+
+#collections-body {
+  min-height: 0;
+  padding-top: 0.9rem;
+}
+
+.header-action-btn {
+  font-size: 0.75rem;
+  line-height: 1.2;
+}
+
+.table-view-toggle {
+  white-space: nowrap;
+}
+
+.table-view-toggle .form-check-input {
+  margin-top: 0;
+}
+
+.title-search-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: nowrap;
+}
+
+#document-meta-count {
+  white-space: nowrap;
+}
+
+.navbar-sidebar-slot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.navbar-sidebar-slot .navbar-brand {
+  margin-right: 0;
+}
+
+#collections-toggle-nav {
+  border: 0;
+  background: transparent;
+  color: var(--bs-navbar-color);
+}
+
+#collections-toggle-nav:hover,
+#collections-toggle-nav:focus-visible {
+  color: var(--bs-navbar-hover-color);
+}
+
+#mainNav {
+  min-width: 0;
+}
+
+@media (min-width: 992px) {
+  .navbar-sidebar-slot {
+    flex: 0 0 var(--sidebar-width-lg);
+    max-width: var(--sidebar-width-lg);
+  }
+
+  #mainNav {
+    flex: 1 1 auto;
+  }
+
+  #mainNav .navbar-nav[role="tablist"] {
+    align-items: center;
+  }
+}
+
+@media (max-width: 991.98px) {
+  #collections-toggle-nav {
+    display: none !important;
+  }
+
+  #app-shell {
+    overflow-y: auto !important;
+  }
+
+  #collections-sidebar {
+    height: auto !important;
+    max-height: 40vh;
+    min-height: 12rem;
+  }
+
+  #collections-list-scroll {
+    max-height: calc(40vh - 7rem);
+  }
+
+  #main-panel {
+    height: auto !important;
+    min-height: 55vh;
+  }
+
+  #document-meta-pane {
+    height: auto;
+  }
+
+  #document-hot-wrapper {
+    min-height: 18rem;
+  }
+
+  #detail-view-container {
+    overflow: visible;
+  }
+
+  #detail-view-grid {
+    height: auto !important;
+  }
+
+  #detail-table-card,
+  #detail-form-card {
+    height: auto !important;
+  }
+
+  #detail-table-scroll,
+  #detail-fields-form {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible;
+  }
+
+  #collections-sidebar {
+    padding-top: 0.75rem !important;
+  }
+}

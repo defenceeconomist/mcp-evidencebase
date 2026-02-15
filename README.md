@@ -63,35 +63,45 @@ Starts:
 - Qdrant HTTP API (via proxy)
 - Celery worker
 - Flower (via proxy)
+- Cloudflare Tunnel (optional `cloudflare` profile)
 
 ```bash
 docker compose up -d --build
 ```
 
-All web services are exposed through one host port (`${PROXY_PORT:-52180}`) using
-path-based routing on the main host:
+Enable Cloudflare Tunnel:
 
-```text
-http://evidencebase.localhost:52180
-http://evidencebase.localhost:52180/docs/
-http://evidencebase.localhost:52180/docs/readme.html
-http://evidencebase.localhost:52180/docs/reference.html
-http://evidencebase.localhost:52180/docs/tests.html
-http://evidencebase.localhost:52180/minio-console/
-http://evidencebase.localhost:52180/redisinsight/
-http://evidencebase.localhost:52180/dashboard/
-http://evidencebase.localhost:52180/flower/
+```bash
+docker compose --profile cloudflare up -d cloudflared
 ```
 
-External machine access:
-- `.localhost` only resolves on the local machine.
-- From another device, use the Docker host name or IP directly with the same paths.
+The tunnel token is read from `CLOUDFLARE_TUNNEL_TOKEN` in `.env`.
+If your Cloudflare public hostname currently points to `http://localhost:52180`,
+set the tunnel service target to `http://proxy:80` for this compose stack.
+
+All web services are exposed through one host port (`${PROXY_PORT:-52180}`) using
+path-based routing on the main host (`localhost`) and via Cloudflare (`evidencebase.heley.uk`):
 
 ```text
-http://luke-mac-mini.local:52180/minio-console/
-http://luke-mac-mini.local:52180/redisinsight/
-http://luke-mac-mini.local:52180/dashboard/
-http://luke-mac-mini.local:52180/flower/
+http://localhost:52180
+http://localhost:52180/docs/
+http://localhost:52180/docs/readme.html
+http://localhost:52180/docs/reference.html
+http://localhost:52180/docs/tests.html
+http://localhost:52180/minio-console/
+http://localhost:52180/redisinsight/
+http://localhost:52180/dashboard/
+http://localhost:52180/flower/
+
+https://evidencebase.heley.uk
+https://evidencebase.heley.uk/docs/
+https://evidencebase.heley.uk/docs/readme.html
+https://evidencebase.heley.uk/docs/reference.html
+https://evidencebase.heley.uk/docs/tests.html
+https://evidencebase.heley.uk/minio-console/
+https://evidencebase.heley.uk/redisinsight/
+https://evidencebase.heley.uk/dashboard/
+https://evidencebase.heley.uk/flower/
 ```
 
 ## Documentation
@@ -109,9 +119,10 @@ PROXY_PORT=52180
 MINIO_ROOT_USER=minioadmin
 MINIO_ROOT_PASSWORD=minioadmin
 MINIO_SERVER_URL=http://127.0.0.1:9000
-MINIO_BROWSER_REDIRECT_URL=http://evidencebase.localhost:52180/minio-console
+MINIO_BROWSER_REDIRECT_URL=http://localhost:52180/minio-console
 CELERY_BROKER_URL=redis://redis:6379/0
 CELERY_RESULT_BACKEND=redis://redis:6379/1
+CLOUDFLARE_TUNNEL_TOKEN=<your-cloudflare-tunnel-token>
 ```
 
 ## Bucket API command-line examples
@@ -121,7 +132,7 @@ The UI calls the same API shown below. These are copy/paste commands.
 Set the API base URL:
 
 ```bash
-BASE_URL="http://evidencebase.localhost:52180/api"
+BASE_URL="http://localhost:52180/api"
 ```
 
 List buckets:

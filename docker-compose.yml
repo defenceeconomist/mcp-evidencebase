@@ -137,6 +137,24 @@ services:
     volumes:
       - ./deploy/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
 
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: evidencebase-cloudflared
+    restart: unless-stopped
+    profiles:
+      - cloudflare
+    depends_on:
+      proxy:
+        condition: service_started
+    command:
+      [
+        "tunnel",
+        "--no-autoupdate",
+        "run",
+        "--token",
+        "${CLOUDFLARE_TUNNEL_TOKEN:-}",
+      ]
+
 volumes:
   minio-data:
   qdrant-storage:

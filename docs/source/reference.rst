@@ -8,7 +8,7 @@ Use the bucket API through the proxy:
 
 .. code-block:: bash
 
-   BASE_URL="http://evidencebase.localhost:52180/api"
+   BASE_URL="http://localhost:52180/api"
 
 List buckets:
 

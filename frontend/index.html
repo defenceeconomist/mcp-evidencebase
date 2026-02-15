@@ -9,11 +9,31 @@
       rel="stylesheet"
       crossorigin="anonymous"
     />
+    <link
+      href="https://cdn.jsdelivr.net/npm/handsontable@14.6.1/dist/handsontable.full.min.css"
+      rel="stylesheet"
+      crossorigin="anonymous"
+    />
+    <link href="./index.css" rel="stylesheet" />
   </head>
   <body class="bg-body-tertiary d-flex flex-column vh-100">
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
       <div class="container-fluid">
-        <a class="navbar-brand fw-semibold" href="/">Evidence Base</a>
+        <div class="navbar-sidebar-slot">
+          <a class="navbar-brand fw-semibold" href="/">Evidence Base</a>
+          <button
+            class="nav-link d-inline-flex align-items-center justify-content-center px-2"
+            type="button"
+            id="collections-toggle-nav"
+            data-action="toggle-collections"
+            aria-controls="collections-sidebar"
+            aria-expanded="true"
+            aria-label="Toggle collections sidebar"
+          >
+            <span aria-hidden="true">☰</span>
+            <span class="visually-hidden">Toggle collections sidebar</span>
+          </button>
+        </div>
         <button
           class="navbar-toggler"
           type="button"
@@ -27,20 +47,6 @@
         </button>
         <div class="collapse navbar-collapse" id="mainNav">
           <ul class="navbar-nav me-auto mb-2 mb-lg-0" role="tablist" aria-label="Main views">
-            <li class="nav-item">
-              <button
-                class="nav-link d-inline-flex align-items-center justify-content-center px-2"
-                type="button"
-                id="collections-toggle-nav"
-                data-action="toggle-collections"
-                aria-controls="collections-sidebar"
-                aria-expanded="true"
-                aria-label="Toggle collections sidebar"
-              >
-                <span aria-hidden="true">☰</span>
-                <span class="visually-hidden">Toggle collections sidebar</span>
-              </button>
-            </li>
             <li class="nav-item" role="presentation">
               <a
                 class="nav-link active"
@@ -98,43 +104,54 @@
       </div>
     </nav>
 
-    <main class="container-fluid flex-grow-1 p-0 overflow-hidden d-flex flex-column">
+    <main id="app-shell" class="container-fluid flex-grow-1 p-0 overflow-hidden d-flex flex-column">
       <div class="row g-0 flex-grow-1">
         <aside
           id="collections-sidebar"
-          class="col-12 col-lg-2 h-100 border-end bg-body d-flex flex-column"
+          class="col-12 col-lg-2 h-lg-100 border-end bg-body d-flex flex-column pt-3"
         >
-          <div class="d-flex justify-content-between align-items-center px-3 py-2 border-bottom">
-            <span class="fw-semibold text-primary">Collections</span>
-            <div class="btn-group" role="group" aria-label="Collection actions">
-              <button
-                type="button"
-                id="add-collection-btn"
-                class="btn btn-outline-primary btn-sm"
-                data-bs-toggle="tooltip"
-                data-bs-title="Create a new collection bucket in MinIO."
-                aria-label="Add collection"
-              >
-                +
-              </button>
-              <button
-                type="button"
-                id="remove-collection-btn"
-                class="btn btn-outline-danger btn-sm"
-                data-bs-toggle="tooltip"
-                data-bs-title="Select a collection, then remove its MinIO bucket."
-                aria-label="Remove collection"
-              >
-                -
-              </button>
+          <div id="collections-shell" class="h-100 d-flex flex-column">
+            <div id="collections-header" class="d-flex justify-content-between align-items-center px-3 py-2 border-bottom">
+              <span class="fw-semibold text-primary">Collections</span>
+              <div class="btn-group" role="group" aria-label="Collection actions">
+                <button
+                  type="button"
+                  id="add-collection-btn"
+                  class="btn btn-outline-primary btn-sm"
+                  data-bs-toggle="tooltip"
+                  data-bs-title="Create a new collection bucket in MinIO."
+                  aria-label="Add collection"
+                >
+                  +
+                </button>
+                <button
+                  type="button"
+                  id="remove-collection-btn"
+                  class="btn btn-outline-danger btn-sm"
+                  data-bs-toggle="tooltip"
+                  data-bs-title="Select a collection, then remove its MinIO bucket."
+                  aria-label="Remove collection"
+                >
+                  -
+                </button>
+              </div>
+            </div>
+            <div id="collections-body" class="d-flex flex-column gap-3 flex-grow-1 px-3 pt-3 pb-3">
+              <input
+                type="search"
+                id="collections-filter-input"
+                class="form-control form-control-sm"
+                placeholder="Filter collections"
+                aria-label="Filter collections"
+              />
+              <div id="collections-list-scroll">
+                <ul id="bucket-list" class="list-group list-group-flush"></ul>
+              </div>
+              <p id="bucket-empty-state" class="text-body-secondary mb-0 small"></p>
             </div>
           </div>
-          <div class="p-3 overflow-auto flex-grow-1">
-            <ul id="bucket-list" class="list-group list-group-flush"></ul>
-            <p id="bucket-empty-state" class="text-body-secondary mb-0 small"></p>
-          </div>
         </aside>
-        <div id="main-panel" class="col-12 col-lg-10 h-100 bg-body d-flex flex-column">
+        <div id="main-panel" class="col-12 col-lg-10 h-lg-100 bg-body d-flex flex-column">
           <div class="tab-content h-100">
             <section
               class="tab-pane fade show active h-100 p-3"
@@ -143,30 +160,134 @@
               aria-labelledby="document-meta-tab"
               tabindex="0"
             >
-              <h1 class="h4 mb-3 text-primary">Document Meta</h1>
-              <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 w-100">
-                <div class="d-flex flex-wrap align-items-center gap-2">
-                  <button type="button" id="upload-pdf-btn" class="btn btn-primary">
-                    Upload PDF
-                  </button>
-                  <button type="button" id="fetch-meta-btn" class="btn btn-outline-primary">
-                    Fetch Meta
-                  </button>
-                </div>
-                <div class="d-flex align-items-center gap-2 ms-md-auto">
-                  <span id="meta-view-detail-label" class="small fw-semibold">Detail View</span>
-                  <div class="form-check form-switch mb-0">
-                    <input
-                      class="form-check-input"
-                      type="checkbox"
-                      role="switch"
-                      id="meta-view-mode-switch"
-                      aria-label="Toggle between detail view and bulk edit view"
-                    />
+              <div class="card h-100 d-flex flex-column">
+                <div
+                  id="document-card-header"
+                  class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap"
+                >
+                  <div class="d-flex align-items-center gap-2 flex-wrap">
+                    <span class="fw-semibold">Documents</span>
+                    <button
+                      type="button"
+                      id="upload-pdf-btn"
+                      class="btn btn-primary btn-sm header-action-btn"
+                    >
+                      Upload PDF
+                    </button>
+                    <button
+                      type="button"
+                      id="fetch-meta-btn"
+                      class="btn btn-outline-primary btn-sm header-action-btn"
+                    >
+                      Fetch Meta
+                    </button>
+                    <div class="title-search-group">
+                      <input
+                        type="search"
+                        id="document-title-search"
+                        class="form-control form-control-sm"
+                        style="max-width: 16rem"
+                        placeholder="Search title"
+                        aria-label="Search documents by title"
+                      />
+                      <small id="document-meta-count" class="text-body-secondary">0 documents</small>
+                    </div>
                   </div>
-                  <span id="meta-view-bulk-label" class="small fw-semibold text-body-secondary">
-                    Bulk Edit View
-                  </span>
+                  <div class="d-flex align-items-center gap-2 table-view-toggle">
+                    <span id="detail-view-label" class="small fw-semibold">Detail</span>
+                    <div class="form-check form-switch mb-0">
+                      <input
+                        class="form-check-input"
+                        type="checkbox"
+                        role="switch"
+                        id="table-view-mode-switch"
+                        aria-label="Toggle detail and bulk edit views"
+                      />
+                    </div>
+                    <span id="bulk-view-label" class="small fw-semibold text-body-secondary">
+                      Bulk Edit
+                    </span>
+                  </div>
+                </div>
+                <div class="card-body p-0 d-flex flex-column">
+                  <div id="detail-view-container" class="p-3">
+                    <div id="detail-view-grid" class="row g-3 h-100">
+                      <div id="detail-table-column" class="col-12 col-xl-7 d-flex flex-column">
+                        <div id="detail-table-card" class="card h-100 d-flex flex-column">
+                          <div class="card-header py-2 fw-semibold small text-body-secondary">
+                            Document List
+                          </div>
+                          <div class="card-body p-0 d-flex flex-column">
+                            <div id="detail-table-scroll" class="table-responsive">
+                              <table id="detail-document-table" class="table table-hover table-striped mb-0">
+                                <thead>
+                                  <tr>
+                                    <th scope="col">Title</th>
+                                    <th scope="col">Year</th>
+                                    <th scope="col">Author</th>
+                                    <th scope="col">Publication</th>
+                                    <th scope="col" class="text-nowrap"></th>
+                                  </tr>
+                                </thead>
+                                <tbody id="detail-document-tbody"></tbody>
+                              </table>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      <div id="detail-form-column" class="col-12 col-xl-5 d-flex flex-column">
+                        <div id="detail-form-card" class="card h-100 d-flex flex-column">
+                          <div class="card-header py-2 fw-semibold small text-body-secondary">
+                            Editable Fields
+                          </div>
+                          <div class="card-body d-flex flex-column gap-2">
+                            <p id="detail-selected-document" class="small text-body-secondary mb-1"></p>
+                            <form id="detail-fields-form" class="d-flex flex-column gap-2"></form>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div id="bulk-view-container" class="d-none">
+                    <div class="p-3 h-100">
+                      <div class="card h-100 d-flex flex-column">
+                        <div class="card-header py-2 fw-semibold small text-body-secondary">
+                          Meta
+                        </div>
+                        <div class="card-body p-0 d-flex flex-column">
+                          <div id="document-hot-wrapper" class="flex-grow-1">
+                            <div id="document-hot-container"></div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div
+                class="modal fade"
+                id="doc-json-modal"
+                tabindex="-1"
+                aria-labelledby="doc-json-modal-title"
+                aria-hidden="true"
+              >
+                <div class="modal-dialog modal-lg modal-dialog-scrollable">
+                  <div class="modal-content">
+                    <div class="modal-header">
+                      <h2 id="doc-json-modal-title" class="modal-title h5">Parsed JSON</h2>
+                      <button
+                        type="button"
+                        class="btn-close"
+                        data-bs-dismiss="modal"
+                        aria-label="Close"
+                      ></button>
+                    </div>
+                    <div class="modal-body">
+                      <p id="doc-json-modal-subtitle" class="text-body-secondary small mb-3"></p>
+                      <div id="doc-json-modal-tree" class="json-tree"></div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </section>
@@ -190,276 +311,10 @@
       integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz"
       crossorigin="anonymous"
     ></script>
-    <script>
-      (function () {
-        const origin = window.location.origin;
-        const apiBasePath = origin + "/api";
-        const bucketList = document.getElementById("bucket-list");
-        const bucketEmptyState = document.getElementById("bucket-empty-state");
-        const addCollectionButton = document.getElementById("add-collection-btn");
-        const removeCollectionButton = document.getElementById("remove-collection-btn");
-        const sidebar = document.getElementById("collections-sidebar");
-        const mainPanel = document.getElementById("main-panel");
-        const collectionToggles = document.querySelectorAll('[data-action="toggle-collections"]');
-        const metaViewModeSwitch = document.getElementById("meta-view-mode-switch");
-        const metaViewDetailLabel = document.getElementById("meta-view-detail-label");
-        const metaViewBulkLabel = document.getElementById("meta-view-bulk-label");
-        const selectedBucketCookieName = "evidencebase_selected_bucket";
-        let minioBuckets = [];
-        let selectedBucketName = null;
-        let collectionsCollapsed = false;
-
-        const setCookie = (name, value, maxAgeSeconds) => {
-          document.cookie = [
-            `${name}=${encodeURIComponent(value)}`,
-            "Path=/",
-            "SameSite=Lax",
-            `Max-Age=${maxAgeSeconds}`,
-          ].join("; ");
-        };
-
-        const getCookie = (name) => {
-          const cookiePrefix = `${name}=`;
-          const cookieValue = document.cookie
-            .split(";")
-            .map((item) => item.trim())
-            .find((item) => item.startsWith(cookiePrefix));
-
-          if (!cookieValue) {
-            return null;
-          }
-
-          return decodeURIComponent(cookieValue.slice(cookiePrefix.length));
-        };
-
-        const clearCookie = (name) => {
-          document.cookie = `${name}=; Path=/; SameSite=Lax; Max-Age=0`;
-        };
-
-        const setSelectedBucketName = (bucketName) => {
-          selectedBucketName = bucketName;
-          if (bucketName) {
-            setCookie(selectedBucketCookieName, bucketName, 60 * 60 * 24 * 365);
-          } else {
-            clearCookie(selectedBucketCookieName);
-          }
-        };
-
-        const setCollectionsCollapsed = (collapsed) => {
-          collectionsCollapsed = collapsed;
-          sidebar.classList.toggle("d-none", collapsed);
-          mainPanel.classList.toggle("col-lg-10", !collapsed);
-          mainPanel.classList.toggle("col-lg-12", collapsed);
-
-          collectionToggles.forEach((toggle) => {
-            toggle.setAttribute("aria-expanded", String(!collapsed));
-          });
-        };
-
-        const getTooltipInstance = (element) => bootstrap.Tooltip.getOrCreateInstance(element);
-
-        const setTooltipContent = (element, text) => {
-          element.setAttribute("data-bs-title", text);
-          getTooltipInstance(element).setContent({ ".tooltip-inner": text });
-        };
-
-        const setEmptyState = (message) => {
-          bucketEmptyState.textContent = message;
-          bucketEmptyState.classList.toggle("d-none", message.length === 0);
-        };
-
-        const setMetaViewModeLabelState = () => {
-          if (!metaViewModeSwitch || !metaViewDetailLabel || !metaViewBulkLabel) {
-            return;
-          }
-
-          const bulkModeEnabled = metaViewModeSwitch.checked;
-          metaViewDetailLabel.classList.toggle("text-body-secondary", bulkModeEnabled);
-          metaViewBulkLabel.classList.toggle("text-body-secondary", !bulkModeEnabled);
-        };
-
-        const updateRemoveTooltip = () => {
-          if (selectedBucketName) {
-            setTooltipContent(
-              removeCollectionButton,
-              `Remove selected collection bucket: ${selectedBucketName}.`
-            );
-            return;
-          }
-          setTooltipContent(
-            removeCollectionButton,
-            "Select a collection first, then remove its MinIO bucket."
-          );
-        };
-
-        const renderBuckets = () => {
-          bucketList.innerHTML = "";
-          if (minioBuckets.length === 0) {
-            setSelectedBucketName(null);
-            setEmptyState("No collections found. Use + to create one.");
-            updateRemoveTooltip();
-            return;
-          }
-
-          minioBuckets.forEach((bucketName) => {
-            const item = document.createElement("li");
-            item.className =
-              "list-group-item list-group-item-action user-select-none" +
-              (bucketName === selectedBucketName ? " active" : "");
-            item.textContent = bucketName;
-            item.setAttribute("role", "button");
-            item.setAttribute("tabindex", "0");
-            item.addEventListener("click", () => {
-              setSelectedBucketName(bucketName);
-              renderBuckets();
-            });
-            item.addEventListener("keydown", (event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                setSelectedBucketName(bucketName);
-                renderBuckets();
-              }
-            });
-            bucketList.appendChild(item);
-          });
-
-          setEmptyState("");
-          updateRemoveTooltip();
-        };
-
-        const parseErrorMessage = async (response) => {
-          try {
-            const payload = await response.json();
-            if (payload && typeof payload.detail === "string") {
-              return payload.detail;
-            }
-          } catch (error) {
-            // Ignore JSON parsing errors and fallback to status text.
-          }
-          return `${response.status} ${response.statusText}`;
-        };
-
-        const apiRequest = async (path, options = {}) => {
-          const response = await fetch(apiBasePath + path, {
-            headers: {
-              "Content-Type": "application/json",
-              ...(options.headers || {}),
-            },
-            ...options,
-          });
-
-          if (!response.ok) {
-            const message = await parseErrorMessage(response);
-            throw new Error(message);
-          }
-
-          return response.json();
-        };
-
-        const refreshBuckets = async () => {
-          try {
-            const payload = await apiRequest("/buckets");
-            minioBuckets = Array.isArray(payload.buckets) ? payload.buckets : [];
-            if (selectedBucketName && !minioBuckets.includes(selectedBucketName)) {
-              setSelectedBucketName(null);
-            }
-
-            if (!selectedBucketName) {
-              const storedBucketName = getCookie(selectedBucketCookieName);
-              if (storedBucketName && minioBuckets.includes(storedBucketName)) {
-                setSelectedBucketName(storedBucketName);
-              } else if (storedBucketName) {
-                clearCookie(selectedBucketCookieName);
-              }
-            }
-            renderBuckets();
-          } catch (error) {
-            minioBuckets = [];
-            setSelectedBucketName(null);
-            renderBuckets();
-            setEmptyState("Failed to load collections from API.");
-            alert("Could not load collections: " + error.message);
-          }
-        };
-
-        const addBucket = async () => {
-          const requestedBucketName = window.prompt("Enter a new collection bucket name:");
-          if (requestedBucketName === null) {
-            return;
-          }
-
-          const normalizedBucketName = requestedBucketName.trim();
-          if (normalizedBucketName.length === 0) {
-            alert("Bucket name cannot be empty.");
-            return;
-          }
-
-          try {
-            const payload = await apiRequest("/buckets", {
-              method: "POST",
-              body: JSON.stringify({ bucket_name: normalizedBucketName }),
-            });
-            if (!payload.created) {
-              alert(`Bucket '${normalizedBucketName}' already exists.`);
-            }
-            setSelectedBucketName(normalizedBucketName);
-            await refreshBuckets();
-          } catch (error) {
-            alert("Could not add bucket: " + error.message);
-          }
-        };
-
-        const removeBucket = async () => {
-          if (!selectedBucketName) {
-            alert("Select a collection bucket first.");
-            return;
-          }
-
-          if (!window.confirm(`Remove bucket '${selectedBucketName}'?`)) {
-            return;
-          }
-
-          try {
-            await apiRequest("/buckets/" + encodeURIComponent(selectedBucketName), {
-              method: "DELETE",
-            });
-            setSelectedBucketName(null);
-            await refreshBuckets();
-          } catch (error) {
-            alert("Could not remove bucket: " + error.message);
-          }
-        };
-
-        document.querySelectorAll("[data-path]").forEach((anchor) => {
-          const path = anchor.getAttribute("data-path") || "";
-          anchor.href = origin + path;
-          anchor.target = "_blank";
-          anchor.rel = "noopener noreferrer";
-        });
-
-        document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach((el) => {
-          new bootstrap.Tooltip(el);
-        });
-
-        addCollectionButton.addEventListener("click", () => {
-          void addBucket();
-        });
-        removeCollectionButton.addEventListener("click", () => {
-          void removeBucket();
-        });
-
-        collectionToggles.forEach((toggle) => {
-          toggle.addEventListener("click", () => {
-            setCollectionsCollapsed(!collectionsCollapsed);
-          });
-        });
-        metaViewModeSwitch?.addEventListener("change", setMetaViewModeLabelState);
-
-        setCollectionsCollapsed(false);
-        setMetaViewModeLabelState();
-        updateRemoveTooltip();
-        void refreshBuckets();
-      })();
-    </script>
+    <script
+      src="https://cdn.jsdelivr.net/npm/handsontable@14.6.1/dist/handsontable.full.min.js"
+      crossorigin="anonymous"
+    ></script>
+    <script src="./index.js"></script>
   </body>
 </html>
