@@ -6,5 +6,6 @@ mcp-evidencebase Documentation
    :caption: Contents
 
    readme
+   vignette_cli
    reference
    tests

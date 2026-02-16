@@ -9,6 +9,8 @@ from minio.error import S3Error
 
 from mcp_evidencebase.api import app, get_bucket_service, get_ingestion_service
 
+pytestmark = pytest.mark.area_api
+
 
 @dataclass
 class FakeBucketService:
@@ -155,12 +157,14 @@ def _make_s3_error() -> S3Error:
 
 
 def test_healthz_returns_ok(client: TestClient) -> None:
+    """Assert ``/healthz`` returns HTTP 200 with ``{\"status\": \"ok\"}``."""
     response = client.get("/healthz")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
 
 
 def test_get_buckets_returns_bucket_names(client: TestClient) -> None:
+    """Ensure ``GET /buckets`` returns bucket names from the bucket service."""
     _override_bucket_service(FakeBucketService(bucket_names=["alpha", "beta"]))
 
     response = client.get("/buckets")
@@ -170,6 +174,7 @@ def test_get_buckets_returns_bucket_names(client: TestClient) -> None:
 
 
 def test_get_buckets_maps_s3_errors_to_bad_request(client: TestClient) -> None:
+    """Verify MinIO ``S3Error`` values are mapped to HTTP 400 responses."""
     _override_bucket_service(FakeBucketService(list_error=_make_s3_error()))
 
     response = client.get("/buckets")
@@ -179,6 +184,7 @@ def test_get_buckets_maps_s3_errors_to_bad_request(client: TestClient) -> None:
 
 
 def test_create_bucket_returns_created_result(client: TestClient) -> None:
+    """Check bucket creation normalizes whitespace and reports Qdrant sync status."""
     _override_bucket_service(FakeBucketService(created=True))
     _override_ingestion_service(FakeIngestionService(qdrant_create_result=True))
 
@@ -193,6 +199,7 @@ def test_create_bucket_returns_created_result(client: TestClient) -> None:
 
 
 def test_create_bucket_maps_value_error_to_bad_request(client: TestClient) -> None:
+    """Confirm invalid bucket input is surfaced as HTTP 400 from ``POST /buckets``."""
     _override_bucket_service(
         FakeBucketService(create_error=ValueError("bucket_name must not be empty."))
     )
@@ -204,6 +211,7 @@ def test_create_bucket_maps_value_error_to_bad_request(client: TestClient) -> No
 
 
 def test_delete_bucket_returns_removed_result(client: TestClient) -> None:
+    """Ensure successful deletion returns both bucket and Qdrant removal flags."""
     _override_bucket_service(FakeBucketService(removed=True))
     _override_ingestion_service(FakeIngestionService(qdrant_delete_result=True))
 
@@ -218,6 +226,7 @@ def test_delete_bucket_returns_removed_result(client: TestClient) -> None:
 
 
 def test_delete_bucket_maps_s3_errors_to_bad_request(client: TestClient) -> None:
+    """Verify ``DELETE /buckets/{bucket}`` maps MinIO errors to HTTP 400."""
     _override_bucket_service(FakeBucketService(delete_error=_make_s3_error()))
 
     response = client.delete("/buckets/research-raw")
@@ -227,6 +236,7 @@ def test_delete_bucket_maps_s3_errors_to_bad_request(client: TestClient) -> None
 
 
 def test_create_bucket_returns_bad_gateway_when_qdrant_sync_fails(client: TestClient) -> None:
+    """Check Qdrant sync failures during create map to HTTP 502."""
     _override_bucket_service(FakeBucketService(created=True))
     _override_ingestion_service(
         FakeIngestionService(qdrant_create_error=RuntimeError("qdrant unavailable"))
@@ -239,6 +249,7 @@ def test_create_bucket_returns_bad_gateway_when_qdrant_sync_fails(client: TestCl
 
 
 def test_delete_bucket_returns_bad_gateway_when_qdrant_sync_fails(client: TestClient) -> None:
+    """Check Qdrant sync failures during delete map to HTTP 502."""
     _override_bucket_service(FakeBucketService(removed=True))
     _override_ingestion_service(
         FakeIngestionService(qdrant_delete_error=RuntimeError("qdrant unavailable"))
@@ -251,6 +262,7 @@ def test_delete_bucket_returns_bad_gateway_when_qdrant_sync_fails(client: TestCl
 
 
 def test_get_documents_returns_documents(client: TestClient) -> None:
+    """Assert ``GET /collections/{bucket}/documents`` returns service records."""
     service = FakeIngestionService(
         documents=[
             {
@@ -277,6 +289,7 @@ def test_upload_document_queues_processing_task(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Verify uploads enqueue ``process_minio_object`` and return task metadata."""
     service = FakeIngestionService()
     _override_ingestion_service(service)
     fake_task = FakeTask("task-upload-1")
@@ -300,6 +313,7 @@ def test_trigger_bucket_scan_queues_task(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Ensure manual scan endpoint queues a task and returns ``queued=true``."""
     fake_task = FakeTask("task-scan-1")
     monkeypatch.setattr("mcp_evidencebase.api.scan_minio_objects", fake_task)
 
@@ -319,6 +333,7 @@ def test_upload_document_returns_queued_false_when_broker_is_unavailable(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Confirm broker failures keep upload successful but report ``queued=false``."""
     service = FakeIngestionService()
     _override_ingestion_service(service)
     monkeypatch.setattr(
@@ -343,6 +358,7 @@ def test_trigger_bucket_scan_returns_queued_false_when_broker_is_unavailable(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Confirm scan queue failures return ``queued=false`` with queue error details."""
     monkeypatch.setattr(
         "mcp_evidencebase.api.scan_minio_objects",
         FailingTask("retry limit exceeded while trying to reconnect"),
@@ -358,6 +374,7 @@ def test_trigger_bucket_scan_returns_queued_false_when_broker_is_unavailable(
 
 
 def test_update_document_metadata_returns_payload(client: TestClient) -> None:
+    """Check metadata update echoes normalized payload and service call arguments."""
     service = FakeIngestionService()
     _override_ingestion_service(service)
 
@@ -378,6 +395,7 @@ def test_update_document_metadata_returns_payload(client: TestClient) -> None:
 
 
 def test_delete_document_keeps_partitions(client: TestClient) -> None:
+    """Ensure delete endpoint preserves partitions by forcing ``keep_partitions=True``."""
     service = FakeIngestionService()
     _override_ingestion_service(service)
 

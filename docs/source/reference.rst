@@ -1,42 +1,56 @@
 Reference
 =========
 
-Command Line Examples
----------------------
+CLI Module
+----------
 
-Use the bucket API through the proxy:
+.. automodule:: mcp_evidencebase.cli
+   :members:
 
-.. code-block:: bash
+Core Module
+-----------
 
-   BASE_URL="http://localhost:52180/api"
+.. automodule:: mcp_evidencebase.core
+   :members:
+   :exclude-members: BucketSummaryLike, MinioClientLike
 
-List buckets:
+Bucket Service
+--------------
 
-.. code-block:: bash
+.. automodule:: mcp_evidencebase.bucket_service
+   :members:
 
-   curl -sS "$BASE_URL/buckets"
+MinIO Settings
+--------------
 
-Add a bucket:
+.. automodule:: mcp_evidencebase.minio_settings
+   :members:
 
-.. code-block:: bash
+API Module
+----------
 
-   curl -sS -X POST "$BASE_URL/buckets" \
-     -H "Content-Type: application/json" \
-     -d '{"bucket_name":"research-raw"}'
+.. automodule:: mcp_evidencebase.api
+   :members:
+   :exclude-members: app, logger
 
-Remove a bucket:
+Ingestion Models And Service
+----------------------------
 
-.. code-block:: bash
+.. autoclass:: mcp_evidencebase.ingestion.IngestionSettings
+   :members:
 
-   curl -sS -X DELETE "$BASE_URL/buckets/research-raw"
+.. autoclass:: mcp_evidencebase.ingestion.IngestionService
+   :members:
 
-Core API
---------
+.. autofunction:: mcp_evidencebase.ingestion.build_ingestion_settings
 
-.. autofunction:: mcp_evidencebase.core.add_minio_bucket
+.. autofunction:: mcp_evidencebase.ingestion.build_ingestion_service
 
-.. autofunction:: mcp_evidencebase.core.remove_minio_bucket
+Tasks And Worker App
+--------------------
 
-.. autofunction:: mcp_evidencebase.core.list_minio_buckets
+.. automodule:: mcp_evidencebase.tasks
+   :members:
 
-.. autofunction:: mcp_evidencebase.core.healthcheck
+.. automodule:: mcp_evidencebase.celery_app
+   :members:

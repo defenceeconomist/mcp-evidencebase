@@ -10,12 +10,20 @@ from mcp_evidencebase.minio_settings import MinioSettings
 
 @dataclass(frozen=True)
 class BucketService:
-    """Service for listing, adding, and removing MinIO buckets."""
+    """Service for listing, adding, and removing MinIO buckets.
+
+    Attributes:
+        settings: Connection settings used for MinIO operations.
+    """
 
     settings: MinioSettings
 
     def list_buckets(self) -> list[str]:
-        """Return all bucket names."""
+        """Return all bucket names.
+
+        Returns:
+            Sorted list of bucket names.
+        """
         return list_minio_buckets(
             endpoint=self.settings.endpoint,
             access_key=self.settings.access_key,
@@ -25,7 +33,14 @@ class BucketService:
         )
 
     def create_bucket(self, bucket_name: str) -> bool:
-        """Create ``bucket_name`` if missing."""
+        """Create ``bucket_name`` if missing.
+
+        Args:
+            bucket_name: Bucket name to create.
+
+        Returns:
+            ``True`` when the bucket is created, otherwise ``False``.
+        """
         return add_minio_bucket(
             bucket_name,
             endpoint=self.settings.endpoint,
@@ -36,7 +51,14 @@ class BucketService:
         )
 
     def delete_bucket(self, bucket_name: str) -> bool:
-        """Delete ``bucket_name`` if it exists."""
+        """Delete ``bucket_name`` if it exists.
+
+        Args:
+            bucket_name: Bucket name to remove.
+
+        Returns:
+            ``True`` when the bucket is removed, otherwise ``False``.
+        """
         return remove_minio_bucket(
             bucket_name,
             endpoint=self.settings.endpoint,

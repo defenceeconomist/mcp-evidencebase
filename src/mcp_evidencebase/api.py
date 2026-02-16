@@ -1,4 +1,7 @@
-"""HTTP API for MinIO bucket management used by the UI."""
+"""FastAPI application for bucket and document ingestion operations.
+
+The module exposes endpoints used by the dashboard and command-line workflows.
+"""
 
 from __future__ import annotations
 
@@ -21,29 +24,47 @@ logger = logging.getLogger(__name__)
 class BucketCreateRequest(BaseModel):
     """Payload for creating a MinIO bucket."""
 
-    bucket_name: str
+    bucket_name: str = Field(description="Name of the bucket to create.")
 
 
 class MetadataUpdateRequest(BaseModel):
     """Payload for updating document metadata fields."""
 
-    metadata: dict[str, str] = Field(default_factory=dict)
+    metadata: dict[str, str] = Field(
+        default_factory=dict,
+        description="Subset of normalized metadata fields to update.",
+    )
 
 
 def get_minio_settings() -> MinioSettings:
-    """Dependency that resolves MinIO settings."""
+    """Resolve MinIO connection settings.
+
+    Returns:
+        MinIO settings built from environment variables.
+    """
     return build_minio_settings()
 
 
 def get_bucket_service(
     settings: Annotated[MinioSettings, Depends(get_minio_settings)],
 ) -> BucketService:
-    """Dependency that resolves the bucket service."""
+    """Resolve bucket service dependency.
+
+    Args:
+        settings: Resolved MinIO settings dependency.
+
+    Returns:
+        Bucket service configured with the current MinIO settings.
+    """
     return BucketService(settings=settings)
 
 
 def get_ingestion_service() -> IngestionService:
-    """Dependency that resolves the document ingestion service."""
+    """Resolve document ingestion service dependency.
+
+    Returns:
+        Fully configured ingestion service.
+    """
     return build_ingestion_service()
 
 
@@ -53,7 +74,7 @@ def _format_minio_error(exc: S3Error) -> str:
 
 
 def _raise_bucket_http_error(exc: ValueError | S3Error) -> NoReturn:
-    """Raise a client error for bucket operation failures."""
+    """Map bucket-related exceptions to a client-facing HTTP error."""
     if isinstance(exc, ValueError):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     raise HTTPException(status_code=400, detail=_format_minio_error(exc)) from exc
@@ -72,7 +93,11 @@ def _raise_document_http_error(exc: Exception) -> NoReturn:
 
 @app.get("/healthz")
 def healthz() -> dict[str, str]:
-    """Return a lightweight readiness response."""
+    """Return API readiness status.
+
+    Returns:
+        Dictionary with a static ``ok`` status string.
+    """
     return {"status": "ok"}
 
 
@@ -80,7 +105,14 @@ def healthz() -> dict[str, str]:
 def get_buckets(
     service: Annotated[BucketService, Depends(get_bucket_service)],
 ) -> dict[str, list[str]]:
-    """Return all bucket names."""
+    """List all MinIO buckets.
+
+    Args:
+        service: Bucket service dependency.
+
+    Returns:
+        Response containing bucket names.
+    """
     try:
         buckets = service.list_buckets()
     except S3Error as exc:
@@ -95,7 +127,20 @@ def create_bucket(
     service: Annotated[BucketService, Depends(get_bucket_service)],
     ingestion_service: Annotated[IngestionService, Depends(get_ingestion_service)],
 ) -> dict[str, bool | str]:
-    """Create a bucket when missing."""
+    """Create a bucket and ensure its paired Qdrant collection exists.
+
+    Args:
+        payload: Request body containing bucket name.
+        service: Bucket service dependency.
+        ingestion_service: Ingestion service dependency.
+
+    Returns:
+        Bucket name and creation/sync flags.
+
+    Raises:
+        HTTPException: ``400`` for invalid bucket input or MinIO errors.
+        HTTPException: ``502`` when Qdrant collection sync fails.
+    """
     normalized_bucket_name = payload.bucket_name.strip()
     try:
         created = service.create_bucket(payload.bucket_name)
@@ -125,7 +170,20 @@ def delete_bucket(
     service: Annotated[BucketService, Depends(get_bucket_service)],
     ingestion_service: Annotated[IngestionService, Depends(get_ingestion_service)],
 ) -> dict[str, bool | str]:
-    """Remove a bucket when it exists."""
+    """Delete a bucket and remove its paired Qdrant collection.
+
+    Args:
+        bucket_name: Bucket path parameter.
+        service: Bucket service dependency.
+        ingestion_service: Ingestion service dependency.
+
+    Returns:
+        Bucket name and removal/sync flags.
+
+    Raises:
+        HTTPException: ``400`` for invalid bucket input or MinIO errors.
+        HTTPException: ``502`` when Qdrant collection sync fails.
+    """
     normalized_bucket_name = bucket_name.strip()
     try:
         removed = service.delete_bucket(bucket_name)
@@ -154,7 +212,15 @@ def get_documents(
     bucket_name: str,
     service: Annotated[IngestionService, Depends(get_ingestion_service)],
 ) -> dict[str, Any]:
-    """Return all document records for one collection bucket."""
+    """List document records for one bucket.
+
+    Args:
+        bucket_name: Bucket path parameter.
+        service: Ingestion service dependency.
+
+    Returns:
+        Bucket name and document records.
+    """
     try:
         documents = service.list_documents(bucket_name.strip())
     except Exception as exc:
@@ -169,7 +235,17 @@ async def upload_document(
     request: Request,
     service: Annotated[IngestionService, Depends(get_ingestion_service)],
 ) -> dict[str, Any]:
-    """Upload a file to MinIO and enqueue partition/chunk processing."""
+    """Upload one document and enqueue background processing.
+
+    Args:
+        bucket_name: Bucket path parameter.
+        file_name: Object name query parameter.
+        request: Request body containing raw file bytes.
+        service: Ingestion service dependency.
+
+    Returns:
+        Upload result including queue status and optional Celery task ID.
+    """
     normalized_bucket_name = bucket_name.strip()
     normalized_file_name = file_name.strip()
     if not normalized_file_name:
@@ -211,7 +287,14 @@ async def upload_document(
 def trigger_bucket_scan(
     bucket_name: str,
 ) -> dict[str, Any]:
-    """Enqueue an on-demand scan for newly dropped bucket files."""
+    """Enqueue an on-demand bucket scan task.
+
+    Args:
+        bucket_name: Bucket path parameter.
+
+    Returns:
+        Queue status, optional task ID, and queue error details.
+    """
     normalized_bucket_name = bucket_name.strip()
     try:
         task = scan_minio_objects.delay(normalized_bucket_name)
@@ -239,7 +322,17 @@ def update_document_metadata(
     payload: MetadataUpdateRequest,
     service: Annotated[IngestionService, Depends(get_ingestion_service)],
 ) -> dict[str, Any]:
-    """Update BibTeX metadata fields in Redis for a document."""
+    """Update normalized metadata for a document.
+
+    Args:
+        bucket_name: Bucket path parameter.
+        document_id: Canonical document hash.
+        payload: Metadata update payload.
+        service: Ingestion service dependency.
+
+    Returns:
+        Updated metadata payload.
+    """
     try:
         metadata = service.update_metadata(
             bucket_name=bucket_name.strip(),
@@ -262,7 +355,16 @@ def delete_document(
     document_id: str,
     service: Annotated[IngestionService, Depends(get_ingestion_service)],
 ) -> dict[str, Any]:
-    """Remove MinIO object, metadata, chunks, and vectors while retaining partitions."""
+    """Delete a document while retaining Redis partition payload.
+
+    Args:
+        bucket_name: Bucket path parameter.
+        document_id: Canonical document hash.
+        service: Ingestion service dependency.
+
+    Returns:
+        Removal status and retention behavior flags.
+    """
     try:
         removed = service.delete_document(
             bucket_name=bucket_name.strip(),

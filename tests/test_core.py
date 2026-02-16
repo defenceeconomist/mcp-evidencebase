@@ -7,8 +7,11 @@ from mcp_evidencebase.core import (
     remove_minio_bucket,
 )
 
+pytestmark = pytest.mark.area_core
+
 
 def test_healthcheck() -> None:
+    """Verify the healthcheck helper returns the stable ``ok`` status."""
     assert healthcheck() == "ok"
 
 
@@ -41,6 +44,7 @@ class FakeMinioClient:
 
 
 def test_add_minio_bucket_creates_when_missing() -> None:
+    """Confirm missing buckets are created and propagate the requested region."""
     client = FakeMinioClient()
 
     created = add_minio_bucket("new-bucket", client=client, region="us-east-1")
@@ -51,6 +55,7 @@ def test_add_minio_bucket_creates_when_missing() -> None:
 
 
 def test_add_minio_bucket_returns_false_when_exists() -> None:
+    """Ensure creating an existing bucket is a no-op that returns ``False``."""
     client = FakeMinioClient({"existing-bucket"})
 
     created = add_minio_bucket("existing-bucket", client=client)
@@ -60,6 +65,7 @@ def test_add_minio_bucket_returns_false_when_exists() -> None:
 
 
 def test_add_minio_bucket_rejects_empty_bucket_name() -> None:
+    """Validate blank bucket names are rejected with a ``ValueError``."""
     client = FakeMinioClient()
 
     with pytest.raises(ValueError, match=r"bucket_name must not be empty\."):
@@ -67,6 +73,7 @@ def test_add_minio_bucket_rejects_empty_bucket_name() -> None:
 
 
 def test_remove_minio_bucket_removes_when_exists() -> None:
+    """Confirm existing buckets are removed and tracked by the client stub."""
     client = FakeMinioClient({"existing-bucket"})
 
     removed = remove_minio_bucket("existing-bucket", client=client)
@@ -77,6 +84,7 @@ def test_remove_minio_bucket_removes_when_exists() -> None:
 
 
 def test_remove_minio_bucket_returns_false_when_missing() -> None:
+    """Ensure removing a missing bucket returns ``False`` without side effects."""
     client = FakeMinioClient()
 
     removed = remove_minio_bucket("missing-bucket", client=client)
@@ -86,6 +94,7 @@ def test_remove_minio_bucket_returns_false_when_missing() -> None:
 
 
 def test_list_minio_buckets_returns_sorted_names() -> None:
+    """Verify bucket listing is returned in deterministic alphabetical order."""
     client = FakeMinioClient({"zeta", "alpha", "beta"})
 
     bucket_names = list_minio_buckets(client=client)

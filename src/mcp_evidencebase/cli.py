@@ -1,4 +1,4 @@
-"""CLI entrypoint for mcp_evidencebase."""
+"""Command-line interface for ``mcp_evidencebase``."""
 
 from __future__ import annotations
 
@@ -8,7 +8,11 @@ from mcp_evidencebase.core import healthcheck
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Create and configure the argument parser."""
+    """Create the top-level CLI parser.
+
+    Returns:
+        Configured parser for the ``mcp-evidencebase`` command.
+    """
     parser = argparse.ArgumentParser(prog="mcp-evidencebase")
     parser.add_argument(
         "--healthcheck",
@@ -19,7 +23,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> int:
-    """Run the CLI and return process exit code."""
+    """Run the CLI command.
+
+    Returns:
+        Process exit code. The current command set always returns ``0``.
+    """
     parser = build_parser()
     args = parser.parse_args()
     if args.healthcheck:

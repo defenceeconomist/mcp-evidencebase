@@ -47,8 +47,15 @@ mcp-evidencebase = "mcp_evidencebase.cli:main"
 packages = ["src/mcp_evidencebase"]
 
 [tool.pytest.ini_options]
-addopts = "-ra --strict-config --strict-markers --cov=mcp_evidencebase --cov-report=term-missing"
+addopts = "-ra --strict-config --strict-markers --cov=mcp_evidencebase --cov-report=term-missing --cov-report=xml:docs/source/_static/tests/coverage.xml --html-output=docs/source/_static/tests --should-open-report=never"
 testpaths = ["tests"]
+markers = [
+  "area_cli: CLI and package-level behavior tests",
+  "area_core: core bucket operation tests",
+  "area_settings: settings parsing and defaults tests",
+  "area_api: HTTP API endpoint behavior tests",
+  "area_ingestion: ingestion, metadata, and indexing tests",
+]
 
 [tool.ruff]
 line-length = 100

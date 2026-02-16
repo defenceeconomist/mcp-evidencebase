@@ -319,7 +319,11 @@ def extract_metadata_from_partitions(
     first_page_partitions = _extract_first_page_partitions(partitions)
 
     first_page_text = "\n".join(
-        text for text in (extract_partition_text(partition) for partition in first_page_partitions) if text
+        text
+        for text in (
+            extract_partition_text(partition) for partition in first_page_partitions
+        )
+        if text
     )
     first_page_lines = [line.strip() for line in first_page_text.splitlines() if line.strip()]
 
@@ -610,7 +614,9 @@ class RedisDocumentRepository:
         """Store metadata for one source location and return its metadata key."""
         normalized = normalize_metadata(metadata)
         if not normalized.get("citation_key"):
-            normalized["citation_key"] = slugify(PurePosixPath(object_name).stem) or document_id[:12]
+            normalized["citation_key"] = (
+                slugify(PurePosixPath(object_name).stem) or document_id[:12]
+            )
 
         meta_key = self._location_reference(bucket_name, object_name)
         self._store_metadata_payload(
@@ -622,14 +628,22 @@ class RedisDocumentRepository:
 
     def set_metadata(self, bucket_name: str, document_id: str, metadata: Mapping[str, str]) -> None:
         """Backward-compatible metadata update entrypoint."""
-        self.update_document_metadata(bucket_name=bucket_name, document_id=document_id, metadata=metadata)
+        self.update_document_metadata(
+            bucket_name=bucket_name,
+            document_id=document_id,
+            metadata=metadata,
+        )
 
     def get_metadata(self, bucket_name: str, document_id: str) -> dict[str, str]:
         """Backward-compatible metadata lookup for a bucket/document pair."""
         _, metadata = self.get_document_metadata(bucket_name, document_id)
         return metadata
 
-    def get_document_metadata(self, bucket_name: str, document_id: str) -> tuple[str, dict[str, str]]:
+    def get_document_metadata(
+        self,
+        bucket_name: str,
+        document_id: str,
+    ) -> tuple[str, dict[str, str]]:
         """Return source-scoped metadata key and payload for one bucket/document pair."""
         object_names = self.get_document_object_names(bucket_name, document_id)
         for object_name in object_names:
@@ -656,7 +670,10 @@ class RedisDocumentRepository:
         """Populate metadata when no values were persisted yet."""
         meta_key = self._location_reference(bucket_name, file_path)
         existing_metadata = self.get_metadata_by_key(meta_key)
-        if any(existing_metadata.get(field_name, "") for field_name in ("title", "author", "doi", "isbn")):
+        if any(
+            existing_metadata.get(field_name, "")
+            for field_name in ("title", "author", "doi", "isbn")
+        ):
             return meta_key
 
         default_metadata = build_default_metadata(file_path, document_id)
@@ -675,7 +692,7 @@ class RedisDocumentRepository:
         metadata: Mapping[str, str],
     ) -> dict[str, str]:
         """Update metadata for all locations in a bucket/document pair."""
-        existing_meta_key, existing = self.get_document_metadata(bucket_name, document_id)
+        _, existing = self.get_document_metadata(bucket_name, document_id)
         merged = normalize_metadata(existing)
         for key, value in metadata.items():
             field_name = str(key).strip().lower()
@@ -1039,7 +1056,11 @@ class QdrantIndexer:
 
 
 class IngestionService:
-    """High-level ingestion operations shared by API and Celery tasks."""
+    """High-level ingestion operations shared by API handlers and Celery tasks.
+
+    The service coordinates MinIO object storage, Unstructured partitioning,
+    Redis state/metadata persistence, and Qdrant vector indexing.
+    """
 
     def __init__(
         self,
@@ -1051,7 +1072,16 @@ class IngestionService:
         chunk_size_chars: int,
         chunk_overlap_chars: int,
     ) -> None:
-        """Construct ingestion service dependencies."""
+        """Construct ingestion service dependencies.
+
+        Args:
+            minio_client: Configured MinIO SDK client.
+            repository: Redis-backed document repository.
+            partition_client: Unstructured API client used for partition extraction.
+            qdrant_indexer: Qdrant index adapter for chunk embeddings.
+            chunk_size_chars: Maximum chunk size for text chunking.
+            chunk_overlap_chars: Overlap size for adjacent chunks.
+        """
         self._minio_client = minio_client
         self._repository = repository
         self._partition_client = partition_client
@@ -1081,25 +1111,57 @@ class IngestionService:
                 raise
 
     def list_documents(self, bucket_name: str) -> list[dict[str, Any]]:
-        """Return UI-facing document records for a bucket."""
+        """Return UI-facing document records for a bucket.
+
+        Args:
+            bucket_name: Bucket to query.
+
+        Returns:
+            List of document records for the bucket.
+        """
         return self._repository.list_documents(bucket_name)
 
     def list_buckets(self) -> list[str]:
-        """Return sorted bucket names from MinIO."""
+        """Return sorted bucket names from MinIO.
+
+        Returns:
+            Sorted list of bucket names.
+        """
         bucket_names = [bucket.name for bucket in self._minio_client.list_buckets()]
         bucket_names.sort()
         return bucket_names
 
     def ensure_bucket_qdrant_collection(self, bucket_name: str) -> bool:
-        """Ensure the bucket-level Qdrant collection exists."""
+        """Ensure the bucket-level Qdrant collection exists.
+
+        Args:
+            bucket_name: Bucket whose collection should exist.
+
+        Returns:
+            ``True`` when a collection is created, otherwise ``False``.
+        """
         return self._qdrant_indexer.ensure_bucket_collection(bucket_name)
 
     def delete_bucket_qdrant_collection(self, bucket_name: str) -> bool:
-        """Delete the bucket-level Qdrant collection when present."""
+        """Delete the bucket-level Qdrant collection when present.
+
+        Args:
+            bucket_name: Bucket whose collection should be removed.
+
+        Returns:
+            ``True`` when a collection is removed, otherwise ``False``.
+        """
         return self._qdrant_indexer.delete_bucket_collection(bucket_name)
 
     def list_bucket_objects(self, bucket_name: str) -> list[tuple[str, str]]:
-        """Return non-directory object names and ETags for one bucket."""
+        """Return non-directory object names and ETags for one bucket.
+
+        Args:
+            bucket_name: Bucket to scan.
+
+        Returns:
+            List of ``(object_name, etag)`` tuples.
+        """
         objects: list[tuple[str, str]] = []
         object_iter = self._minio_client.list_objects(bucket_name, recursive=True)
         for item in object_iter:
@@ -1119,7 +1181,16 @@ class IngestionService:
         object_name: str,
         etag: str | None,
     ) -> bool:
-        """Return whether an object needs processing."""
+        """Return whether an object should be processed again.
+
+        Args:
+            bucket_name: Bucket containing the object.
+            object_name: Object path within the bucket.
+            etag: Optional current ETag from object listing/stat.
+
+        Returns:
+            ``True`` when processing is required.
+        """
         return self._repository.object_requires_processing(bucket_name, object_name, etag)
 
     def upload_document(
@@ -1130,7 +1201,20 @@ class IngestionService:
         payload: bytes,
         content_type: str | None = None,
     ) -> str:
-        """Upload file bytes to MinIO and initialize queued processing state."""
+        """Upload file bytes to MinIO and initialize queued processing state.
+
+        Args:
+            bucket_name: Destination bucket.
+            object_name: Destination object name.
+            payload: File bytes to upload.
+            content_type: Optional MIME type override.
+
+        Returns:
+            Normalized object name that was uploaded.
+
+        Raises:
+            ValueError: If payload is empty or object name is blank.
+        """
         if not payload:
             raise ValueError("uploaded file is empty.")
         normalized_object_name = object_name.strip()
@@ -1182,7 +1266,20 @@ class IngestionService:
         object_name: str,
         etag: str | None = None,
     ) -> str:
-        """Process one MinIO object into partitions/chunks/embeddings."""
+        """Process one MinIO object into partitions, metadata, and vectors.
+
+        Args:
+            bucket_name: Source bucket.
+            object_name: Source object path.
+            etag: Optional object ETag from scanner context.
+
+        Returns:
+            Canonical document ID (SHA-256 hash of object bytes).
+
+        Raises:
+            ValueError: If the object payload is empty.
+            Exception: Any downstream partitioning or indexing failure.
+        """
         file_bytes = self._read_object_bytes(bucket_name, object_name)
 
         if not file_bytes:
@@ -1292,7 +1389,16 @@ class IngestionService:
         document_id: str,
         metadata: Mapping[str, str],
     ) -> dict[str, str]:
-        """Upsert BibTeX metadata for a document."""
+        """Upsert BibTeX-style metadata for a document.
+
+        Args:
+            bucket_name: Bucket containing document sources.
+            document_id: Canonical document hash.
+            metadata: Partial metadata update payload.
+
+        Returns:
+            Normalized metadata after merge.
+        """
         normalized: dict[str, str] = {}
         for key, value in metadata.items():
             field_name = key.strip().lower()
@@ -1315,7 +1421,16 @@ class IngestionService:
         document_id: str,
         keep_partitions: bool = True,
     ) -> bool:
-        """Delete all document data except optional partition payload in Redis."""
+        """Delete a document from MinIO, Qdrant, and selected Redis data.
+
+        Args:
+            bucket_name: Bucket containing document sources.
+            document_id: Canonical document hash.
+            keep_partitions: Keep partition payload in Redis when ``True``.
+
+        Returns:
+            ``True`` when deletion bookkeeping completes.
+        """
         object_names = self._repository.get_document_object_names(bucket_name, document_id)
         for object_name in object_names:
             self._remove_object_if_exists(bucket_name, object_name)
@@ -1330,7 +1445,14 @@ class IngestionService:
 
 
 def build_ingestion_settings(env: Mapping[str, str] | None = None) -> IngestionSettings:
-    """Build ingestion settings from environment variables."""
+    """Build ingestion settings from environment variables.
+
+    Args:
+        env: Optional environment mapping. Defaults to ``os.environ``.
+
+    Returns:
+        Parsed ingestion settings with defaults for unset variables.
+    """
     source = os.environ if env is None else env
     minio_settings = build_minio_settings(source)
 
@@ -1361,7 +1483,14 @@ def build_ingestion_settings(env: Mapping[str, str] | None = None) -> IngestionS
 
 
 def build_ingestion_service(settings: IngestionSettings | None = None) -> IngestionService:
-    """Build a fully configured ingestion service."""
+    """Build a fully configured ingestion service.
+
+    Args:
+        settings: Optional precomputed settings object.
+
+    Returns:
+        Ready-to-use ingestion service with MinIO, Redis, and Qdrant clients.
+    """
     resolved_settings = settings or build_ingestion_settings()
 
     minio_client = Minio(

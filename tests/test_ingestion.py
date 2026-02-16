@@ -6,6 +6,8 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any
 
+import pytest
+
 from mcp_evidencebase.ingestion import (
     QdrantIndexer,
     RedisDocumentRepository,
@@ -14,6 +16,8 @@ from mcp_evidencebase.ingestion import (
     compute_document_id,
     extract_metadata_from_partitions,
 )
+
+pytestmark = pytest.mark.area_ingestion
 
 
 class FakeRedis:
@@ -175,6 +179,7 @@ def install_qdrant_client_stub() -> None:
 
 
 def test_compute_document_id_is_deterministic() -> None:
+    """Verify document IDs are deterministic SHA-256 hashes of the same bytes."""
     payload = b"sample-document-bytes"
     first = compute_document_id(payload)
     second = compute_document_id(payload)
@@ -184,6 +189,7 @@ def test_compute_document_id_is_deterministic() -> None:
 
 
 def test_compute_chunk_point_id_is_deterministic_uuid() -> None:
+    """Ensure chunk point IDs are deterministic UUIDs and change by chunk index."""
     first = compute_chunk_point_id(
         bucket_name="research-raw",
         document_id="doc-123",
@@ -206,6 +212,7 @@ def test_compute_chunk_point_id_is_deterministic_uuid() -> None:
 
 
 def test_chunk_partition_texts_returns_overlapping_chunks() -> None:
+    """Check chunking applies overlap so adjacent chunks share boundary context."""
     partitions = [{"text": "a" * 60}, {"text": "b" * 60}, {"text": "c" * 60}]
 
     chunks = chunk_partition_texts(
@@ -221,6 +228,7 @@ def test_chunk_partition_texts_returns_overlapping_chunks() -> None:
 
 
 def test_extract_metadata_limits_doi_extraction_to_first_page() -> None:
+    """Confirm DOI extraction ignores reference-page DOIs beyond first-page partitions."""
     partitions = [
         {
             "text": "Causal Inference in Medicine\nAlice Smith, Bob Jones",
@@ -244,9 +252,13 @@ def test_extract_metadata_limits_doi_extraction_to_first_page() -> None:
 
 
 def test_extract_metadata_can_parse_first_page_identifiers() -> None:
+    """Verify first-page title, author, DOI, and ISBN values are extracted."""
     partitions = [
         {
-            "text": "My Study Title\nJane Roe and John Doe\nDOI: 10.1000/xyz123\nISBN 978-0-393-04002-9",
+            "text": (
+                "My Study Title\nJane Roe and John Doe\nDOI: 10.1000/xyz123\n"
+                "ISBN 978-0-393-04002-9"
+            ),
             "metadata": {"page_number": 1},
         }
     ]
@@ -264,6 +276,7 @@ def test_extract_metadata_can_parse_first_page_identifiers() -> None:
 
 
 def test_repository_maps_document_to_multiple_minio_locations() -> None:
+    """Ensure one document can map to multiple MinIO object locations deterministically."""
     redis_client = FakeRedis()
     repository = RedisDocumentRepository(redis_client, key_prefix="test")
 
@@ -292,6 +305,7 @@ def test_repository_maps_document_to_multiple_minio_locations() -> None:
 
 
 def test_remove_document_keeps_partitions_but_removes_other_redis_data() -> None:
+    """Check document removal keeps partitions but clears source/meta mappings."""
     redis_client = FakeRedis()
     repository = RedisDocumentRepository(redis_client, key_prefix="test")
     bucket_name = "research-raw"
@@ -344,6 +358,7 @@ def test_remove_document_keeps_partitions_but_removes_other_redis_data() -> None
 
 
 def test_remove_document_can_remove_partitions() -> None:
+    """Verify partition payloads are deleted when ``keep_partitions`` is ``False``."""
     redis_client = FakeRedis()
     repository = RedisDocumentRepository(redis_client, key_prefix="test")
 
@@ -364,6 +379,7 @@ def test_remove_document_can_remove_partitions() -> None:
 
 
 def test_qdrant_payload_contains_document_partition_meta_and_resolver_keys() -> None:
+    """Validate Qdrant payload contains document, partition, metadata, and resolver keys."""
     install_qdrant_client_stub()
     qdrant = FakeQdrantClient()
     indexer = StubQdrantIndexer(
