@@ -1,16 +1,21 @@
+# syntax=docker/dockerfile:1.7
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
 COPY pyproject.toml README.md /app/
+
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python -m pip install --upgrade pip && \
+    python -c "import pathlib, tomllib; data = tomllib.loads(pathlib.Path('pyproject.toml').read_text()); reqs = [*data['build-system']['requires'], *data['project']['dependencies'], 'flower>=2.0.1']; pathlib.Path('/tmp/requirements.txt').write_text('\n'.join(dict.fromkeys(reqs)))" && \
+    python -m pip install -r /tmp/requirements.txt
+
 COPY src /app/src
 
-RUN python -m pip install --upgrade pip && \
-    python -m pip install -e . && \
-    python -m pip install "flower>=2.0.1"
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python -m pip install --no-deps -e .
 
 CMD ["celery", "-A", "mcp_evidencebase.celery_app", "worker", "--loglevel=info"]
