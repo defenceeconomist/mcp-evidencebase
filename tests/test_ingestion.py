@@ -13,7 +13,9 @@ from mcp_evidencebase.ingestion import (
     IngestionService,
     QdrantIndexer,
     RedisDocumentRepository,
+    UnstructuredPartitionClient,
     build_partition_chunks,
+    build_ingestion_settings,
     chunk_partition_texts,
     compute_chunk_point_id,
     compute_document_id,
@@ -358,6 +360,72 @@ def test_compute_document_id_is_deterministic() -> None:
 
     assert first == second
     assert len(first) == 64
+
+
+def test_build_ingestion_settings_supports_unstructured_timeout_override() -> None:
+    """Confirm UNSTRUCTURED_TIMEOUT_SECONDS is parsed and minimum-clamped."""
+    settings = build_ingestion_settings({"UNSTRUCTURED_TIMEOUT_SECONDS": "420"})
+    assert settings.unstructured_timeout_seconds == 420.0
+
+    min_clamped = build_ingestion_settings({"UNSTRUCTURED_TIMEOUT_SECONDS": "1"})
+    assert min_clamped.unstructured_timeout_seconds == 5.0
+
+    fallback_default = build_ingestion_settings({"UNSTRUCTURED_TIMEOUT_SECONDS": "invalid"})
+    assert fallback_default.unstructured_timeout_seconds == 300.0
+
+
+def test_unstructured_partition_client_wraps_read_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ensure read timeouts raise a clear TimeoutError with tuning guidance."""
+
+    class StubReadTimeout(Exception):
+        pass
+
+    class StubClient:
+        def __init__(self, timeout: Any) -> None:
+            self.timeout = timeout
+
+        def __enter__(self) -> StubClient:
+            return self
+
+        def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> bool:
+            del exc_type, exc, tb
+            return False
+
+        def post(self, *args: Any, **kwargs: Any) -> Any:
+            del args, kwargs
+            raise StubReadTimeout("The read operation timed out")
+
+    class StubTimeout:
+        def __init__(self, **kwargs: Any) -> None:
+            self.kwargs = kwargs
+
+    monkeypatch.setitem(
+        sys.modules,
+        "httpx",
+        types.SimpleNamespace(
+            Client=StubClient,
+            Timeout=StubTimeout,
+            ReadTimeout=StubReadTimeout,
+        ),
+    )
+
+    client = UnstructuredPartitionClient(
+        api_url="https://example.invalid/partition",
+        api_key="token",
+        strategy="auto",
+        timeout_seconds=42.0,
+    )
+
+    with pytest.raises(TimeoutError) as exc_info:
+        client.partition_file(
+            file_name="paper.pdf",
+            file_bytes=b"%PDF-1.7 fake",
+            content_type="application/pdf",
+        )
+
+    message = str(exc_info.value)
+    assert "42" in message
+    assert "UNSTRUCTURED_TIMEOUT_SECONDS" in message
 
 
 def test_compute_chunk_point_id_is_deterministic_uuid() -> None:

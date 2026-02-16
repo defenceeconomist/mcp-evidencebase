@@ -77,6 +77,7 @@ class IngestionSettings:
     unstructured_api_url: str
     unstructured_api_key: str | None
     unstructured_strategy: str
+    unstructured_timeout_seconds: float
     fastembed_model: str
     fastembed_keyword_model: str
     chunk_size_chars: int
@@ -514,7 +515,7 @@ class UnstructuredPartitionClient:
         self._api_url = api_url
         self._api_key = api_key
         self._strategy = strategy
-        self._timeout_seconds = timeout_seconds
+        self._timeout_seconds = max(1.0, float(timeout_seconds))
 
     def partition_file(
         self,
@@ -533,13 +534,26 @@ class UnstructuredPartitionClient:
 
         payload = {"strategy": self._strategy}
         files = {"files": (file_name, file_bytes, content_type)}
-        with httpx.Client(timeout=self._timeout_seconds) as client:
-            response = client.post(
-                self._api_url,
-                data=payload,
-                files=files,
-                headers=headers,
-            )
+        request_timeout = httpx.Timeout(
+            timeout=self._timeout_seconds,
+            connect=min(10.0, self._timeout_seconds),
+            read=self._timeout_seconds,
+            write=self._timeout_seconds,
+        )
+        try:
+            with httpx.Client(timeout=request_timeout) as client:
+                response = client.post(
+                    self._api_url,
+                    data=payload,
+                    files=files,
+                    headers=headers,
+                )
+        except httpx.ReadTimeout as exc:
+            raise TimeoutError(
+                "Unstructured API read timeout after "
+                f"{self._timeout_seconds:g}s while partitioning '{file_name}'. "
+                "Increase UNSTRUCTURED_TIMEOUT_SECONDS or choose a faster UNSTRUCTURED_STRATEGY."
+            ) from exc
         response.raise_for_status()
 
         body = response.json()
@@ -2213,6 +2227,13 @@ def build_ingestion_settings(env: Mapping[str, str] | None = None) -> IngestionS
         except (TypeError, ValueError):
             return default
 
+    def _safe_float(name: str, default: float) -> float:
+        raw_value = source.get(name, str(default))
+        try:
+            return float(raw_value)
+        except (TypeError, ValueError):
+            return default
+
     return IngestionSettings(
         minio=minio_settings,
         redis_url=source.get("REDIS_URL", "redis://localhost:6379/2"),
@@ -2225,6 +2246,9 @@ def build_ingestion_settings(env: Mapping[str, str] | None = None) -> IngestionS
         ),
         unstructured_api_key=source.get("UNSTRUCTURED_API_KEY") or None,
         unstructured_strategy=source.get("UNSTRUCTURED_STRATEGY", "auto"),
+        unstructured_timeout_seconds=max(
+            5.0, _safe_float("UNSTRUCTURED_TIMEOUT_SECONDS", 300.0)
+        ),
         fastembed_model=source.get("FASTEMBED_MODEL", "BAAI/bge-small-en-v1.5"),
         fastembed_keyword_model=source.get("FASTEMBED_KEYWORD_MODEL", "Qdrant/bm25"),
         chunk_size_chars=_safe_int("CHUNK_SIZE_CHARS", 1200),
@@ -2264,6 +2288,7 @@ def build_ingestion_service(settings: IngestionSettings | None = None) -> Ingest
         api_url=resolved_settings.unstructured_api_url,
         api_key=resolved_settings.unstructured_api_key,
         strategy=resolved_settings.unstructured_strategy,
+        timeout_seconds=resolved_settings.unstructured_timeout_seconds,
     )
     qdrant_client = QdrantClient(
         url=resolved_settings.qdrant_url,
