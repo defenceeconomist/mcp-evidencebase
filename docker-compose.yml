@@ -52,10 +52,30 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      minio:
+        condition: service_started
+      qdrant:
+        condition: service_started
     environment:
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
       CELERY_APP: ${CELERY_APP:-mcp_evidencebase.celery_app}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-minio:9000}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_SECURE: ${MINIO_SECURE:-false}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/2}
+      REDIS_PREFIX: ${REDIS_PREFIX:-evidencebase}
+      QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
+      QDRANT_API_KEY: ${QDRANT_API_KEY:-}
+      QDRANT_COLLECTION_PREFIX: ${QDRANT_COLLECTION_PREFIX:-evidencebase}
+      UNSTRUCTURED_API_URL: ${UNSTRUCTURED_API_URL:-https://api.unstructuredapp.io/general/v0/general}
+      UNSTRUCTURED_API_KEY: ${UNSTRUCTURED_API_KEY:-}
+      UNSTRUCTURED_STRATEGY: ${UNSTRUCTURED_STRATEGY:-auto}
+      FASTEMBED_MODEL: ${FASTEMBED_MODEL:-BAAI/bge-small-en-v1.5}
+      CHUNK_SIZE_CHARS: ${CHUNK_SIZE_CHARS:-1200}
+      CHUNK_OVERLAP_CHARS: ${CHUNK_OVERLAP_CHARS:-150}
+      MINIO_SCAN_INTERVAL_SECONDS: ${MINIO_SCAN_INTERVAL_SECONDS:-15}
     command: ["celery", "-A", "mcp_evidencebase.celery_app", "worker", "--loglevel=info"]
 
   flower:
@@ -97,13 +117,31 @@ services:
     container_name: evidencebase-api
     restart: unless-stopped
     environment:
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
       MINIO_ENDPOINT: ${MINIO_ENDPOINT:-minio:9000}
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
       MINIO_SECURE: ${MINIO_SECURE:-false}
       MINIO_REGION: ${MINIO_REGION:-}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/2}
+      REDIS_PREFIX: ${REDIS_PREFIX:-evidencebase}
+      QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
+      QDRANT_API_KEY: ${QDRANT_API_KEY:-}
+      QDRANT_COLLECTION_PREFIX: ${QDRANT_COLLECTION_PREFIX:-evidencebase}
+      UNSTRUCTURED_API_URL: ${UNSTRUCTURED_API_URL:-https://api.unstructuredapp.io/general/v0/general}
+      UNSTRUCTURED_API_KEY: ${UNSTRUCTURED_API_KEY:-}
+      UNSTRUCTURED_STRATEGY: ${UNSTRUCTURED_STRATEGY:-auto}
+      FASTEMBED_MODEL: ${FASTEMBED_MODEL:-BAAI/bge-small-en-v1.5}
+      CHUNK_SIZE_CHARS: ${CHUNK_SIZE_CHARS:-1200}
+      CHUNK_OVERLAP_CHARS: ${CHUNK_OVERLAP_CHARS:-150}
+      MINIO_SCAN_INTERVAL_SECONDS: ${MINIO_SCAN_INTERVAL_SECONDS:-15}
     depends_on:
       minio:
+        condition: service_started
+      redis:
+        condition: service_healthy
+      qdrant:
         condition: service_started
 
   docs:

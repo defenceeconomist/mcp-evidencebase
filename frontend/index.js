@@ -13,6 +13,7 @@
   const collectionToggles = document.querySelectorAll('[data-action="toggle-collections"]');
   const uploadPdfButton = document.getElementById("upload-pdf-btn");
   const fetchMetaButton = document.getElementById("fetch-meta-btn");
+  const removeDocumentButton = document.getElementById("remove-doc-btn");
   const documentCardHeader = document.getElementById("document-card-header");
   const detailViewContainer = document.getElementById("detail-view-container");
   const detailTableScroll = document.getElementById("detail-table-scroll");
@@ -297,6 +298,7 @@
   let wasMobileLayout = window.matchMedia("(max-width: 991.98px)").matches;
   let documentTable = null;
   let docJsonModalInstance = null;
+  let documentRefreshTimerId = null;
   const isMobileViewport = () => window.matchMedia("(max-width: 991.98px)").matches;
 
   const setCookie = (name, value, maxAgeSeconds) => {
@@ -496,9 +498,10 @@
       normalizeText(sourceBibtexFields.citekey) ||
       buildFallbackCitationKey(filePath, index);
 
+    const processingStateSource = normalizeText(rawDocument.processing_state).toLowerCase();
     const normalizedProcessingState =
-      normalizeText(rawDocument.processing_state).toLowerCase() === "processing"
-        ? "processing"
+      processingStateSource === "processing" || processingStateSource === "failed"
+        ? processingStateSource
         : "processed";
     const rawProgress = Number.parseInt(normalizeText(rawDocument.processing_progress), 10);
     const normalizedProcessingProgress = Number.isNaN(rawProgress)
@@ -531,7 +534,7 @@
       chunks_count: Number.isNaN(normalizedChunksCount) ? 0 : normalizedChunksCount,
       partitions_tree: partitionsTree,
       chunks_tree: chunksTree,
-      parse_status: normalizedProcessingState === "processing" ? "processing" : "processed",
+      parse_status: normalizedProcessingState,
       bibtex_fields: {},
     };
 
@@ -608,17 +611,47 @@
   };
 
   const apiRequest = async (path, options = {}) => {
+    const headers = { ...(options.headers || {}) };
+    const hasContentTypeHeader = Object.keys(headers).some(
+      (headerName) => headerName.toLowerCase() === "content-type"
+    );
+    const isFormDataBody =
+      typeof FormData !== "undefined" && options.body && options.body instanceof FormData;
+    if (!hasContentTypeHeader && !isFormDataBody) {
+      headers["Content-Type"] = "application/json";
+    }
+
     const response = await fetch(apiBasePath + path, {
-      headers: {
-        "Content-Type": "application/json",
-        ...(options.headers || {}),
-      },
+      headers,
       ...options,
     });
     if (!response.ok) {
       throw new Error(await parseErrorMessage(response));
     }
     return response.json();
+  };
+
+  const clearDocumentRefreshTimer = () => {
+    if (documentRefreshTimerId !== null) {
+      window.clearTimeout(documentRefreshTimerId);
+      documentRefreshTimerId = null;
+    }
+  };
+
+  const scheduleDocumentRefresh = () => {
+    clearDocumentRefreshTimer();
+    if (!selectedBucketName) {
+      return;
+    }
+    const hasInFlightDocument = documents.some(
+      (documentRecord) => documentRecord.processing_state === "processing"
+    );
+    if (!hasInFlightDocument) {
+      return;
+    }
+    documentRefreshTimerId = window.setTimeout(() => {
+      void refreshDocuments({ silent: true, preserveSelection: true });
+    }, 2500);
   };
 
   const syncTableViewLabels = () => {
@@ -901,6 +934,14 @@
       return td;
     }
 
+    if (record.processing_state === "failed") {
+      const failedBadge = document.createElement("span");
+      failedBadge.className = "badge text-bg-danger";
+      failedBadge.textContent = "Failed";
+      td.appendChild(failedBadge);
+      return td;
+    }
+
     const parseActions = document.createElement("div");
     parseActions.className = "btn-group";
     parseActions.role = "group";
@@ -995,6 +1036,7 @@
           return;
         }
         selectedDocumentId = record.document_id;
+        updateRemoveDocumentButtonState();
       },
       afterChange(changes, source) {
         if (!changes || source === "loadData") {
@@ -1106,6 +1148,14 @@
       return;
     }
 
+    if (documentRecord.processing_state === "failed") {
+      const failedBadge = document.createElement("span");
+      failedBadge.className = "badge text-bg-danger";
+      failedBadge.textContent = "Failed";
+      cell.appendChild(failedBadge);
+      return;
+    }
+
     const parseActions = document.createElement("div");
     parseActions.className = "btn-group";
     parseActions.role = "group";
@@ -1138,6 +1188,14 @@
       return;
     }
     documentMetaCount.textContent = `${visibleCount} documents`;
+  };
+
+  const updateRemoveDocumentButtonState = () => {
+    if (!removeDocumentButton) {
+      return;
+    }
+    const selectedDocument = getSelectedDocument();
+    removeDocumentButton.disabled = !selectedBucketName || !selectedDocument;
   };
 
   const renderDetailTable = () => {
@@ -1331,6 +1389,7 @@
       renderDetailFields();
     }
 
+    updateRemoveDocumentButtonState();
     window.requestAnimationFrame(setIndependentScrollHeights);
   };
 
@@ -1338,17 +1397,39 @@
     renderDocumentTable();
   };
 
-  const refreshDocuments = async () => {
+  const refreshDocuments = async ({ silent = false, preserveSelection = true } = {}) => {
     if (!selectedBucketName) {
+      clearDocumentRefreshTimer();
       documents = [];
       selectedDocumentId = null;
       renderDocumentMeta();
       return;
     }
 
-    documents = [];
-    selectedDocumentId = null;
-    renderDocumentMeta();
+    try {
+      const payload = await apiRequest(
+        `/collections/${encodeURIComponent(selectedBucketName)}/documents`
+      );
+      const rawDocuments = Array.isArray(payload.documents) ? payload.documents : [];
+      documents = rawDocuments.map((rawDocument, index) => normalizeDocumentRecord(rawDocument, index));
+
+      if (!preserveSelection) {
+        selectedDocumentId = null;
+      } else if (
+        selectedDocumentId &&
+        !documents.some((documentRecord) => documentRecord.document_id === selectedDocumentId)
+      ) {
+        selectedDocumentId = null;
+      }
+
+      renderDocumentMeta();
+      scheduleDocumentRefresh();
+    } catch (error) {
+      clearDocumentRefreshTimer();
+      if (!silent) {
+        window.alert(`Could not load documents: ${error.message}`);
+      }
+    }
   };
 
   const refreshBuckets = async () => {
@@ -1436,6 +1517,80 @@
     }
   };
 
+  const uploadDocumentFile = async (file) => {
+    if (!selectedBucketName) {
+      window.alert("Select a collection first.");
+      return;
+    }
+    if (!file) {
+      return;
+    }
+
+    try {
+      await apiRequest(
+        `/collections/${encodeURIComponent(selectedBucketName)}/documents/upload?file_name=${encodeURIComponent(
+          file.name
+        )}`,
+        {
+          method: "POST",
+          body: file,
+          headers: {
+            "Content-Type": file.type || "application/octet-stream",
+          },
+        }
+      );
+      await refreshDocuments({ silent: true, preserveSelection: true });
+    } catch (error) {
+      window.alert(`Could not upload file: ${error.message}`);
+    }
+  };
+
+  const triggerBucketScan = async () => {
+    if (!selectedBucketName) {
+      window.alert("Select a collection first.");
+      return;
+    }
+
+    try {
+      await apiRequest(`/collections/${encodeURIComponent(selectedBucketName)}/scan`, {
+        method: "POST",
+      });
+      await refreshDocuments({ silent: true, preserveSelection: true });
+    } catch (error) {
+      window.alert(`Could not queue scan: ${error.message}`);
+    }
+  };
+
+  const removeSelectedDocument = async () => {
+    if (!selectedBucketName) {
+      window.alert("Select a collection first.");
+      return;
+    }
+    const selectedDocument = getSelectedDocument();
+    if (!selectedDocument) {
+      window.alert("Select a document first.");
+      return;
+    }
+
+    const fileName = filenameFromPath(selectedDocument.file_path);
+    if (!window.confirm(`Remove file '${fileName}'?`)) {
+      return;
+    }
+
+    try {
+      await apiRequest(
+        `/collections/${encodeURIComponent(selectedBucketName)}/documents/${encodeURIComponent(
+          selectedDocument.document_id
+        )}`,
+        { method: "DELETE" }
+      );
+      selectedDocumentId = null;
+      await refreshDocuments({ silent: true, preserveSelection: false });
+    } catch (error) {
+      window.alert(`Could not remove file: ${error.message}`);
+    }
+  };
+
   document.querySelectorAll("[data-path]").forEach((anchor) => {
     const path = anchor.getAttribute("data-path") || "";
     anchor.href = origin + path;
@@ -1456,10 +1611,26 @@
   });
 
   uploadPdfButton?.addEventListener("click", () => {
-    window.alert("Upload PDF is not wired yet.");
+    if (!selectedBucketName) {
+      window.alert("Select a collection first.");
+      return;
+    }
+    const picker = document.createElement("input");
+    picker.type = "file";
+    picker.accept = ".pdf,.txt,.md,.docx";
+    picker.addEventListener("change", () => {
+      const nextFile = picker.files && picker.files[0] ? picker.files[0] : null;
+      if (nextFile) {
+        void uploadDocumentFile(nextFile);
+      }
+    });
+    picker.click();
   });
   fetchMetaButton?.addEventListener("click", () => {
-    window.alert("Fetch Meta is not wired yet.");
+    void triggerBucketScan();
+  });
+  removeDocumentButton?.addEventListener("click", () => {
+    void removeSelectedDocument();
   });
 
   collectionToggles.forEach((toggle) => {
@@ -1517,6 +1688,7 @@
     selectedDocumentId = nextDocumentId;
     renderDetailTable();
     renderDetailFields();
+    updateRemoveDocumentButtonState();
   });
 
   documentHotContainer?.addEventListener("click", (event) => {
@@ -1562,6 +1734,7 @@
   syncTableViewLabels();
 
   updateRemoveTooltip();
+  updateRemoveDocumentButtonState();
   window.requestAnimationFrame(setIndependentScrollHeights);
   void refreshBuckets();
 })();

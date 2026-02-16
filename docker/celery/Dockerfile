@@ -11,6 +11,6 @@ COPY src /app/src
 
 RUN python -m pip install --upgrade pip && \
     python -m pip install -e . && \
-    python -m pip install "celery[redis]>=5.4.0" "flower>=2.0.1"
+    python -m pip install "flower>=2.0.1"
 
 CMD ["celery", "-A", "mcp_evidencebase.celery_app", "worker", "--loglevel=info"]

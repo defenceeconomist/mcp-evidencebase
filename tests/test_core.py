@@ -62,7 +62,7 @@ def test_add_minio_bucket_returns_false_when_exists() -> None:
 def test_add_minio_bucket_rejects_empty_bucket_name() -> None:
     client = FakeMinioClient()
 
-    with pytest.raises(ValueError, match="bucket_name must not be empty."):
+    with pytest.raises(ValueError, match=r"bucket_name must not be empty\."):
         add_minio_bucket("   ", client=client)
 
 
