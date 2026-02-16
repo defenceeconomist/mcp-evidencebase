@@ -33,6 +33,7 @@ BIBTEX_FIELDS: tuple[str, ...] = (
     "email",
     "howpublished",
     "institution",
+    "isbn",
     "journal",
     "month",
     "note",
@@ -264,48 +265,54 @@ def _extract_isbn(text: str) -> str:
     return ""
 
 
-def _extract_title(text_lines: list[str], default_title: str) -> str:
-    """Extract a best-effort document title from top-of-document lines."""
-    for line in text_lines[:12]:
-        lowered = line.lower()
-        if lowered.startswith(("doi", "isbn", "abstract", "keywords", "references")):
-            continue
-        if DOI_PATTERN.search(line):
-            continue
-        if ISBN_PATTERN.search(line):
-            continue
-        if len(line) < 8 or len(line) > 220:
-            continue
-        if len(re.findall(r"[A-Za-z]", line)) < 4:
-            continue
-        return line.strip()
-    return default_title
+def _normalize_pdf_metadata_value(value: Any) -> str:
+    """Normalize one PDF metadata field value to a non-empty string."""
+    if value is None:
+        return ""
+    return str(value).strip()
 
 
-def _extract_authors(text_lines: list[str], extracted_title: str) -> str:
-    """Extract a best-effort author list from early document lines."""
-    title_index = 0
-    for index, line in enumerate(text_lines[:12]):
-        if line.strip() == extracted_title.strip():
-            title_index = index
-            break
+def extract_pdf_title_author(document_bytes: bytes) -> dict[str, str]:
+    """Extract title/author values from embedded PDF metadata when available.
 
-    for line in text_lines[title_index + 1 : title_index + 8]:
-        lowered = line.lower()
-        if lowered.startswith(("doi", "isbn", "abstract", "keywords", "references")):
-            continue
-        if DOI_PATTERN.search(line):
-            continue
-        if ISBN_PATTERN.search(line):
-            continue
-        if len(line) < 3 or len(line) > 160:
-            continue
-        if re.search(r"\d{4,}", line):
-            continue
-        if "," in line or " and " in lowered or ";" in line:
-            if len(re.findall(r"[A-Za-z]", line)) >= 4:
-                return line.strip(" ;,")
-    return ""
+    Args:
+        document_bytes: Raw PDF file bytes.
+
+    Returns:
+        Dictionary containing optional ``title`` and ``author`` keys.
+    """
+    if not document_bytes:
+        return {}
+
+    try:
+        from pypdf import PdfReader
+    except ImportError:
+        return {}
+
+    try:
+        reader = PdfReader(io.BytesIO(document_bytes))
+    except Exception:
+        return {}
+
+    raw_metadata = getattr(reader, "metadata", None)
+    if raw_metadata is None:
+        return {}
+
+    title = _normalize_pdf_metadata_value(getattr(raw_metadata, "title", None))
+    author = _normalize_pdf_metadata_value(getattr(raw_metadata, "author", None))
+
+    if isinstance(raw_metadata, Mapping):
+        if not title:
+            title = _normalize_pdf_metadata_value(raw_metadata.get("/Title"))
+        if not author:
+            author = _normalize_pdf_metadata_value(raw_metadata.get("/Author"))
+
+    extracted: dict[str, str] = {}
+    if title:
+        extracted["title"] = title
+    if author:
+        extracted["author"] = author
+    return extracted
 
 
 def extract_metadata_from_partitions(
@@ -313,9 +320,22 @@ def extract_metadata_from_partitions(
     partitions: list[dict[str, Any]],
     file_path: str,
     document_id: str,
+    pdf_metadata: Mapping[str, str] | None = None,
 ) -> dict[str, str]:
-    """Extract title/authors/DOI/ISBN from partition text using first-page DOI policy."""
+    """Extract metadata using PDF metadata + first-page text identifiers.
+
+    Title and author are read from PDF metadata when available. DOI and ISBN
+    are extracted from first-page partitions only.
+    """
     metadata = build_default_metadata(file_path, document_id)
+    if pdf_metadata:
+        pdf_title = str(pdf_metadata.get("title", "")).strip()
+        pdf_author = str(pdf_metadata.get("author", "")).strip()
+        if pdf_title:
+            metadata["title"] = pdf_title
+        if pdf_author:
+            metadata["author"] = pdf_author
+
     first_page_partitions = _extract_first_page_partitions(partitions)
 
     first_page_text = "\n".join(
@@ -325,12 +345,6 @@ def extract_metadata_from_partitions(
         )
         if text
     )
-    first_page_lines = [line.strip() for line in first_page_text.splitlines() if line.strip()]
-
-    metadata["title"] = _extract_title(first_page_lines, metadata.get("title", "") or file_path)
-    extracted_authors = _extract_authors(first_page_lines, metadata["title"])
-    if extracted_authors:
-        metadata["author"] = extracted_authors
 
     doi_match = DOI_PATTERN.search(first_page_text)
     if doi_match:
@@ -410,11 +424,8 @@ class RedisDocumentRepository:
     def _document_sources_key(self, document_id: str) -> str:
         return f"{self._prefix}:document:{document_id}:sources"
 
-    def _document_partitions_key(self, document_id: str) -> str:
-        return f"{self._prefix}:document:{document_id}:partitions"
-
-    def _document_partition_index_key(self, partition_key: str) -> str:
-        return f"{self._prefix}:document:partition:{partition_key}"
+    def _partition_payload_key(self, partition_key: str) -> str:
+        return f"{self._prefix}:partition:{partition_key}"
 
     def _metadata_payload_key(self, meta_key: str) -> str:
         return f"{self._prefix}:meta:{meta_key}"
@@ -480,10 +491,6 @@ class RedisDocumentRepository:
             self._document_key(document_id),
             mapping={"updated_at": utc_now_iso()},
         )
-
-    def remove_document_from_bucket(self, bucket_name: str, document_id: str) -> None:
-        """Backward-compatible no-op for schema with source-derived bucket listings."""
-        del bucket_name, document_id
 
     def list_document_ids(self, bucket_name: str) -> list[str]:
         """Return sorted document IDs visible in one bucket from source mappings."""
@@ -626,19 +633,6 @@ class RedisDocumentRepository:
         )
         return meta_key
 
-    def set_metadata(self, bucket_name: str, document_id: str, metadata: Mapping[str, str]) -> None:
-        """Backward-compatible metadata update entrypoint."""
-        self.update_document_metadata(
-            bucket_name=bucket_name,
-            document_id=document_id,
-            metadata=metadata,
-        )
-
-    def get_metadata(self, bucket_name: str, document_id: str) -> dict[str, str]:
-        """Backward-compatible metadata lookup for a bucket/document pair."""
-        _, metadata = self.get_document_metadata(bucket_name, document_id)
-        return metadata
-
     def get_document_metadata(
         self,
         bucket_name: str,
@@ -722,11 +716,10 @@ class RedisDocumentRepository:
         document_id: str,
         partitions: list[dict[str, Any]],
     ) -> str:
-        """Persist partition payload under a document key and index by partition hash."""
+        """Persist partition payload under the partition hash key."""
         del bucket_name
         partition_key = compute_partition_key(partitions)
-        self._redis.set(self._document_partitions_key(document_id), canonical_json(partitions))
-        self._redis.set(self._document_partition_index_key(partition_key), document_id)
+        self._redis.set(self._partition_payload_key(partition_key), canonical_json(partitions))
         self.set_state(
             document_id,
             {
@@ -736,9 +729,9 @@ class RedisDocumentRepository:
         )
         return partition_key
 
-    def _get_partitions_for_document(self, document_id: str) -> list[dict[str, Any]]:
-        """Read partition payload stored for one document hash."""
-        raw_value = self._redis.get(self._document_partitions_key(document_id))
+    @staticmethod
+    def _parse_partitions_payload(raw_value: str | None) -> list[dict[str, Any]]:
+        """Parse a Redis string value as a partition payload."""
         if not isinstance(raw_value, str) or not raw_value:
             return []
         parsed = json.loads(raw_value)
@@ -746,20 +739,21 @@ class RedisDocumentRepository:
             return [entry for entry in parsed if isinstance(entry, dict)]
         return []
 
+    def _get_partitions_for_document(self, document_id: str) -> list[dict[str, Any]]:
+        """Read partition payload for one document hash via its partition key."""
+        state = self.get_state(document_id)
+        partition_key = state.get("partition_key", "")
+        return self.get_partitions_by_key(partition_key)
+
     def get_partitions_by_key(self, partition_key: str) -> list[dict[str, Any]]:
         """Read partition payload from a partition hash key."""
         if not partition_key:
             return []
-        document_id = self._redis.get(self._document_partition_index_key(partition_key))
-        if not isinstance(document_id, str) or not document_id:
-            return []
-        state = self.get_state(document_id)
-        if state.get("partition_key", "") != partition_key:
-            return []
-        return self._get_partitions_for_document(document_id)
+        key = self._partition_payload_key(partition_key)
+        return self._parse_partitions_payload(self._redis.get(key))
 
     def get_partitions(self, bucket_name: str, document_id: str) -> list[dict[str, Any]]:
-        """Backward-compatible partition lookup for one bucket/document pair."""
+        """Return partitions for one bucket/document pair."""
         del bucket_name
         return self._get_partitions_for_document(document_id)
 
@@ -799,9 +793,8 @@ class RedisDocumentRepository:
         self.set_state(document_id, {"meta_key": ""})
 
         if not keep_partitions:
-            self._redis.delete(self._document_partitions_key(document_id))
             if partition_key:
-                self._redis.delete(self._document_partition_index_key(partition_key))
+                self._redis.delete(self._partition_payload_key(partition_key))
             self.set_state(
                 document_id,
                 {
@@ -811,6 +804,34 @@ class RedisDocumentRepository:
             )
 
         return True
+
+    def purge_prefix_data(self) -> int:
+        """Delete every Redis key stored under the configured prefix."""
+        pattern = f"{self._prefix}:*"
+        deleted = 0
+        scan_iter = getattr(self._redis, "scan_iter", None)
+        if callable(scan_iter):
+            for key in scan_iter(match=pattern):
+                deleted += int(self._redis.delete(str(key)))
+            return deleted
+
+        # Test doubles may not implement SCAN iteration.
+        for key in self._fallback_iter_keys_for_tests():
+            deleted += int(self._redis.delete(key))
+        return deleted
+
+    def _fallback_iter_keys_for_tests(self) -> list[str]:
+        """Return prefixed keys for in-memory test doubles without scan_iter."""
+        prefixed_keys: set[str] = set()
+        prefix = f"{self._prefix}:"
+        for store_name in ("_sets", "_hashes", "_strings"):
+            store = getattr(self._redis, store_name, None)
+            if isinstance(store, dict):
+                for key in store:
+                    key_text = str(key)
+                    if key_text.startswith(prefix):
+                        prefixed_keys.add(key_text)
+        return sorted(prefixed_keys)
 
     def object_requires_processing(
         self,
@@ -840,7 +861,7 @@ class RedisDocumentRepository:
         for document_id in self.list_document_ids(bucket_name):
             state = self.get_state(document_id)
             partition_key = state.get("partition_key", "")
-            partitions = self.get_partitions_by_key(partition_key)
+            partitions = self._get_partitions_for_document(document_id)
             meta_key, metadata = self.get_document_metadata(bucket_name, document_id)
 
             object_names = self.get_document_object_names(bucket_name, document_id)
@@ -972,6 +993,18 @@ class QdrantIndexer:
             return False
         self._qdrant_client.delete_collection(collection_name=collection_name)
         return True
+
+    def purge_prefixed_collections(self) -> int:
+        """Delete every collection that belongs to this application's prefix."""
+        prefix = f"{self._collection_prefix}_"
+        deleted = 0
+        for collection in self._qdrant_client.get_collections().collections:
+            collection_name = str(getattr(collection, "name", "")).strip()
+            if not collection_name.startswith(prefix):
+                continue
+            self._qdrant_client.delete_collection(collection_name=collection_name)
+            deleted += 1
+        return deleted
 
     def delete_document(self, bucket_name: str, document_id: str) -> None:
         """Remove all chunk vectors for one document from Qdrant."""
@@ -1325,6 +1358,7 @@ class IngestionService:
                 partitions=partitions,
                 file_path=object_name,
                 document_id=document_id,
+                pdf_metadata=extract_pdf_title_author(file_bytes),
             )
             meta_key = self._repository.set_metadata_for_location(
                 bucket_name=bucket_name,
@@ -1442,6 +1476,15 @@ class IngestionService:
             document_id=document_id,
             keep_partitions=keep_partitions,
         )
+
+    def purge_datastores(self) -> dict[str, int]:
+        """Purge Redis and Qdrant data for this application prefix."""
+        redis_deleted_keys = self._repository.purge_prefix_data()
+        qdrant_deleted_collections = self._qdrant_indexer.purge_prefixed_collections()
+        return {
+            "redis_deleted_keys": redis_deleted_keys,
+            "qdrant_deleted_collections": qdrant_deleted_collections,
+        }
 
 
 def build_ingestion_settings(env: Mapping[str, str] | None = None) -> IngestionSettings:

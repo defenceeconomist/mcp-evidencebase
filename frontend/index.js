@@ -59,6 +59,7 @@
     "chapter",
     "crossref",
     "doi",
+    "isbn",
     "edition",
     "editor",
     "email",
@@ -85,11 +86,11 @@
     },
     book: {
       required: ["title", "author", "year", "publisher", "address"],
-      recommended: ["editor", "volume", "number", "series", "edition", "month", "note", "doi"],
+      recommended: ["editor", "volume", "number", "series", "edition", "month", "note", "doi", "isbn"],
     },
     booklet: {
       required: ["title"],
-      recommended: ["author", "howpublished", "address", "month", "year", "note"],
+      recommended: ["author", "howpublished", "address", "month", "year", "note", "isbn"],
     },
     conference: {
       required: ["author", "title", "booktitle", "year"],
@@ -119,6 +120,7 @@
         "edition",
         "month",
         "note",
+        "isbn",
       ],
     },
     incollection: {
@@ -135,6 +137,7 @@
         "month",
         "organization",
         "note",
+        "isbn",
       ],
     },
     inproceedings: {
@@ -154,7 +157,7 @@
     },
     manual: {
       required: ["title"],
-      recommended: ["author", "organization", "address", "edition", "month", "year", "note"],
+      recommended: ["author", "organization", "address", "edition", "month", "year", "note", "isbn"],
     },
     mastersthesis: {
       required: ["author", "title", "school", "year"],
@@ -180,6 +183,7 @@
         "publisher",
         "organization",
         "note",
+        "isbn",
       ],
     },
     techreport: {
@@ -223,6 +227,7 @@
   const bulkBibtexFieldOrder = getBulkBibtexFieldOrder();
   const bibtexFieldLabelOverrides = {
     doi: "DOI",
+    isbn: "ISBN",
     month: "Month",
     year: "Year",
   };

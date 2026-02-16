@@ -1,73 +1,145 @@
-# Evidence Base
+<a id="readme-top"></a>
 
-Manage evidence base metadata, semantic search, and GPT summaries.
+<!-- PROJECT SHIELDS -->
+[![Contributors][contributors-shield]][contributors-url]
+[![Forks][forks-shield]][forks-url]
+[![Stargazers][stars-shield]][stars-url]
+[![Issues][issues-shield]][issues-url]
 
-## Project layout
+<!-- PROJECT LOGO -->
+<br />
+<div align="center">
+  <h3 align="center">Evidence Base</h3>
 
-```text
-.
-├── deploy/
-│   └── nginx/
-│       └── default.conf
-├── docker-compose.yml
-├── frontend/
-│   ├── Dockerfile
-│   ├── index.html
-│   └── package.json
-├── pyproject.toml
-├── src/
-│   └── mcp_evidencebase/
-│       ├── __init__.py
-│       ├── __main__.py
-│       ├── cli.py
-│       └── core.py
-└── tests/
-    ├── test_cli.py
-    └── test_core.py
-```
+  <p align="center">
+    Evidence ingestion, metadata management, and semantic retrieval over MinIO, Redis, and Qdrant.
+    <br />
+    <a href="https://github.com/defenceeconomist/mcp-evidencebase"><strong>Explore the repo »</strong></a>
+    <br />
+    <br />
+    <a href="https://github.com/defenceeconomist/mcp-evidencebase/issues/new?labels=bug">Report Bug</a>
+    ·
+    <a href="https://github.com/defenceeconomist/mcp-evidencebase/issues/new?labels=enhancement">Request Feature</a>
+  </p>
+</div>
 
-## Quickstart
+<!-- TABLE OF CONTENTS -->
+<details>
+  <summary>Table of Contents</summary>
+  <ol>
+    <li>
+      <a href="#about-the-project">About The Project</a>
+      <ul>
+        <li><a href="#built-with">Built With</a></li>
+      </ul>
+    </li>
+    <li>
+      <a href="#getting-started">Getting Started</a>
+      <ul>
+        <li><a href="#prerequisites">Prerequisites</a></li>
+        <li><a href="#installation">Installation</a></li>
+      </ul>
+    </li>
+    <li><a href="#usage">Usage</a></li>
+    <li><a href="#project-structure">Project Structure</a></li>
+    <li><a href="#roadmap">Roadmap</a></li>
+    <li><a href="#contributing">Contributing</a></li>
+    <li><a href="#license">License</a></li>
+    <li><a href="#contact">Contact</a></li>
+    <li><a href="#acknowledgments">Acknowledgments</a></li>
+  </ol>
+</details>
 
-```bash
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install -e ".[dev]"
-```
+## About The Project
 
-Run checks:
+Evidence Base is a Python-first stack for:
 
-```bash
-ruff check .
-mypy .
-pytest
-```
+- bucket and document management through a FastAPI service,
+- asynchronous ingestion and processing via Celery,
+- partition and metadata state in Redis,
+- embedding/chunk retrieval in Qdrant,
+- unified operations UI/docs behind an NGINX proxy.
 
-Run the CLI:
+The repository includes local Docker orchestration, Sphinx documentation, API/CLI examples, and automated test reporting with grouped summaries and coverage.
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+### Built With
+
+- [Python](https://www.python.org/)
+- [FastAPI](https://fastapi.tiangolo.com/)
+- [Celery](https://docs.celeryq.dev/)
+- [MinIO](https://min.io/)
+- [Redis](https://redis.io/)
+- [Qdrant](https://qdrant.tech/)
+- [Sphinx](https://www.sphinx-doc.org/)
+- [Docker Compose](https://docs.docker.com/compose/)
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+## Getting Started
+
+### Prerequisites
+
+- Python 3.10+
+- Docker + Docker Compose
+- Optional: `jq` for easier API response filtering
+
+### Installation
+
+1. Clone the repo.
+   ```bash
+   git clone https://github.com/defenceeconomist/mcp-evidencebase.git
+   cd mcp-evidencebase
+   ```
+2. Create a virtual environment.
+   ```bash
+   python -m venv .venv
+   source .venv/bin/activate
+   ```
+3. Install development dependencies.
+   ```bash
+   python -m pip install -e ".[dev]"
+   ```
+4. Verify local tooling.
+   ```bash
+   ruff check .
+   mypy .
+   pytest
+   ```
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+## Usage
+
+### CLI
+
+Run the package healthcheck:
 
 ```bash
 python -m mcp_evidencebase --healthcheck
 # ok
 ```
 
-## Docker compose stack
+### Docker Compose Stack
 
-Starts:
-- NGINX reverse proxy (`52180` by default)
-- Frontend dashboard (via proxy)
-- Bucket API service (via proxy)
-- Documentation site (via proxy)
-- MinIO (via proxy)
-- MinIO Console (via proxy)
-- Redis (internal only)
-- RedisInsight (via proxy)
-- Qdrant HTTP API (via proxy)
-- Celery worker
-- Flower (via proxy)
-- Cloudflare Tunnel (optional `cloudflare` profile)
+Start the full local stack:
 
 ```bash
 docker compose up -d --build
 ```
+
+Services include:
+
+- NGINX reverse proxy (`52180` default)
+- Frontend dashboard
+- API service
+- Documentation site
+- MinIO + MinIO Console
+- Redis + RedisInsight
+- Qdrant
+- Celery worker + Flower
+- Optional Cloudflare Tunnel profile
 
 Enable Cloudflare Tunnel:
 
@@ -75,12 +147,9 @@ Enable Cloudflare Tunnel:
 docker compose --profile cloudflare up -d cloudflared
 ```
 
-The tunnel token is read from `CLOUDFLARE_TUNNEL_TOKEN` in `.env`.
-If your Cloudflare public hostname currently points to `http://localhost:52180`,
-set the tunnel service target to `http://proxy:80` for this compose stack.
+### Service URLs
 
-All web services are exposed through one host port (`${PROXY_PORT:-52180}`) using
-path-based routing on the main host (`localhost`) and via Cloudflare (`evidencebase.heley.uk`):
+All services are proxied through one host port (`${PROXY_PORT:-52180}`):
 
 ```text
 http://localhost:52180
@@ -92,7 +161,11 @@ http://localhost:52180/minio-console/
 http://localhost:52180/redisinsight/
 http://localhost:52180/dashboard/
 http://localhost:52180/flower/
+```
 
+Public equivalents currently configured:
+
+```text
 https://evidencebase.heley.uk
 https://evidencebase.heley.uk/docs/
 https://evidencebase.heley.uk/docs/readme.html
@@ -104,15 +177,79 @@ https://evidencebase.heley.uk/dashboard/
 https://evidencebase.heley.uk/flower/
 ```
 
-## Documentation
+### API Workflow Examples
 
-Build docs locally (includes test output from `pytest-html-plus`):
+Set base URL:
+
+```bash
+BASE_URL="http://localhost:52180/api"
+```
+
+List buckets:
+
+```bash
+curl -sS "$BASE_URL/buckets"
+```
+
+Create bucket:
+
+```bash
+curl -sS -X POST "$BASE_URL/buckets" \
+  -H "Content-Type: application/json" \
+  -d '{"bucket_name":"research-raw"}'
+```
+
+Upload document and queue processing:
+
+```bash
+curl -sS -X POST \
+  "$BASE_URL/collections/research-raw/documents/upload?file_name=paper.pdf" \
+  -H "Content-Type: application/pdf" \
+  --data-binary "@paper.pdf"
+```
+
+Trigger on-demand scan:
+
+```bash
+curl -sS -X POST "$BASE_URL/collections/research-raw/scan"
+```
+
+Update document metadata:
+
+```bash
+curl -sS -X PUT "$BASE_URL/collections/research-raw/documents/<document_id>/metadata" \
+  -H "Content-Type: application/json" \
+  -d '{"metadata":{"title":"My Paper","author":"A. Author","year":"2025","document_type":"article"}}'
+```
+
+Delete document:
+
+```bash
+curl -sS -X DELETE "$BASE_URL/collections/research-raw/documents/<document_id>"
+```
+
+Delete bucket:
+
+```bash
+curl -sS -X DELETE "$BASE_URL/buckets/research-raw"
+```
+
+### Documentation And Test Reporting
+
+Build docs locally (includes full test run, grouped summary, and coverage):
 
 ```bash
 docs/build_docs.sh
 ```
 
-Optional environment overrides:
+The docs test page includes:
+
+- grouped tests by key areas,
+- per-test commentary (what is validated and expected result),
+- module and total line coverage,
+- full HTML test report embed.
+
+### Environment Overrides
 
 ```bash
 PROXY_PORT=52180
@@ -136,118 +273,102 @@ MINIO_SCAN_INTERVAL_SECONDS=15
 CLOUDFLARE_TUNNEL_TOKEN=<your-cloudflare-tunnel-token>
 ```
 
-## Bucket API command-line examples
+### Data Model Snapshot (Redis + Qdrant)
 
-The UI calls the same API shown below. These are copy/paste commands.
+`document_id` is the SHA-256 hash of file bytes.
 
-Set the API base URL:
+Redis keys (prefix default: `evidencebase`):
 
-```bash
-BASE_URL="http://localhost:52180/api"
+- `document:<document_hash>` processing state/progress hash
+- `document:<document_hash>:sources` source locations set (`bucket/object`)
+- `partition:<partition_hash>` partition payload JSON
+- `source:<bucket>/<object>` source mapping (`document_id`, `etag`, `resolver_url`)
+- `source:bucket:<bucket>` set of source locations in bucket
+- `meta:<bucket>/<object>` source-scoped normalized metadata
+
+Qdrant point payload fields include:
+
+- `document_id`
+- `partition_key`
+- `meta_key`
+- `resolver_url` (`docs://bucket/object.ext?page=`)
+- `minio_location`, `chunk_index`, `text`
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+## Project Structure
+
+```text
+.
+├── deploy/
+│   └── nginx/
+├── docker/
+├── docs/
+│   ├── build_docs.sh
+│   └── source/
+├── frontend/
+├── src/
+│   └── mcp_evidencebase/
+└── tests/
 ```
 
-List buckets:
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
 
-```bash
-curl -sS "$BASE_URL/buckets"
-```
+## Roadmap
 
-Add bucket `research-raw`:
+- [x] Unified proxy-based local stack for UI/API/docs/ops services
+- [x] End-to-end ingestion flow (upload -> partition -> metadata -> chunks -> vectors)
+- [x] Sphinx docs with API reference and CLI vignette
+- [x] Test reporting with grouped areas and coverage summary in docs
+- [ ] Add automated deployment workflow for docs and services
+- [ ] Expand integration tests for live MinIO/Redis/Qdrant interactions
 
-```bash
-curl -sS -X POST "$BASE_URL/buckets" \
-  -H "Content-Type: application/json" \
-  -d '{"bucket_name":"research-raw"}'
-```
+See open issues for additional planning: [open issues][issues-url].
 
-Expected response when created:
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
 
-```json
-{"bucket_name":"research-raw","created":true,"qdrant_collection_created":true}
-```
+## Contributing
 
-Expected response when it already exists:
+Contributions are welcome.
 
-```json
-{"bucket_name":"research-raw","created":false,"qdrant_collection_created":false}
-```
+1. Fork the project
+2. Create your feature branch (`git checkout -b feature/my-change`)
+3. Commit your changes (`git commit -m 'Add some feature'`)
+4. Push to the branch (`git push origin feature/my-change`)
+5. Open a Pull Request
 
-Remove bucket `research-raw`:
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
 
-```bash
-curl -sS -X DELETE "$BASE_URL/buckets/research-raw"
-```
+## License
 
-Expected response when removed:
+No license file is currently included in this repository.
 
-```json
-{"bucket_name":"research-raw","removed":true,"qdrant_collection_removed":true}
-```
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
 
-Expected response when it does not exist:
+## Contact
 
-```json
-{"bucket_name":"research-raw","removed":false,"qdrant_collection_removed":false}
-```
+Project repository: [https://github.com/defenceeconomist/mcp-evidencebase](https://github.com/defenceeconomist/mcp-evidencebase)
 
-## Document ingestion API command-line examples
+Issues: [https://github.com/defenceeconomist/mcp-evidencebase/issues](https://github.com/defenceeconomist/mcp-evidencebase/issues)
 
-List documents for bucket `research-raw`:
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
 
-```bash
-curl -sS "$BASE_URL/collections/research-raw/documents"
-```
+## Acknowledgments
 
-Upload and queue processing (`document_id` is the SHA-256 hash of bytes):
+- [Best-README-Template](https://github.com/othneildrew/Best-README-Template)
+- [FastAPI](https://fastapi.tiangolo.com/)
+- [Celery](https://docs.celeryq.dev/)
+- [Qdrant](https://qdrant.tech/)
+- [MinIO](https://min.io/)
 
-```bash
-curl -sS -X POST \
-  "$BASE_URL/collections/research-raw/documents/upload?file_name=paper.pdf" \
-  -H "Content-Type: application/pdf" \
-  --data-binary "@paper.pdf"
-```
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
 
-Queue an on-demand bucket scan (for files dropped directly into MinIO):
-
-```bash
-curl -sS -X POST "$BASE_URL/collections/research-raw/scan"
-```
-
-Update BibTeX metadata in Redis:
-
-```bash
-curl -sS -X PUT "$BASE_URL/collections/research-raw/documents/<document_id>/metadata" \
-  -H "Content-Type: application/json" \
-  -d '{"metadata":{"title":"My Paper","author":"A. Author","year":"2025","document_type":"article"}}'
-```
-
-Delete a document (keeps partition payload in Redis, removes everything else):
-
-```bash
-curl -sS -X DELETE "$BASE_URL/collections/research-raw/documents/<document_id>"
-```
-
-## Redis and Qdrant Schema
-
-`document_id` is the SHA-256 hash of file bytes and is the canonical document key.
-
-Redis keys (prefix defaults to `evidencebase`):
-- `document:<document_hash>` hash for processing state/progress (`processing_state`, `processing_progress`, `partition_key`, `meta_key`, etc.).
-- `document:<document_hash>:sources` set of `bucket/object` source locations mapped to the document hash.
-- `document:<document_hash>:partitions` Unstructured partition JSON payload.
-- `document:partition:<partition_hash>` reverse index mapping partition hash -> document hash.
-- `source:<bucket>/<object>` source mapping hash (`document_id`, `etag`, `resolver_url`, location fields).
-- `source:bucket:<bucket>` set of source locations in a bucket.
-- `meta:<bucket>/<object>` source-scoped normalized BibTeX metadata payload with `document_id` and `source`.
-
-Notes:
-- Redis stores partitions and metadata, but **does not store chunks**.
-- Deleting a document keeps `document:<document_hash>` state and partition payload by default, and removes source/meta mappings.
-- Metadata extraction attempts title/authors/DOI/ISBN; DOI extraction is intentionally limited to first-page/front-matter partitions.
-
-Qdrant stores chunk text + embeddings. Each point payload includes:
-- `document_id` (document hash)
-- `partition_key` (partition hash)
-- `meta_key` (metadata hash)
-- `resolver_url` in the form `docs://bucket/object.ext?page=`
-- `minio_location`, `chunk_index`, and `text`
+<!-- MARKDOWN LINKS & IMAGES -->
+[contributors-shield]: https://img.shields.io/github/contributors/defenceeconomist/mcp-evidencebase.svg?style=for-the-badge
+[contributors-url]: https://github.com/defenceeconomist/mcp-evidencebase/graphs/contributors
+[forks-shield]: https://img.shields.io/github/forks/defenceeconomist/mcp-evidencebase.svg?style=for-the-badge
+[forks-url]: https://github.com/defenceeconomist/mcp-evidencebase/network/members
+[stars-shield]: https://img.shields.io/github/stars/defenceeconomist/mcp-evidencebase.svg?style=for-the-badge
+[stars-url]: https://github.com/defenceeconomist/mcp-evidencebase/stargazers
+[issues-shield]: https://img.shields.io/github/issues/defenceeconomist/mcp-evidencebase.svg?style=for-the-badge
+[issues-url]: https://github.com/defenceeconomist/mcp-evidencebase/issues

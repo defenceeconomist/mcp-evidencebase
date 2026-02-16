@@ -4,17 +4,20 @@ import sys
 import types
 from collections import defaultdict
 from dataclasses import dataclass
+from fnmatch import fnmatch
 from typing import Any
 
 import pytest
 
 from mcp_evidencebase.ingestion import (
+    IngestionService,
     QdrantIndexer,
     RedisDocumentRepository,
     chunk_partition_texts,
     compute_chunk_point_id,
     compute_document_id,
     extract_metadata_from_partitions,
+    extract_pdf_title_author,
 )
 
 pytestmark = pytest.mark.area_ingestion
@@ -72,6 +75,12 @@ class FakeRedis:
             del self._strings[key]
             removed += 1
         return removed
+
+    def scan_iter(self, match: str | None = None) -> Any:
+        keys = set(self._sets) | set(self._hashes) | set(self._strings)
+        for key in sorted(keys):
+            if match is None or fnmatch(key, match):
+                yield key
 
 
 @dataclass
@@ -228,7 +237,7 @@ def test_chunk_partition_texts_returns_overlapping_chunks() -> None:
 
 
 def test_extract_metadata_limits_doi_extraction_to_first_page() -> None:
-    """Confirm DOI extraction ignores reference-page DOIs beyond first-page partitions."""
+    """Confirm title/author come from PDF metadata and DOI from first-page only."""
     partitions = [
         {
             "text": "Causal Inference in Medicine\nAlice Smith, Bob Jones",
@@ -244,19 +253,20 @@ def test_extract_metadata_limits_doi_extraction_to_first_page() -> None:
         partitions=partitions,
         file_path="paper.pdf",
         document_id="doc-1",
+        pdf_metadata={"title": "Metadata Title", "author": "Metadata Author"},
     )
 
-    assert metadata["title"] == "Causal Inference in Medicine"
-    assert metadata["author"] == "Alice Smith, Bob Jones"
+    assert metadata["title"] == "Metadata Title"
+    assert metadata["author"] == "Metadata Author"
     assert metadata["doi"] == ""
 
 
 def test_extract_metadata_can_parse_first_page_identifiers() -> None:
-    """Verify first-page title, author, DOI, and ISBN values are extracted."""
+    """Verify DOI/ISBN are extracted from first-page text only."""
     partitions = [
         {
             "text": (
-                "My Study Title\nJane Roe and John Doe\nDOI: 10.1000/xyz123\n"
+                "Different Page Title\nDifferent Author\nDOI: 10.1000/xyz123\n"
                 "ISBN 978-0-393-04002-9"
             ),
             "metadata": {"page_number": 1},
@@ -267,12 +277,32 @@ def test_extract_metadata_can_parse_first_page_identifiers() -> None:
         partitions=partitions,
         file_path="study.pdf",
         document_id="doc-2",
+        pdf_metadata={"title": "PDF Embedded Title", "author": "PDF Embedded Author"},
     )
 
-    assert metadata["title"] == "My Study Title"
-    assert metadata["author"] == "Jane Roe and John Doe"
+    assert metadata["title"] == "PDF Embedded Title"
+    assert metadata["author"] == "PDF Embedded Author"
     assert metadata["doi"] == "10.1000/xyz123"
     assert metadata["isbn"] == "9780393040029"
+
+
+def test_extract_pdf_title_author_reads_pdf_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify PDF title/author extraction reads embedded metadata values."""
+
+    class FakePdfMetadata:
+        title = "Embedded Title"
+        author = "Embedded Author"
+
+    class FakePdfReader:
+        def __init__(self, stream: Any) -> None:
+            del stream
+            self.metadata = FakePdfMetadata()
+
+    monkeypatch.setitem(sys.modules, "pypdf", types.SimpleNamespace(PdfReader=FakePdfReader))
+
+    extracted = extract_pdf_title_author(b"%PDF-1.7 fake")
+
+    assert extracted == {"title": "Embedded Title", "author": "Embedded Author"}
 
 
 def test_repository_maps_document_to_multiple_minio_locations() -> None:
@@ -302,6 +332,23 @@ def test_repository_maps_document_to_multiple_minio_locations() -> None:
         "research-raw/folder/paper.pdf",
         "research-raw/paper-copy.pdf",
     ]
+
+
+def test_repository_persists_isbn_metadata_field() -> None:
+    """Ensure ISBN is stored and returned through metadata payload fields."""
+    redis_client = FakeRedis()
+    repository = RedisDocumentRepository(redis_client, key_prefix="test")
+
+    meta_key = repository.set_metadata_for_location(
+        bucket_name="research-raw",
+        object_name="book.pdf",
+        document_id="doc-isbn",
+        metadata={"title": "Book Title", "isbn": "9780393040029"},
+    )
+
+    metadata = repository.get_metadata_by_key(meta_key)
+    assert metadata["title"] == "Book Title"
+    assert metadata["isbn"] == "9780393040029"
 
 
 def test_remove_document_keeps_partitions_but_removes_other_redis_data() -> None:
@@ -355,6 +402,111 @@ def test_remove_document_keeps_partitions_but_removes_other_redis_data() -> None
     assert repository.get_metadata_by_key(meta_key)["title"] == ""
     assert repository.get_chunks(bucket_name, document_id) == []
     assert repository.get_object_mapping(bucket_name, "paper.pdf") == {}
+
+
+def test_set_partitions_stores_payload_under_partition_hash_key() -> None:
+    """Ensure partition payloads use direct hash keys and not reverse-index keys."""
+    redis_client = FakeRedis()
+    repository = RedisDocumentRepository(redis_client, key_prefix="test")
+
+    partition_key = repository.set_partitions(
+        "research-raw",
+        "doc-789",
+        [{"text": "partition text"}],
+    )
+
+    assert repository.get_partitions_by_key(partition_key) == [{"text": "partition text"}]
+    assert redis_client.get(f"test:partition:{partition_key}") is not None
+    assert redis_client.get(f"test:document:partition:{partition_key}") is None
+
+
+def test_get_partitions_by_key_does_not_read_legacy_storage() -> None:
+    """Verify legacy reverse-index/document partition keys are ignored."""
+    redis_client = FakeRedis()
+    repository = RedisDocumentRepository(redis_client, key_prefix="test")
+    document_id = "doc-legacy"
+    partition_key = "legacy-partition-key"
+
+    redis_client.set(
+        f"test:document:{document_id}:partitions",
+        '[{"text":"legacy partition"}]',
+    )
+    redis_client.set(f"test:document:partition:{partition_key}", document_id)
+    repository.set_state(document_id, {"partition_key": partition_key})
+
+    partitions = repository.get_partitions_by_key(partition_key)
+
+    assert partitions == []
+    assert redis_client.get(f"test:partition:{partition_key}") is None
+    assert redis_client.get(f"test:document:partition:{partition_key}") == document_id
+    assert redis_client.get(f"test:document:{document_id}:partitions") is not None
+
+
+def test_repository_purge_prefix_data_deletes_only_prefixed_keys() -> None:
+    """Ensure purge removes only keys under the configured Redis prefix."""
+    redis_client = FakeRedis()
+    repository = RedisDocumentRepository(redis_client, key_prefix="test")
+
+    redis_client.set("test:one", "1")
+    redis_client.hset("test:two", mapping={"field": "value"})
+    redis_client.sadd("test:three", "member")
+    redis_client.set("other:one", "2")
+
+    deleted = repository.purge_prefix_data()
+
+    assert deleted == 3
+    assert redis_client.get("test:one") is None
+    assert redis_client.hgetall("test:two") == {}
+    assert redis_client.smembers("test:three") == set()
+    assert redis_client.get("other:one") == "2"
+
+
+def test_qdrant_indexer_purge_prefixed_collections() -> None:
+    """Validate only collections with the configured prefix are deleted."""
+    qdrant = FakeQdrantClient()
+    qdrant.collection_names = {
+        "evidencebase_research_raw",
+        "evidencebase_other",
+        "unrelated_collection",
+    }
+    indexer = StubQdrantIndexer(
+        qdrant_client=qdrant,
+        fastembed_model="ignored",
+        collection_prefix="evidencebase",
+    )
+
+    deleted = indexer.purge_prefixed_collections()
+
+    assert deleted == 2
+    assert "unrelated_collection" in qdrant.collection_names
+    assert "evidencebase_research_raw" not in qdrant.collection_names
+    assert "evidencebase_other" not in qdrant.collection_names
+
+
+def test_ingestion_service_purge_datastores_returns_deleted_counts() -> None:
+    """Ensure service purge reports deleted Redis keys and Qdrant collections."""
+    redis_client = FakeRedis()
+    repository = RedisDocumentRepository(redis_client, key_prefix="test")
+    redis_client.set("test:sample", "value")
+    qdrant = FakeQdrantClient()
+    qdrant.collection_names = {"evidencebase_research_raw", "external_collection"}
+    indexer = StubQdrantIndexer(
+        qdrant_client=qdrant,
+        fastembed_model="ignored",
+        collection_prefix="evidencebase",
+    )
+    service = IngestionService(
+        minio_client=types.SimpleNamespace(),
+        repository=repository,
+        partition_client=types.SimpleNamespace(),
+        qdrant_indexer=indexer,
+        chunk_size_chars=1200,
+        chunk_overlap_chars=150,
+    )
+
+    summary = service.purge_datastores()
+
+    assert summary == {"redis_deleted_keys": 1, "qdrant_deleted_collections": 1}
 
 
 def test_remove_document_can_remove_partitions() -> None:
