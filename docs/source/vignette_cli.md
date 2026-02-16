@@ -103,7 +103,24 @@ Use this when files are dropped into MinIO outside the upload API.
 curl -sS -X POST "$BASE_URL/collections/$BUCKET/scan"
 ```
 
-## 8. Delete document and bucket
+## 8. Run hybrid search
+
+```bash
+curl -sS "$BASE_URL/collections/$BUCKET/search?query=causal%20inference&mode=hybrid&limit=5&rrf_k=80"
+```
+
+You can also run the same flow from the package CLI:
+
+```bash
+python -m mcp_evidencebase \
+  --search-bucket "$BUCKET" \
+  --search-query "causal inference" \
+  --search-mode hybrid \
+  --search-limit 5 \
+  --search-rrf-k 80
+```
+
+## 9. Delete document and bucket
 
 Delete the document by `document_id`:
 
@@ -117,7 +134,7 @@ Delete the bucket:
 curl -sS -X DELETE "$BASE_URL/buckets/$BUCKET"
 ```
 
-## 9. Celery task reference
+## 10. Celery task reference
 
 Tasks are defined in `src/mcp_evidencebase/tasks.py`:
 
@@ -137,7 +154,7 @@ Current workflow shape:
   strategy can evolve without coupling to Unstructured API partition calls.
 - Use stage-specific reruns when needed (for example re-chunk/re-index without re-partition).
 
-## 10. Stop the stack
+## 11. Stop the stack
 
 ```bash
 docker compose down

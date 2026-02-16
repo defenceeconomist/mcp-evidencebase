@@ -29,10 +29,25 @@
   const tableViewModeSwitch = document.getElementById("table-view-mode-switch");
   const detailViewLabel = document.getElementById("detail-view-label");
   const bulkViewLabel = document.getElementById("bulk-view-label");
+  const documentMetaTab = document.getElementById("document-meta-tab");
+  const documentMetaPane = document.getElementById("document-meta-pane");
   const docJsonModalElement = document.getElementById("doc-json-modal");
   const docJsonModalTitle = document.getElementById("doc-json-modal-title");
   const docJsonModalSubtitle = document.getElementById("doc-json-modal-subtitle");
   const docJsonModalTree = document.getElementById("doc-json-modal-tree");
+  const semanticSearchTab = document.getElementById("semantic-search-tab");
+  const semanticSearchPane = document.getElementById("semantic-search-pane");
+  const semanticSearchForm = document.getElementById("semantic-search-form");
+  const semanticSearchQueryInput = document.getElementById("semantic-search-query");
+  const semanticSearchModeSelect = document.getElementById("semantic-search-mode");
+  const semanticSearchLimitInput = document.getElementById("semantic-search-limit");
+  const semanticRrfKField = document.getElementById("semantic-rrf-k-field");
+  const rrfKInput = document.getElementById("rrf-k-input");
+  const semanticSearchSubmit = document.getElementById("semantic-search-submit");
+  const semanticSearchStatus = document.getElementById("semantic-search-status");
+  const semanticSearchCount = document.getElementById("semantic-search-count");
+  const semanticSearchResultsBody = document.getElementById("semantic-search-results");
+  const mainViewTabList = document.querySelector('ul[role="tablist"][aria-label="Main views"]');
 
   const selectedBucketCookieName = "evidencebase_selected_bucket";
   const documentTypes = [
@@ -304,6 +319,7 @@
   let documentTable = null;
   let docJsonModalInstance = null;
   let documentRefreshTimerId = null;
+  let semanticSearchResults = [];
   const isMobileViewport = () => window.matchMedia("(max-width: 991.98px)").matches;
 
   const setCookie = (name, value, maxAgeSeconds) => {
@@ -337,9 +353,13 @@
     selectedBucketName = bucketName;
     if (bucketName) {
       setCookie(selectedBucketCookieName, bucketName, 60 * 60 * 24 * 365);
+      setSemanticSearchStatus(`Selected collection: ${bucketName}.`);
     } else {
       clearCookie(selectedBucketCookieName);
+      setSemanticSearchStatus("Select a collection and run a query.");
     }
+    semanticSearchResults = [];
+    renderSemanticSearchResults();
   };
 
   const normalizeText = (value) => {
@@ -634,6 +654,172 @@
       throw new Error(await parseErrorMessage(response));
     }
     return response.json();
+  };
+
+  const setSemanticSearchStatus = (message) => {
+    if (semanticSearchStatus) {
+      semanticSearchStatus.textContent = message;
+    }
+  };
+
+  const setSemanticSearchCount = (count) => {
+    if (semanticSearchCount) {
+      semanticSearchCount.textContent = `${count} result${count === 1 ? "" : "s"}`;
+    }
+  };
+
+  const formatSearchPages = (pageNumbers) => {
+    if (!Array.isArray(pageNumbers) || pageNumbers.length === 0) {
+      return "n/a";
+    }
+    return pageNumbers
+      .map((value) => Number.parseInt(value, 10))
+      .filter((value) => Number.isFinite(value) && value > 0)
+      .join(", ");
+  };
+
+  const renderSemanticSearchResults = () => {
+    if (!semanticSearchResultsBody) {
+      return;
+    }
+    semanticSearchResultsBody.innerHTML = "";
+
+    if (!semanticSearchResults.length) {
+      const row = document.createElement("tr");
+      const cell = document.createElement("td");
+      cell.colSpan = 4;
+      cell.className = "text-body-secondary";
+      cell.textContent = "No search results yet.";
+      row.appendChild(cell);
+      semanticSearchResultsBody.appendChild(row);
+      setSemanticSearchCount(0);
+      return;
+    }
+
+    semanticSearchResults.forEach((result) => {
+      const row = document.createElement("tr");
+
+      const scoreCell = document.createElement("td");
+      const scoreValue = Number.parseFloat(result.score);
+      scoreCell.textContent = Number.isFinite(scoreValue) ? scoreValue.toFixed(4) : "0.0000";
+
+      const documentCell = document.createElement("td");
+      documentCell.innerHTML =
+        `<div class="fw-semibold">${filenameFromPath(result.file_path || "")}</div>` +
+        `<div class="small text-body-secondary">${normalizeText(result.document_id || "")}</div>`;
+
+      const textCell = document.createElement("td");
+      textCell.className = "semantic-search-snippet";
+      textCell.textContent = normalizeText(result.text || "");
+
+      const pagesCell = document.createElement("td");
+      pagesCell.textContent = formatSearchPages(result.page_numbers);
+
+      row.appendChild(scoreCell);
+      row.appendChild(documentCell);
+      row.appendChild(textCell);
+      row.appendChild(pagesCell);
+      semanticSearchResultsBody.appendChild(row);
+    });
+
+    setSemanticSearchCount(semanticSearchResults.length);
+  };
+
+  const searchCollection = async () => {
+    if (!selectedBucketName) {
+      window.alert("Select a collection first.");
+      return;
+    }
+    const query = normalizeText(semanticSearchQueryInput?.value || "");
+    if (!query) {
+      window.alert("Enter a search query.");
+      return;
+    }
+
+    const mode = normalizeText(semanticSearchModeSelect?.value || "hybrid").toLowerCase();
+    const limit = Number.parseInt(semanticSearchLimitInput?.value || "10", 10);
+    const params = new URLSearchParams({
+      query,
+      mode,
+      limit: String(Number.isFinite(limit) ? limit : 10),
+    });
+    if (mode === "hybrid") {
+      const rrfKValue = Number.parseInt(rrfKInput?.value || "60", 10);
+      params.set("rrf_k", String(Number.isFinite(rrfKValue) ? Math.max(1, rrfKValue) : 60));
+    }
+
+    if (semanticSearchSubmit) {
+      semanticSearchSubmit.setAttribute("disabled", "disabled");
+    }
+    setSemanticSearchStatus("Searching...");
+    try {
+      const payload = await apiRequest(
+        `/collections/${encodeURIComponent(selectedBucketName)}/search?${params.toString()}`
+      );
+      semanticSearchResults = Array.isArray(payload.results) ? payload.results : [];
+      renderSemanticSearchResults();
+      setSemanticSearchStatus(
+        `Query "${query}" ran on ${selectedBucketName} using ${normalizeText(payload.mode || mode)} mode.`
+      );
+    } catch (error) {
+      semanticSearchResults = [];
+      renderSemanticSearchResults();
+      setSemanticSearchStatus("Search failed.");
+      window.alert(`Could not run search: ${error.message}`);
+    } finally {
+      if (semanticSearchSubmit) {
+        semanticSearchSubmit.removeAttribute("disabled");
+      }
+    }
+  };
+
+  const syncSemanticSearchModeFields = () => {
+    if (!semanticSearchModeSelect || !semanticRrfKField || !rrfKInput) {
+      return;
+    }
+    const hybridEnabled = semanticSearchModeSelect.value === "hybrid";
+    semanticRrfKField.classList.toggle("d-none", !hybridEnabled);
+    rrfKInput.disabled = !hybridEnabled;
+  };
+
+  const resetSemanticSearchScroll = () => {
+    if (semanticSearchPane) {
+      semanticSearchPane.scrollTop = 0;
+    }
+    if (mainPanel) {
+      mainPanel.scrollTop = 0;
+    }
+    if (appShell) {
+      appShell.scrollTop = 0;
+    }
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+    window.scrollTo(0, 0);
+  };
+
+  const setMainTabState = (nextPaneId) => {
+    const tabDefinitions = [
+      { tabButton: documentMetaTab, tabPane: documentMetaPane, paneId: "document-meta-pane" },
+      { tabButton: semanticSearchTab, tabPane: semanticSearchPane, paneId: "semantic-search-pane" },
+    ];
+
+    tabDefinitions.forEach(({ tabButton, tabPane, paneId }) => {
+      const isActive = paneId === nextPaneId;
+      if (tabButton) {
+        tabButton.classList.toggle("active", isActive);
+        tabButton.setAttribute("aria-selected", String(isActive));
+      }
+      if (tabPane) {
+        tabPane.classList.toggle("is-active", isActive);
+        tabPane.hidden = !isActive;
+        tabPane.setAttribute("aria-hidden", String(!isActive));
+        tabPane.style.display = isActive
+          ? paneId === "document-meta-pane"
+            ? "flex"
+            : "block"
+          : "none";
+      }
+    });
   };
 
   const clearDocumentRefreshTimer = () => {
@@ -1656,6 +1842,43 @@
     syncTableViewLabels();
     renderDocumentMeta();
   });
+  semanticSearchForm?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    void searchCollection();
+  });
+  semanticSearchModeSelect?.addEventListener("change", () => {
+    syncSemanticSearchModeFields();
+  });
+  const handleMainTabClick = (nextPaneId) => {
+    setMainTabState(nextPaneId);
+    if (nextPaneId === "semantic-search-pane") {
+      resetSemanticSearchScroll();
+      return;
+    }
+    window.requestAnimationFrame(setIndependentScrollHeights);
+  };
+
+  documentMetaTab?.addEventListener("click", (event) => {
+    event.preventDefault();
+    handleMainTabClick("document-meta-pane");
+  });
+  semanticSearchTab?.addEventListener("click", (event) => {
+    event.preventDefault();
+    handleMainTabClick("semantic-search-pane");
+  });
+  mainViewTabList?.addEventListener("click", (event) => {
+    const tabTrigger = event.target.closest("button[data-tab-target]");
+    if (!tabTrigger) {
+      return;
+    }
+    event.preventDefault();
+    const targetSelector = tabTrigger.getAttribute("data-tab-target");
+    if (targetSelector === "#semantic-search-pane") {
+      handleMainTabClick("semantic-search-pane");
+      return;
+    }
+    handleMainTabClick("document-meta-pane");
+  });
 
   collectionsFilterInput?.addEventListener("input", () => {
     collectionsFilterQuery = normalizeText(collectionsFilterInput.value).toLowerCase();
@@ -1737,6 +1960,10 @@
     tableViewModeSwitch.checked = false;
   }
   syncTableViewLabels();
+  setMainTabState("document-meta-pane");
+  syncSemanticSearchModeFields();
+  renderSemanticSearchResults();
+  setSemanticSearchStatus("Select a collection and run a query.");
 
   updateRemoveTooltip();
   updateRemoveDocumentButtonState();

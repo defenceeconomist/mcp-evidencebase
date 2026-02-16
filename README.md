@@ -121,6 +121,17 @@ python -m mcp_evidencebase --healthcheck
 # ok
 ```
 
+Run hybrid search from the CLI:
+
+```bash
+python -m mcp_evidencebase \
+  --search-bucket research-raw \
+  --search-query "causal inference in healthcare" \
+  --search-mode hybrid \
+  --search-limit 5 \
+  --search-rrf-k 80
+```
+
 ### Docker Compose Stack
 
 Start the full local stack:
@@ -222,6 +233,12 @@ curl -sS -X PUT "$BASE_URL/collections/research-raw/documents/<document_id>/meta
   -d '{"metadata":{"title":"My Paper","author":"A. Author","year":"2025","document_type":"article"}}'
 ```
 
+Run hybrid search:
+
+```bash
+curl -sS "$BASE_URL/collections/research-raw/search?query=causal%20inference&mode=hybrid&limit=5&rrf_k=80"
+```
+
 Delete document:
 
 ```bash
@@ -255,7 +272,10 @@ Stage details:
    - partition text values are concatenated with `\n\n`,
    - a sliding window of `CHUNK_SIZE_CHARS` with `CHUNK_OVERLAP_CHARS` overlap is applied,
    - each chunk keeps `page_numbers` and `bounding_boxes` from overlapping source partitions.
-5. Embed chunks and upsert vectors into bucket-specific Qdrant collection.
+5. Embed chunks and upsert vectors into bucket-specific Qdrant collection:
+   - dense semantic vector (`FASTEMBED_MODEL`),
+   - sparse keyword vector (`FASTEMBED_KEYWORD_MODEL`, default `Qdrant/bm25`).
+6. Hybrid search fuses semantic and keyword ranks using weighted reciprocal rank fusion.
 
 Chunking is internal to `IngestionService` and does not call Unstructured APIs. This allows
 future chunking strategy changes without changing the partition stage.
@@ -316,6 +336,7 @@ UNSTRUCTURED_API_URL=https://api.unstructuredapp.io/general/v0/general
 UNSTRUCTURED_API_KEY=<your-unstructured-api-key>
 UNSTRUCTURED_STRATEGY=auto
 FASTEMBED_MODEL=BAAI/bge-small-en-v1.5
+FASTEMBED_KEYWORD_MODEL=Qdrant/bm25
 CHUNK_SIZE_CHARS=1200
 CHUNK_OVERLAP_CHARS=150
 MINIO_SCAN_INTERVAL_SECONDS=15

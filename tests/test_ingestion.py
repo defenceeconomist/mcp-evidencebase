@@ -100,14 +100,21 @@ class FakeQdrantClient:
         self.collection_names: set[str] = set()
         self.upsert_calls: list[dict[str, Any]] = []
         self.delete_calls: list[dict[str, Any]] = []
+        self.search_calls: list[dict[str, Any]] = []
+        self.search_results: dict[str, list[Any]] = {"dense": [], "keyword": []}
 
     def get_collections(self) -> FakeCollectionsResponse:
         return FakeCollectionsResponse(
             collections=[FakeCollection(name=name) for name in sorted(self.collection_names)]
         )
 
-    def create_collection(self, collection_name: str, vectors_config: Any) -> None:
-        del vectors_config
+    def create_collection(
+        self,
+        collection_name: str,
+        vectors_config: Any,
+        sparse_vectors_config: Any | None = None,
+    ) -> None:
+        del vectors_config, sparse_vectors_config
         self.collection_names.add(collection_name)
 
     def delete_collection(self, collection_name: str) -> None:
@@ -129,6 +136,20 @@ class FakeQdrantClient:
                 "wait": wait,
             }
         )
+
+    def search(
+        self,
+        *,
+        collection_name: str,
+        query_vector: Any,
+        limit: int,
+        with_payload: bool,
+        with_vectors: bool,
+    ) -> list[Any]:
+        del collection_name, with_payload, with_vectors
+        vector_name = str(query_vector[0]) if isinstance(query_vector, tuple) else "dense"
+        self.search_calls.append({"vector_name": vector_name, "limit": limit})
+        return list(self.search_results.get(vector_name, []))[:limit]
 
 
 class FakeMinioObjectResponse:
@@ -186,6 +207,7 @@ class FakePartitionClient:
 class RecordingQdrantIndexer:
     def __init__(self) -> None:
         self.upsert_calls: list[dict[str, Any]] = []
+        self.search_calls: list[dict[str, Any]] = []
 
     def upsert_document_chunks(
         self,
@@ -222,15 +244,49 @@ class RecordingQdrantIndexer:
     def delete_document(self, bucket_name: str, document_id: str) -> None:
         del bucket_name, document_id
 
+    def search_chunks(
+        self,
+        *,
+        bucket_name: str,
+        query: str,
+        limit: int,
+        mode: str,
+        rrf_k: int = 60,
+    ) -> list[dict[str, Any]]:
+        self.search_calls.append(
+            {
+                "bucket_name": bucket_name,
+                "query": query,
+                "limit": limit,
+                "mode": mode,
+                "rrf_k": rrf_k,
+            }
+        )
+        return []
+
 
 class FakeEmbedder:
     def embed(self, texts: list[str]) -> list[list[float]]:
         return [[0.1, 0.2, 0.3] for _ in texts]
 
 
+@dataclass
+class FakeSparseEmbedding:
+    indices: list[int]
+    values: list[float]
+
+
+class FakeSparseEmbedder:
+    def embed(self, texts: list[str]) -> list[FakeSparseEmbedding]:
+        return [FakeSparseEmbedding(indices=[1, 3], values=[0.8, 0.2]) for _ in texts]
+
+
 class StubQdrantIndexer(QdrantIndexer):
     def _get_embedder(self) -> Any:
         return FakeEmbedder()
+
+    def _get_keyword_embedder(self) -> Any:
+        return FakeSparseEmbedder()
 
 
 @dataclass
@@ -264,8 +320,19 @@ class StubFilterSelector:
 @dataclass
 class StubPointStruct:
     id: str
-    vector: list[float]
+    vector: dict[str, Any]
     payload: dict[str, Any]
+
+
+@dataclass
+class StubSparseVector:
+    indices: list[int]
+    values: list[float]
+
+
+@dataclass
+class StubSparseVectorParams:
+    modifier: str | None = None
 
 
 def install_qdrant_client_stub() -> None:
@@ -277,6 +344,8 @@ def install_qdrant_client_stub() -> None:
         Filter=StubFilter,
         FilterSelector=StubFilterSelector,
         PointStruct=StubPointStruct,
+        SparseVector=StubSparseVector,
+        SparseVectorParams=StubSparseVectorParams,
     )
     sys.modules["qdrant_client"] = types.SimpleNamespace(models=models)
 
@@ -708,6 +777,7 @@ def test_qdrant_indexer_purge_prefixed_collections() -> None:
     indexer = StubQdrantIndexer(
         qdrant_client=qdrant,
         fastembed_model="ignored",
+        fastembed_keyword_model="ignored-keyword",
         collection_prefix="evidencebase",
     )
 
@@ -729,6 +799,7 @@ def test_ingestion_service_purge_datastores_returns_deleted_counts() -> None:
     indexer = StubQdrantIndexer(
         qdrant_client=qdrant,
         fastembed_model="ignored",
+        fastembed_keyword_model="ignored-keyword",
         collection_prefix="evidencebase",
     )
     service = IngestionService(
@@ -773,6 +844,7 @@ def test_qdrant_payload_contains_document_partition_meta_and_resolver_keys() -> 
     indexer = StubQdrantIndexer(
         qdrant_client=qdrant,
         fastembed_model="ignored",
+        fastembed_keyword_model="ignored-keyword",
         collection_prefix="evidencebase",
     )
 
@@ -804,6 +876,9 @@ def test_qdrant_payload_contains_document_partition_meta_and_resolver_keys() -> 
 
     point = upsert_call["points"][0]
     assert len(str(point.id)) == 36
+    assert set(point.vector.keys()) == {"dense", "keyword"}
+    assert point.vector["dense"] == [0.1, 0.2, 0.3]
+    assert point.vector["keyword"] == StubSparseVector(indices=[1, 3], values=[0.8, 0.2])
     assert point.payload["document_id"] == "abc123"
     assert "document_key" not in point.payload
     assert point.payload["partition_key"] == "partition-hash"
@@ -815,5 +890,102 @@ def test_qdrant_payload_contains_document_partition_meta_and_resolver_keys() -> 
         {
             "page_number": 1,
             "points": [[10.0, 20.0], [30.0, 20.0], [30.0, 40.0], [10.0, 40.0]],
+        }
+    ]
+
+
+def test_qdrant_indexer_hybrid_search_merges_dense_and_keyword_results() -> None:
+    """Verify hybrid search merges dense and keyword ranks with RRF."""
+    install_qdrant_client_stub()
+    qdrant = FakeQdrantClient()
+    qdrant.collection_names = {"evidencebase_research_raw"}
+    qdrant.search_results["dense"] = [
+        types.SimpleNamespace(
+            id="chunk-a",
+            score=0.91,
+            payload={"document_id": "doc-a", "file_path": "a.pdf", "text": "dense match"},
+        )
+    ]
+    qdrant.search_results["keyword"] = [
+        types.SimpleNamespace(
+            id="chunk-b",
+            score=0.88,
+            payload={"document_id": "doc-b", "file_path": "b.pdf", "text": "keyword match"},
+        ),
+        types.SimpleNamespace(
+            id="chunk-a",
+            score=0.7,
+            payload={"document_id": "doc-a", "file_path": "a.pdf", "text": "dense match"},
+        ),
+    ]
+    indexer = StubQdrantIndexer(
+        qdrant_client=qdrant,
+        fastembed_model="ignored",
+        fastembed_keyword_model="ignored-keyword",
+        collection_prefix="evidencebase",
+    )
+
+    results = indexer.search_chunks(
+        bucket_name="research-raw",
+        query="causal inference",
+        limit=2,
+        mode="hybrid",
+        rrf_k=60,
+    )
+
+    assert [item["id"] for item in results] == ["chunk-a", "chunk-b"]
+    assert results[0]["document_id"] == "doc-a"
+    assert results[1]["document_id"] == "doc-b"
+    assert [call["vector_name"] for call in qdrant.search_calls] == ["dense", "keyword"]
+
+
+def test_ingestion_service_search_documents_delegates_to_qdrant_indexer() -> None:
+    """Ensure service search delegates to Qdrant indexer with unchanged parameters."""
+
+    class SearchRecordingIndexer(RecordingQdrantIndexer):
+        def search_chunks(
+            self,
+            *,
+            bucket_name: str,
+            query: str,
+            limit: int,
+            mode: str,
+            rrf_k: int = 60,
+        ) -> list[dict[str, Any]]:
+            super().search_chunks(
+                bucket_name=bucket_name,
+                query=query,
+                limit=limit,
+                mode=mode,
+                rrf_k=rrf_k,
+            )
+            return [{"id": "chunk-1", "document_id": "doc-1"}]
+
+    indexer = SearchRecordingIndexer()
+    service = IngestionService(
+        minio_client=types.SimpleNamespace(),
+        repository=RedisDocumentRepository(FakeRedis(), key_prefix="test"),
+        partition_client=types.SimpleNamespace(),
+        qdrant_indexer=indexer,  # type: ignore[arg-type]
+        chunk_size_chars=1200,
+        chunk_overlap_chars=150,
+    )
+
+    results = service.search_documents(
+        bucket_name="research-raw",
+        query="causal effects",
+        limit=7,
+        mode="hybrid",
+        rrf_k=80,
+    )
+
+    assert results == [{"id": "chunk-1", "document_id": "doc-1"}]
+    assert indexer.search_calls == [
+        {
+            "bucket_name": "research-raw",
+            "query": "causal effects",
+            "limit": 7,
+            "mode": "hybrid",
+            "rrf_k": 80,
         }
     ]

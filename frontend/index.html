@@ -14,7 +14,7 @@
       rel="stylesheet"
       crossorigin="anonymous"
     />
-    <link href="./index.css" rel="stylesheet" />
+    <link href="./index.css?v=20260216b" rel="stylesheet" />
   </head>
   <body class="bg-body-tertiary d-flex flex-column vh-100">
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
@@ -48,32 +48,30 @@
         <div class="collapse navbar-collapse" id="mainNav">
           <ul class="navbar-nav me-auto mb-2 mb-lg-0" role="tablist" aria-label="Main views">
             <li class="nav-item" role="presentation">
-              <a
+              <button
                 class="nav-link active"
                 id="document-meta-tab"
-                data-bs-toggle="tab"
-                data-bs-target="#document-meta-pane"
-                href="#document-meta-pane"
+                data-tab-target="#document-meta-pane"
+                type="button"
                 role="tab"
                 aria-controls="document-meta-pane"
                 aria-selected="true"
               >
                 Document Meta
-              </a>
+              </button>
             </li>
             <li class="nav-item" role="presentation">
-              <a
+              <button
                 class="nav-link"
                 id="semantic-search-tab"
-                data-bs-toggle="tab"
-                data-bs-target="#semantic-search-pane"
-                href="#semantic-search-pane"
+                data-tab-target="#semantic-search-pane"
+                type="button"
                 role="tab"
                 aria-controls="semantic-search-pane"
                 aria-selected="false"
               >
                 Semantic Search
-              </a>
+              </button>
             </li>
           </ul>
           <ul class="navbar-nav ms-auto">
@@ -154,7 +152,7 @@
         <div id="main-panel" class="col-12 col-lg-10 h-lg-100 bg-body d-flex flex-column">
           <div class="tab-content h-100">
             <section
-              class="tab-pane fade show active h-100 p-3"
+              class="tab-pane h-100 p-3 is-active"
               id="document-meta-pane"
               role="tabpanel"
               aria-labelledby="document-meta-tab"
@@ -299,14 +297,120 @@
               </div>
             </section>
             <section
-              class="tab-pane fade h-100 p-3"
+              class="tab-pane p-3"
               id="semantic-search-pane"
               role="tabpanel"
               aria-labelledby="semantic-search-tab"
               tabindex="0"
             >
-              <h1 class="h4 mb-3 text-primary">Semantic Search</h1>
-              <p class="mb-0">Semantic search workflows will appear here.</p>
+              <div class="card d-flex flex-column">
+                <div class="card-header py-3">
+                  <h1 class="h4 mb-0 text-primary">Hybrid Search</h1>
+                </div>
+                <div class="card-body d-flex flex-column gap-3">
+                  <form id="semantic-search-form" class="row g-2 align-items-end">
+                    <div class="col-12 col-lg-5">
+                      <label
+                        class="form-label mb-1"
+                        for="semantic-search-query"
+                        data-bs-toggle="tooltip"
+                        data-bs-placement="top"
+                        data-bs-title="Natural language or keyword text used to retrieve relevant chunks."
+                      >
+                        Query
+                      </label>
+                      <input
+                        type="search"
+                        id="semantic-search-query"
+                        class="form-control"
+                        placeholder="Find evidence passages..."
+                        required
+                      />
+                    </div>
+                    <div class="col-6 col-lg-2">
+                      <label
+                        class="form-label mb-1"
+                        for="semantic-search-mode"
+                        data-bs-toggle="tooltip"
+                        data-bs-placement="top"
+                        data-bs-title="Semantic uses dense vectors, Keyword uses sparse BM25 vectors, Hybrid fuses both rankings with RRF."
+                      >
+                        Mode
+                      </label>
+                      <select id="semantic-search-mode" class="form-select">
+                        <option value="hybrid" selected>Hybrid</option>
+                        <option value="semantic">Semantic</option>
+                        <option value="keyword">Keyword</option>
+                      </select>
+                    </div>
+                    <div class="col-6 col-lg-1">
+                      <label
+                        class="form-label mb-1"
+                        for="semantic-search-limit"
+                        data-bs-toggle="tooltip"
+                        data-bs-placement="top"
+                        data-bs-title="Maximum number of hits returned by the API."
+                      >
+                        Limit
+                      </label>
+                      <input
+                        type="number"
+                        id="semantic-search-limit"
+                        class="form-control"
+                        min="1"
+                        max="100"
+                        value="10"
+                      />
+                    </div>
+                    <div class="col-6 col-lg-2" id="semantic-rrf-k-field">
+                      <label
+                        class="form-label mb-1"
+                        for="rrf-k-input"
+                        data-bs-toggle="tooltip"
+                        data-bs-placement="top"
+                        data-bs-title="RRF rank constant used only in Hybrid mode. Higher values smooth rank differences."
+                      >
+                        RRF k
+                      </label>
+                      <input
+                        type="number"
+                        id="rrf-k-input"
+                        class="form-control"
+                        min="1"
+                        max="500"
+                        step="1"
+                        value="60"
+                      />
+                    </div>
+                    <div class="col-12">
+                      <button type="submit" id="semantic-search-submit" class="btn btn-primary btn-sm">
+                        Search
+                      </button>
+                    </div>
+                  </form>
+
+                  <div class="d-flex justify-content-between align-items-center">
+                    <small id="semantic-search-status" class="text-body-secondary">
+                      Select a collection and run a query.
+                    </small>
+                    <small id="semantic-search-count" class="text-body-secondary">0 results</small>
+                  </div>
+
+                  <div class="table-responsive flex-grow-1">
+                    <table class="table table-striped align-middle mb-0" id="semantic-search-table">
+                      <thead>
+                        <tr>
+                          <th scope="col" style="width: 7rem">Score</th>
+                          <th scope="col" style="width: 13rem">Document</th>
+                          <th scope="col">Chunk Text</th>
+                          <th scope="col" style="width: 10rem">Pages</th>
+                        </tr>
+                      </thead>
+                      <tbody id="semantic-search-results"></tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
             </section>
           </div>
         </div>
@@ -322,6 +426,6 @@
       src="https://cdn.jsdelivr.net/npm/handsontable@14.6.1/dist/handsontable.full.min.js"
       crossorigin="anonymous"
     ></script>
-    <script src="./index.js"></script>
+    <script src="./index.js?v=20260216b"></script>
   </body>
 </html>

@@ -40,12 +40,15 @@ class FakeBucketService:
 @dataclass
 class FakeIngestionService:
     documents: list[dict[str, Any]] = field(default_factory=list)
+    search_results: list[dict[str, Any]] = field(default_factory=list)
     uploaded: list[tuple[str, str, bytes]] = field(default_factory=list)
     deleted: list[tuple[str, str, bool]] = field(default_factory=list)
     metadata_updates: list[tuple[str, str, dict[str, str]]] = field(default_factory=list)
+    search_calls: list[tuple[str, str, int, str, int]] = field(default_factory=list)
     upload_error: Exception | None = None
     delete_error: Exception | None = None
     metadata_error: Exception | None = None
+    search_error: Exception | None = None
     qdrant_create_result: bool = True
     qdrant_delete_result: bool = True
     qdrant_create_error: Exception | None = None
@@ -53,6 +56,20 @@ class FakeIngestionService:
 
     def list_documents(self, bucket_name: str) -> list[dict[str, Any]]:
         return self.documents
+
+    def search_documents(
+        self,
+        *,
+        bucket_name: str,
+        query: str,
+        limit: int = 10,
+        mode: str = "hybrid",
+        rrf_k: int = 60,
+    ) -> list[dict[str, Any]]:
+        if self.search_error is not None:
+            raise self.search_error
+        self.search_calls.append((bucket_name, query, limit, mode, rrf_k))
+        return self.search_results
 
     def upload_document(
         self,
@@ -283,6 +300,55 @@ def test_get_documents_returns_documents(client: TestClient) -> None:
     assert response.status_code == 200
     assert response.json()["bucket_name"] == "research-raw"
     assert response.json()["documents"][0]["document_id"] == "doc-1"
+
+
+def test_search_collection_returns_results(client: TestClient) -> None:
+    """Ensure search endpoint returns ranked results from ingestion service."""
+    service = FakeIngestionService(
+        search_results=[
+            {
+                "id": "chunk-1",
+                "score": 0.75,
+                "document_id": "doc-1",
+                "file_path": "paper.pdf",
+                "text": "Causal inference text",
+            }
+        ]
+    )
+    _override_ingestion_service(service)
+
+    response = client.get(
+        "/collections/research-raw/search",
+        params={
+            "query": "causal inference",
+            "limit": 5,
+            "mode": "hybrid",
+            "rrf_k": 80,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["bucket_name"] == "research-raw"
+    assert response.json()["query"] == "causal inference"
+    assert response.json()["mode"] == "hybrid"
+    assert response.json()["rrf_k"] == 80
+    assert len(response.json()["results"]) == 1
+    assert service.search_calls == [("research-raw", "causal inference", 5, "hybrid", 80)]
+
+
+def test_search_collection_rejects_invalid_mode(client: TestClient) -> None:
+    """Verify invalid search modes are mapped to HTTP 400 before service execution."""
+    service = FakeIngestionService()
+    _override_ingestion_service(service)
+
+    response = client.get(
+        "/collections/research-raw/search",
+        params={"query": "causal inference", "mode": "invalid"},
+    )
+
+    assert response.status_code == 400
+    assert "mode must be one of" in response.json()["detail"]
+    assert service.search_calls == []
 
 
 def test_upload_document_queues_processing_task(

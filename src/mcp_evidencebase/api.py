@@ -13,7 +13,7 @@ from minio.error import S3Error
 from pydantic import BaseModel, Field
 
 from mcp_evidencebase.bucket_service import BucketService
-from mcp_evidencebase.ingestion import IngestionService, build_ingestion_service
+from mcp_evidencebase.ingestion import SEARCH_MODES, IngestionService, build_ingestion_service
 from mcp_evidencebase.minio_settings import MinioSettings, build_minio_settings
 from mcp_evidencebase.tasks import partition_minio_object, scan_minio_objects
 
@@ -226,6 +226,56 @@ def get_documents(
     except Exception as exc:
         _raise_document_http_error(exc)
     return {"bucket_name": bucket_name.strip(), "documents": documents}
+
+
+@app.get("/collections/{bucket_name}/search")
+def search_collection(
+    bucket_name: str,
+    query: str,
+    service: Annotated[IngestionService, Depends(get_ingestion_service)],
+    limit: int = 10,
+    mode: str = "hybrid",
+    rrf_k: int = 60,
+) -> dict[str, Any]:
+    """Search one collection using semantic, keyword, or hybrid retrieval.
+
+    Args:
+        bucket_name: Bucket path parameter.
+        query: User query text.
+        limit: Maximum number of chunks to return.
+        mode: Retrieval mode (semantic, keyword, hybrid).
+        rrf_k: Rank constant used by Reciprocal Rank Fusion in hybrid mode.
+        service: Ingestion service dependency.
+
+    Returns:
+        Search metadata and ranked chunk hits.
+    """
+    normalized_mode = mode.strip().lower()
+    if normalized_mode not in SEARCH_MODES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"mode must be one of: {', '.join(SEARCH_MODES)}",
+        )
+
+    try:
+        results = service.search_documents(
+            bucket_name=bucket_name.strip(),
+            query=query.strip(),
+            limit=limit,
+            mode=normalized_mode,
+            rrf_k=rrf_k,
+        )
+    except Exception as exc:
+        _raise_document_http_error(exc)
+
+    return {
+        "bucket_name": bucket_name.strip(),
+        "query": query.strip(),
+        "mode": normalized_mode,
+        "limit": max(1, min(int(limit), 100)),
+        "rrf_k": max(1, int(rrf_k)),
+        "results": results,
+    }
 
 
 @app.post("/collections/{bucket_name}/documents/upload")

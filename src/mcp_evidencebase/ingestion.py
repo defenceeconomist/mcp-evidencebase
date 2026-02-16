@@ -53,6 +53,7 @@ METADATA_FIELDS: tuple[str, ...] = (*BIBTEX_FIELDS, "document_type", "citation_k
 
 DOI_PATTERN = re.compile(r"\b10\.\d{4,9}/[-._;()/:A-Z0-9]+\b", re.IGNORECASE)
 ISBN_PATTERN = re.compile(r"\b(?:97[89][-\s]?)?(?:\d[-\s]?){9}[\dXx]\b")
+SEARCH_MODES: tuple[str, ...] = ("semantic", "keyword", "hybrid")
 
 
 class MinioObjectLike(Protocol):
@@ -77,6 +78,7 @@ class IngestionSettings:
     unstructured_api_key: str | None
     unstructured_strategy: str
     fastembed_model: str
+    fastembed_keyword_model: str
     chunk_size_chars: int
     chunk_overlap_chars: int
     scan_interval_seconds: int
@@ -1062,20 +1064,25 @@ class RedisDocumentRepository:
 
 
 class QdrantIndexer:
-    """Qdrant upsert/delete operations with FastEmbed vectors."""
+    """Qdrant upsert/search/delete operations with dense and keyword vectors."""
 
     def __init__(
         self,
         *,
         qdrant_client: Any,
         fastembed_model: str,
+        fastembed_keyword_model: str,
         collection_prefix: str,
     ) -> None:
         """Initialize indexer with a Qdrant client and embedding model name."""
         self._qdrant_client = qdrant_client
         self._fastembed_model = fastembed_model
+        self._fastembed_keyword_model = fastembed_keyword_model
         self._collection_prefix = collection_prefix
         self._embedder: Any | None = None
+        self._keyword_embedder: Any | None = None
+        self._dense_vector_name = "dense"
+        self._keyword_vector_name = "keyword"
 
     def _collection_name(self, bucket_name: str) -> str:
         normalized_bucket = re.sub(r"[^a-zA-Z0-9_]+", "_", bucket_name).strip("_").lower()
@@ -1090,6 +1097,49 @@ class QdrantIndexer:
             self._embedder = TextEmbedding(model_name=self._fastembed_model)
         return self._embedder
 
+    def _get_keyword_embedder(self) -> Any:
+        if self._keyword_embedder is None:
+            from fastembed import SparseTextEmbedding
+
+            self._keyword_embedder = SparseTextEmbedding(model_name=self._fastembed_keyword_model)
+        return self._keyword_embedder
+
+    @staticmethod
+    def _coerce_sparse_embedding(embedding: Any) -> tuple[list[int], list[float]]:
+        """Normalize sparse embedding payload into aligned index/value lists."""
+        raw_indices: Any = None
+        raw_values: Any = None
+
+        if isinstance(embedding, Mapping):
+            raw_indices = embedding.get("indices")
+            raw_values = embedding.get("values")
+        else:
+            raw_indices = getattr(embedding, "indices", None)
+            raw_values = getattr(embedding, "values", None)
+
+        if raw_indices is None or raw_values is None:
+            return [], []
+
+        try:
+            indices = [int(value) for value in raw_indices]
+            values = [float(value) for value in raw_values]
+        except (TypeError, ValueError):
+            return [], []
+
+        size = min(len(indices), len(values))
+        if size <= 0:
+            return [], []
+        return indices[:size], values[:size]
+
+    def _build_sparse_vector(self, *, indices: list[int], values: list[float]) -> Any:
+        """Create a Qdrant sparse vector payload, with compatibility fallback."""
+        from qdrant_client import models as qdrant_models
+
+        sparse_vector_cls = getattr(qdrant_models, "SparseVector", None)
+        if sparse_vector_cls is None:
+            return {"indices": indices, "values": values}
+        return sparse_vector_cls(indices=indices, values=values)
+
     def _ensure_collection(self, collection_name: str, vector_size: int) -> None:
         from qdrant_client import models as qdrant_models
 
@@ -1098,13 +1148,39 @@ class QdrantIndexer:
         }
         if collection_name in collection_names:
             return
-        self._qdrant_client.create_collection(
-            collection_name=collection_name,
-            vectors_config=qdrant_models.VectorParams(
+
+        dense_vectors_config = {
+            self._dense_vector_name: qdrant_models.VectorParams(
                 size=vector_size,
                 distance=qdrant_models.Distance.COSINE,
-            ),
-        )
+            )
+        }
+
+        sparse_vectors_config: dict[str, Any] | None = None
+        sparse_vector_params_cls = getattr(qdrant_models, "SparseVectorParams", None)
+        if sparse_vector_params_cls is not None:
+            sparse_vectors_config = {
+                self._keyword_vector_name: sparse_vector_params_cls(),
+            }
+
+        try:
+            if sparse_vectors_config is None:
+                self._qdrant_client.create_collection(
+                    collection_name=collection_name,
+                    vectors_config=dense_vectors_config,
+                )
+            else:
+                self._qdrant_client.create_collection(
+                    collection_name=collection_name,
+                    vectors_config=dense_vectors_config,
+                    sparse_vectors_config=sparse_vectors_config,
+                )
+        except TypeError:
+            # Older qdrant-client versions do not support sparse config kwargs.
+            self._qdrant_client.create_collection(
+                collection_name=collection_name,
+                vectors_config=dense_vectors_config,
+            )
 
     def _collection_exists(self, collection_name: str) -> bool:
         collection_names = {
@@ -1168,6 +1244,277 @@ class QdrantIndexer:
             ),
         )
 
+    @staticmethod
+    def _extract_query_points(raw_response: Any) -> list[Any]:
+        """Normalize query/search responses to a list of scored points."""
+        if isinstance(raw_response, list):
+            return list(raw_response)
+        points = getattr(raw_response, "points", None)
+        if isinstance(points, list):
+            return points
+        result = getattr(raw_response, "result", None)
+        if isinstance(result, list):
+            return result
+        return []
+
+    def _search_dense(
+        self,
+        *,
+        collection_name: str,
+        query_vector: list[float],
+        limit: int,
+    ) -> list[Any]:
+        """Run a dense-vector search query against Qdrant."""
+        if hasattr(self._qdrant_client, "query_points"):
+            try:
+                response = self._qdrant_client.query_points(
+                    collection_name=collection_name,
+                    query=query_vector,
+                    using=self._dense_vector_name,
+                    limit=limit,
+                    with_payload=True,
+                    with_vectors=False,
+                )
+                return self._extract_query_points(response)
+            except TypeError:
+                pass
+
+        if hasattr(self._qdrant_client, "search"):
+            response = self._qdrant_client.search(
+                collection_name=collection_name,
+                query_vector=(self._dense_vector_name, query_vector),
+                limit=limit,
+                with_payload=True,
+                with_vectors=False,
+            )
+            return self._extract_query_points(response)
+
+        raise RuntimeError("The configured Qdrant client does not support search operations.")
+
+    def _search_keyword(
+        self,
+        *,
+        collection_name: str,
+        sparse_query: Any,
+        limit: int,
+    ) -> list[Any]:
+        """Run a sparse keyword-vector search query against Qdrant."""
+        if hasattr(self._qdrant_client, "query_points"):
+            try:
+                response = self._qdrant_client.query_points(
+                    collection_name=collection_name,
+                    query=sparse_query,
+                    using=self._keyword_vector_name,
+                    limit=limit,
+                    with_payload=True,
+                    with_vectors=False,
+                )
+                return self._extract_query_points(response)
+            except TypeError:
+                pass
+
+        if hasattr(self._qdrant_client, "search"):
+            response = self._qdrant_client.search(
+                collection_name=collection_name,
+                query_vector=(self._keyword_vector_name, sparse_query),
+                limit=limit,
+                with_payload=True,
+                with_vectors=False,
+            )
+            return self._extract_query_points(response)
+
+        raise RuntimeError("The configured Qdrant client does not support search operations.")
+
+    @staticmethod
+    def _normalize_point_id(point: Any, fallback_index: int) -> str:
+        point_id = getattr(point, "id", None)
+        if point_id is None:
+            return f"point-{fallback_index}"
+        return str(point_id)
+
+    @staticmethod
+    def _normalize_payload(value: Any) -> dict[str, Any]:
+        if not isinstance(value, Mapping):
+            return {}
+        return {str(key): payload_value for key, payload_value in value.items()}
+
+    def _format_result_payload(
+        self,
+        *,
+        point_id: str,
+        payload: Mapping[str, Any],
+        raw_score: Any,
+    ) -> dict[str, Any]:
+        try:
+            score = float(raw_score)
+        except (TypeError, ValueError):
+            score = 0.0
+        return {
+            "id": point_id,
+            "score": score,
+            "document_id": str(payload.get("document_id", "")),
+            "file_path": str(payload.get("file_path", "")),
+            "chunk_index": int(payload.get("chunk_index", 0) or 0),
+            "text": str(payload.get("text", "")),
+            "page_numbers": payload.get("page_numbers", []),
+            "resolver_url": str(payload.get("resolver_url", "")),
+            "minio_location": str(payload.get("minio_location", "")),
+            "meta_key": str(payload.get("meta_key", "")),
+            "partition_key": str(payload.get("partition_key", "")),
+        }
+
+    def _format_result_point(self, point: Any, *, fallback_rank: int) -> dict[str, Any]:
+        return self._format_result_payload(
+            point_id=self._normalize_point_id(point, fallback_rank),
+            payload=self._normalize_payload(getattr(point, "payload", {})),
+            raw_score=getattr(point, "score", 0.0),
+        )
+
+    def _rrf(
+        self,
+        *,
+        semantic_points: list[Any],
+        keyword_points: list[Any],
+        rrf_k: int,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        """Merge two ranked result sets using reciprocal rank fusion (RRF)."""
+        rank_constant = float(max(1, int(rrf_k)))
+        merged: dict[str, dict[str, Any]] = {}
+
+        for rank, point in enumerate(semantic_points):
+            point_id = self._normalize_point_id(point, rank)
+            payload = self._normalize_payload(getattr(point, "payload", {}))
+            entry = merged.setdefault(
+                point_id,
+                {
+                    "point": point,
+                    "payload": payload,
+                    "score": 0.0,
+                },
+            )
+            entry["score"] += 1.0 / (rank_constant + rank + 1.0)
+
+        for rank, point in enumerate(keyword_points):
+            point_id = self._normalize_point_id(point, rank)
+            payload = self._normalize_payload(getattr(point, "payload", {}))
+            entry = merged.setdefault(
+                point_id,
+                {
+                    "point": point,
+                    "payload": payload,
+                    "score": 0.0,
+                },
+            )
+            entry["score"] += 1.0 / (rank_constant + rank + 1.0)
+
+        ranked_entries = sorted(
+            merged.values(),
+            key=lambda item: float(item["score"]),
+            reverse=True,
+        )
+        results: list[dict[str, Any]] = []
+        for index, entry in enumerate(ranked_entries[:limit]):
+            point = entry["point"]
+            results.append(
+                self._format_result_payload(
+                    point_id=self._normalize_point_id(point, index),
+                    payload=self._normalize_payload(entry["payload"]),
+                    raw_score=float(entry["score"]),
+                )
+            )
+        return results
+
+    def search_chunks(
+        self,
+        *,
+        bucket_name: str,
+        query: str,
+        limit: int,
+        mode: str,
+        rrf_k: int = 60,
+    ) -> list[dict[str, Any]]:
+        """Search chunk payloads in Qdrant using semantic, keyword, or hybrid mode."""
+        normalized_query = query.strip()
+        if not normalized_query:
+            raise ValueError("query must not be empty.")
+
+        normalized_mode = mode.strip().lower()
+        if normalized_mode not in SEARCH_MODES:
+            raise ValueError(f"mode must be one of: {', '.join(SEARCH_MODES)}")
+
+        resolved_limit = max(1, min(int(limit), 100))
+        collection_name = self._collection_name(bucket_name)
+        if not self._collection_exists(collection_name):
+            return []
+
+        dense_embedder = self._get_embedder()
+        dense_embeddings = list(dense_embedder.embed([normalized_query]))
+        if not dense_embeddings:
+            return []
+        dense_query = [float(value) for value in dense_embeddings[0]]
+
+        keyword_embedder = self._get_keyword_embedder()
+        keyword_embeddings = list(keyword_embedder.embed([normalized_query]))
+        if not keyword_embeddings:
+            return []
+        sparse_indices, sparse_values = self._coerce_sparse_embedding(keyword_embeddings[0])
+        has_sparse_query = bool(sparse_indices and sparse_values)
+        if normalized_mode == "keyword" and not has_sparse_query:
+            return []
+        sparse_query = self._build_sparse_vector(indices=sparse_indices, values=sparse_values)
+
+        if normalized_mode == "semantic":
+            points = self._search_dense(
+                collection_name=collection_name,
+                query_vector=dense_query,
+                limit=resolved_limit,
+            )
+            return [
+                self._format_result_point(point, fallback_rank=index)
+                for index, point in enumerate(points)
+            ]
+
+        if normalized_mode == "keyword":
+            points = self._search_keyword(
+                collection_name=collection_name,
+                sparse_query=sparse_query,
+                limit=resolved_limit,
+            )
+            return [
+                self._format_result_point(point, fallback_rank=index)
+                for index, point in enumerate(points)
+            ]
+
+        if not has_sparse_query:
+            semantic_points = self._search_dense(
+                collection_name=collection_name,
+                query_vector=dense_query,
+                limit=resolved_limit,
+            )
+            return [
+                self._format_result_point(point, fallback_rank=index)
+                for index, point in enumerate(semantic_points)
+            ]
+
+        prefetch_limit = min(200, max(10, resolved_limit * 4))
+        semantic_points = self._search_dense(
+            collection_name=collection_name,
+            query_vector=dense_query,
+            limit=prefetch_limit,
+        )
+        keyword_points = self._search_keyword(
+            collection_name=collection_name,
+            sparse_query=sparse_query,
+            limit=prefetch_limit,
+        )
+        return self._rrf(
+            semantic_points=semantic_points,
+            keyword_points=keyword_points,
+            rrf_k=rrf_k,
+            limit=resolved_limit,
+        )
+
     def upsert_document_chunks(
         self,
         *,
@@ -1190,6 +1537,10 @@ class QdrantIndexer:
         embeddings = list(embedder.embed(texts))
         if not embeddings:
             return
+        keyword_embedder = self._get_keyword_embedder()
+        sparse_embeddings = list(keyword_embedder.embed(texts))
+        if sparse_embeddings and len(sparse_embeddings) != len(embeddings):
+            sparse_embeddings = sparse_embeddings[: len(embeddings)]
 
         first_vector = embeddings[0]
         vector_size = len(first_vector)
@@ -1203,7 +1554,7 @@ class QdrantIndexer:
         minio_location = f"{bucket_name}/{file_path}"
 
         points: list[qdrant_models.PointStruct] = []
-        for chunk, embedding in zip(chunks, embeddings, strict=False):
+        for index, (chunk, embedding) in enumerate(zip(chunks, embeddings, strict=False)):
             chunk_index = int(chunk.get("chunk_index", len(points)))
             raw_page_numbers = chunk.get("page_numbers", [])
             page_numbers: list[int] = []
@@ -1258,6 +1609,16 @@ class QdrantIndexer:
                 chunk_index=chunk_index,
             )
             vector = [float(value) for value in embedding]
+            named_vector_payload: dict[str, Any] = {self._dense_vector_name: vector}
+            if index < len(sparse_embeddings):
+                sparse_indices, sparse_values = self._coerce_sparse_embedding(
+                    sparse_embeddings[index]
+                )
+                if sparse_indices and sparse_values:
+                    named_vector_payload[self._keyword_vector_name] = self._build_sparse_vector(
+                        indices=sparse_indices,
+                        values=sparse_values,
+                    )
             payload = {
                 "bucket_name": bucket_name,
                 "document_id": document_id,
@@ -1271,7 +1632,13 @@ class QdrantIndexer:
                 "page_numbers": page_numbers,
                 "bounding_boxes": bounding_boxes,
             }
-            points.append(qdrant_models.PointStruct(id=point_id, vector=vector, payload=payload))
+            points.append(
+                qdrant_models.PointStruct(
+                    id=point_id,
+                    vector=named_vector_payload,
+                    payload=payload,
+                )
+            )
 
         if points:
             self._qdrant_client.upsert(collection_name=collection_name, points=points, wait=True)
@@ -1808,6 +2175,24 @@ class IngestionService:
             "qdrant_deleted_collections": qdrant_deleted_collections,
         }
 
+    def search_documents(
+        self,
+        *,
+        bucket_name: str,
+        query: str,
+        limit: int = 10,
+        mode: str = "hybrid",
+        rrf_k: int = 60,
+    ) -> list[dict[str, Any]]:
+        """Search indexed chunks for one bucket using semantic/keyword/hybrid retrieval."""
+        return self._qdrant_indexer.search_chunks(
+            bucket_name=bucket_name,
+            query=query,
+            limit=limit,
+            mode=mode,
+            rrf_k=rrf_k,
+        )
+
 
 def build_ingestion_settings(env: Mapping[str, str] | None = None) -> IngestionSettings:
     """Build ingestion settings from environment variables.
@@ -1841,6 +2226,7 @@ def build_ingestion_settings(env: Mapping[str, str] | None = None) -> IngestionS
         unstructured_api_key=source.get("UNSTRUCTURED_API_KEY") or None,
         unstructured_strategy=source.get("UNSTRUCTURED_STRATEGY", "auto"),
         fastembed_model=source.get("FASTEMBED_MODEL", "BAAI/bge-small-en-v1.5"),
+        fastembed_keyword_model=source.get("FASTEMBED_KEYWORD_MODEL", "Qdrant/bm25"),
         chunk_size_chars=_safe_int("CHUNK_SIZE_CHARS", 1200),
         chunk_overlap_chars=_safe_int("CHUNK_OVERLAP_CHARS", 150),
         scan_interval_seconds=max(5, _safe_int("MINIO_SCAN_INTERVAL_SECONDS", 15)),
@@ -1886,6 +2272,7 @@ def build_ingestion_service(settings: IngestionSettings | None = None) -> Ingest
     qdrant_indexer = QdrantIndexer(
         qdrant_client=qdrant_client,
         fastembed_model=resolved_settings.fastembed_model,
+        fastembed_keyword_model=resolved_settings.fastembed_keyword_model,
         collection_prefix=resolved_settings.qdrant_collection_prefix,
     )
     return IngestionService(

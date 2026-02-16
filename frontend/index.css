@@ -3,8 +3,6 @@
 }
 
 #document-meta-pane {
-  display: flex;
-  flex-direction: column;
   height: 100%;
   overflow: hidden;
   min-height: 0;
@@ -17,10 +15,15 @@
 }
 
 #main-panel .tab-content > .tab-pane {
+  display: none;
   min-height: 0;
 }
 
-#main-panel .tab-content > .tab-pane.active {
+#main-panel .tab-content > .tab-pane.is-active {
+  display: block;
+}
+
+#main-panel .tab-content > #document-meta-pane.is-active {
   display: flex;
   flex-direction: column;
 }
@@ -222,6 +225,19 @@
 
 #mainNav {
   min-width: 0;
+}
+
+#semantic-search-pane .card-body {
+  min-height: 0;
+}
+
+#semantic-search-table td {
+  vertical-align: top;
+}
+
+.semantic-search-snippet {
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 @media (min-width: 992px) {
