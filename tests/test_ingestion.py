@@ -131,6 +131,98 @@ class FakeQdrantClient:
         )
 
 
+class FakeMinioObjectResponse:
+    def __init__(self, payload: bytes) -> None:
+        self._payload = payload
+
+    def read(self) -> bytes:
+        return self._payload
+
+    def close(self) -> None:
+        return None
+
+    def release_conn(self) -> None:
+        return None
+
+
+class FakeMinioClient:
+    def __init__(self, payload: bytes, *, etag: str = "etag-1") -> None:
+        self._payload = payload
+        self._etag = etag
+        self.get_object_calls: list[tuple[str, str]] = []
+        self.stat_object_calls: list[tuple[str, str]] = []
+
+    def get_object(self, bucket_name: str, object_name: str) -> FakeMinioObjectResponse:
+        self.get_object_calls.append((bucket_name, object_name))
+        return FakeMinioObjectResponse(self._payload)
+
+    def stat_object(self, bucket_name: str, object_name: str) -> Any:
+        self.stat_object_calls.append((bucket_name, object_name))
+        return types.SimpleNamespace(etag=self._etag)
+
+
+class FakePartitionClient:
+    def __init__(self, partitions: list[dict[str, Any]]) -> None:
+        self._partitions = partitions
+        self.calls: list[dict[str, Any]] = []
+
+    def partition_file(
+        self,
+        *,
+        file_name: str,
+        file_bytes: bytes,
+        content_type: str,
+    ) -> list[dict[str, Any]]:
+        self.calls.append(
+            {
+                "file_name": file_name,
+                "file_bytes": file_bytes,
+                "content_type": content_type,
+            }
+        )
+        return list(self._partitions)
+
+
+class RecordingQdrantIndexer:
+    def __init__(self) -> None:
+        self.upsert_calls: list[dict[str, Any]] = []
+
+    def upsert_document_chunks(
+        self,
+        *,
+        bucket_name: str,
+        document_id: str,
+        file_path: str,
+        chunks: list[dict[str, Any]],
+        partition_key: str,
+        meta_key: str,
+    ) -> None:
+        self.upsert_calls.append(
+            {
+                "bucket_name": bucket_name,
+                "document_id": document_id,
+                "file_path": file_path,
+                "chunks": chunks,
+                "partition_key": partition_key,
+                "meta_key": meta_key,
+            }
+        )
+
+    def ensure_bucket_collection(self, bucket_name: str) -> bool:
+        del bucket_name
+        return False
+
+    def delete_bucket_collection(self, bucket_name: str) -> bool:
+        del bucket_name
+        return False
+
+    def purge_prefixed_collections(self) -> int:
+        return 0
+
+    def delete_document(self, bucket_name: str, document_id: str) -> None:
+        del bucket_name, document_id
+
+
 class FakeEmbedder:
     def embed(self, texts: list[str]) -> list[list[float]]:
         return [[0.1, 0.2, 0.3] for _ in texts]
@@ -342,6 +434,92 @@ def test_extract_metadata_can_parse_first_page_identifiers() -> None:
     assert metadata["author"] == "PDF Embedded Author"
     assert metadata["doi"] == "10.1000/xyz123"
     assert metadata["isbn"] == "9780393040029"
+
+
+def test_partition_object_persists_partitions_and_metadata_without_chunking() -> None:
+    """Ensure partition stage stores partitions/metadata and does not upsert vectors."""
+    payload = b"%PDF-1.7 fake"
+    partitions = [
+        {
+            "text": "Page one text DOI 10.1000/abc123 ISBN 978-0-393-04002-9",
+            "metadata": {"page_number": 1},
+        }
+    ]
+    minio_client = FakeMinioClient(payload, etag="etag-remote")
+    repository = RedisDocumentRepository(FakeRedis(), key_prefix="test")
+    partition_client = FakePartitionClient(partitions)
+    qdrant_indexer = RecordingQdrantIndexer()
+    service = IngestionService(
+        minio_client=minio_client,
+        repository=repository,
+        partition_client=partition_client,
+        qdrant_indexer=qdrant_indexer,  # type: ignore[arg-type]
+        chunk_size_chars=1200,
+        chunk_overlap_chars=150,
+    )
+
+    result = service.partition_object(
+        bucket_name="research-raw",
+        object_name="paper.pdf",
+        etag=None,
+    )
+
+    expected_document_id = compute_document_id(payload)
+    assert result["document_id"] == expected_document_id
+    assert result["partition_key"]
+    assert result["meta_key"]
+    assert repository.get_partitions_by_key(result["partition_key"]) == partitions
+    assert repository.get_metadata_by_key(result["meta_key"])["doi"] == "10.1000/abc123"
+    assert qdrant_indexer.upsert_calls == []
+    assert len(partition_client.calls) == 1
+
+    state = repository.get_state(expected_document_id)
+    assert state["processing_state"] == "processing"
+    assert state["processing_progress"] == "60"
+    assert state["partitions_count"] == "1"
+    assert state["meta_key"] == result["meta_key"]
+
+
+def test_chunk_object_reads_persisted_partitions_and_marks_processed() -> None:
+    """Verify chunk stage reads stored partition payload and writes final processed state."""
+    payload = b"%PDF-1.7 fake"
+    partitions = [{"text": "A" * 200, "metadata": {"page_number": 1}}]
+    minio_client = FakeMinioClient(payload, etag="etag-remote")
+    repository = RedisDocumentRepository(FakeRedis(), key_prefix="test")
+    partition_client = FakePartitionClient(partitions)
+    qdrant_indexer = RecordingQdrantIndexer()
+    service = IngestionService(
+        minio_client=minio_client,
+        repository=repository,
+        partition_client=partition_client,
+        qdrant_indexer=qdrant_indexer,  # type: ignore[arg-type]
+        chunk_size_chars=128,
+        chunk_overlap_chars=32,
+    )
+
+    partition_stage = service.partition_object(
+        bucket_name="research-raw",
+        object_name="paper.pdf",
+        etag="etag-incoming",
+    )
+    chunk_stage = service.chunk_object(
+        bucket_name="research-raw",
+        object_name="paper.pdf",
+        document_id=partition_stage["document_id"],
+    )
+
+    assert chunk_stage["document_id"] == partition_stage["document_id"]
+    assert len(partition_client.calls) == 1
+    assert len(qdrant_indexer.upsert_calls) == 1
+    upsert_call = qdrant_indexer.upsert_calls[0]
+    assert upsert_call["partition_key"] == partition_stage["partition_key"]
+    assert upsert_call["meta_key"] == partition_stage["meta_key"]
+    assert upsert_call["chunks"]
+
+    state = repository.get_state(partition_stage["document_id"])
+    assert state["processing_state"] == "processed"
+    assert state["processing_progress"] == "100"
+    assert int(state["chunks_count"]) >= 1
 
 
 def test_extract_pdf_title_author_reads_pdf_metadata(monkeypatch: pytest.MonkeyPatch) -> None:

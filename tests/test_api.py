@@ -289,11 +289,11 @@ def test_upload_document_queues_processing_task(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Verify uploads enqueue ``process_minio_object`` and return task metadata."""
+    """Verify uploads enqueue ``partition_minio_object`` and return task metadata."""
     service = FakeIngestionService()
     _override_ingestion_service(service)
     fake_task = FakeTask("task-upload-1")
-    monkeypatch.setattr("mcp_evidencebase.api.process_minio_object", fake_task)
+    monkeypatch.setattr("mcp_evidencebase.api.partition_minio_object", fake_task)
 
     response = client.post(
         "/collections/research-raw/documents/upload?file_name=paper.pdf",
@@ -337,7 +337,7 @@ def test_upload_document_returns_queued_false_when_broker_is_unavailable(
     service = FakeIngestionService()
     _override_ingestion_service(service)
     monkeypatch.setattr(
-        "mcp_evidencebase.api.process_minio_object",
+        "mcp_evidencebase.api.partition_minio_object",
         FailingTask("retry limit exceeded while trying to reconnect"),
     )
 

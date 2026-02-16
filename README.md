@@ -236,7 +236,14 @@ curl -sS -X DELETE "$BASE_URL/buckets/research-raw"
 
 ### Ingestion Pipeline: Partitioning And Chunking
 
-`process_minio_object` runs `IngestionService.process_object()` with these stages:
+The ingestion flow now uses two explicit stages that run sequentially:
+
+1. `partition_minio_object` runs `IngestionService.partition_object()`.
+2. `chunk_minio_object` runs `IngestionService.chunk_object()` after partitioning succeeds.
+
+`process_minio_object` is retained as a backward-compatible wrapper that runs both stages inline.
+
+Stage details:
 
 1. Read bytes from MinIO and compute deterministic `document_id` (SHA-256).
 2. Partition document with Unstructured API and store raw partition JSON in Redis under
@@ -250,28 +257,31 @@ curl -sS -X DELETE "$BASE_URL/buckets/research-raw"
    - each chunk keeps `page_numbers` and `bounding_boxes` from overlapping source partitions.
 5. Embed chunks and upsert vectors into bucket-specific Qdrant collection.
 
+Chunking is internal to `IngestionService` and does not call Unstructured APIs. This allows
+future chunking strategy changes without changing the partition stage.
+
 ### Celery Tasks
 
 Defined in `src/mcp_evidencebase/tasks.py`:
 
 - `mcp_evidencebase.ping`: worker health probe (`pong`).
 - `mcp_evidencebase.scan_minio_objects(bucket_name=None)`: scan one/all buckets and enqueue
-  `process_minio_object` for changed objects.
-- `mcp_evidencebase.process_minio_object(bucket_name, object_name, etag=None)`: full ingestion
-  pipeline (partition -> metadata -> chunk -> vector upsert), with retries.
+  `partition_minio_object` for changed objects.
+- `mcp_evidencebase.partition_minio_object(bucket_name, object_name, etag=None)`: partition +
+  metadata stage, then enqueues `chunk_minio_object`.
+- `mcp_evidencebase.chunk_minio_object(partition_payload)`: chunk + vector upsert stage.
+- `mcp_evidencebase.process_minio_object(bucket_name, object_name, etag=None)`: backward-compatible
+  wrapper that runs both stages inline.
 
 Beat schedule is configured in `src/mcp_evidencebase/celery_app.py`. To execute scheduled scans,
 run a beat process (or worker with beat enabled). The current API endpoint
 `POST /collections/{bucket}/scan` can always trigger scans on demand.
 
-Refactor guidance:
+Operational guidance:
 
-- Current design is fine for a stable linear pipeline.
-- Refactor into stage-specific tasks only if you need independent reruns (for example
-  re-chunk/re-index without re-partition) or branching workflows.
-- If needed, split into chained tasks such as
-  `partition_object -> extract_metadata -> chunk_and_upsert`, with each stage reading/writing
-  deterministic Redis/Qdrant state.
+- Re-run partitioning when source bytes/ETag change.
+- Re-run chunking/indexing when only chunking strategy changes and partition payload is still valid.
+- Keep partition and chunk stage payloads deterministic so retries remain idempotent.
 
 ### Documentation And Test Reporting
 

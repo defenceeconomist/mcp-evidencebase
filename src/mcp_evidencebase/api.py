@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 from mcp_evidencebase.bucket_service import BucketService
 from mcp_evidencebase.ingestion import IngestionService, build_ingestion_service
 from mcp_evidencebase.minio_settings import MinioSettings, build_minio_settings
-from mcp_evidencebase.tasks import process_minio_object, scan_minio_objects
+from mcp_evidencebase.tasks import partition_minio_object, scan_minio_objects
 
 app = FastAPI(title="mcp-evidencebase API", version="0.1.0")
 logger = logging.getLogger(__name__)
@@ -267,12 +267,12 @@ async def upload_document(
     task_id: str | None = None
     queue_error = ""
     try:
-        task = process_minio_object.delay(normalized_bucket_name, object_name, None)
+        task = partition_minio_object.delay(normalized_bucket_name, object_name, None)
         task_id = task.id
     except Exception as exc:
         queued = False
         queue_error = str(exc)
-        logger.exception("Failed to enqueue process_minio_object task.")
+        logger.exception("Failed to enqueue partition_minio_object task.")
 
     return {
         "bucket_name": normalized_bucket_name,

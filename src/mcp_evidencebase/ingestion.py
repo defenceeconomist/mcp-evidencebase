@@ -1281,7 +1281,9 @@ class IngestionService:
     """High-level ingestion operations shared by API handlers and Celery tasks.
 
     The service coordinates MinIO object storage, Unstructured partitioning,
-    Redis state/metadata persistence, and Qdrant vector indexing.
+    Redis state/metadata persistence, and Qdrant vector indexing. Partitioning
+    and chunking/indexing are exposed as separate stage methods so workflows can
+    rerun chunking independently from partition extraction.
     """
 
     def __init__(
@@ -1323,6 +1325,28 @@ class IngestionService:
         finally:
             object_response.close()
             object_response.release_conn()
+
+    def _resolve_document_identity(
+        self,
+        *,
+        bucket_name: str,
+        object_name: str,
+        etag: str | None,
+        file_bytes: bytes,
+    ) -> tuple[str, str]:
+        """Resolve and persist deterministic document identity and source mapping."""
+        stat_info = self._minio_client.stat_object(bucket_name, object_name)
+        resolved_etag = normalize_etag(etag) or normalize_etag(getattr(stat_info, "etag", ""))
+        document_id = compute_document_id(file_bytes)
+
+        self._repository.add_document(bucket_name, document_id)
+        self._repository.mark_object(
+            bucket_name=bucket_name,
+            object_name=object_name,
+            document_id=document_id,
+            etag=resolved_etag,
+        )
+        return document_id, resolved_etag
 
     def _remove_object_if_exists(self, bucket_name: str, object_name: str) -> None:
         """Delete an object and ignore not-found responses."""
@@ -1488,7 +1512,10 @@ class IngestionService:
         object_name: str,
         etag: str | None = None,
     ) -> str:
-        """Process one MinIO object into partitions, metadata, and vectors.
+        """Process one MinIO object through partition and chunk stages.
+
+        This compatibility wrapper runs ``partition_object()`` then
+        ``chunk_object()`` in sequence.
 
         Args:
             bucket_name: Source bucket.
@@ -1502,21 +1529,48 @@ class IngestionService:
             ValueError: If the object payload is empty.
             Exception: Any downstream partitioning or indexing failure.
         """
-        file_bytes = self._read_object_bytes(bucket_name, object_name)
+        stage = self.partition_object(
+            bucket_name=bucket_name,
+            object_name=object_name,
+            etag=etag,
+        )
+        self.chunk_object(
+            bucket_name=bucket_name,
+            object_name=object_name,
+            document_id=stage["document_id"],
+        )
+        return stage["document_id"]
 
+    def partition_object(
+        self,
+        *,
+        bucket_name: str,
+        object_name: str,
+        etag: str | None = None,
+    ) -> dict[str, str]:
+        """Run partitioning and metadata extraction for one MinIO object.
+
+        Args:
+            bucket_name: Source bucket.
+            object_name: Source object path.
+            etag: Optional object ETag from scanner context.
+
+        Returns:
+            Stage payload containing bucket/object IDs and partition metadata keys.
+
+        Raises:
+            ValueError: If the object payload is empty.
+            Exception: Any downstream partitioning failure.
+        """
+        file_bytes = self._read_object_bytes(bucket_name, object_name)
         if not file_bytes:
             raise ValueError(f"Object '{object_name}' in bucket '{bucket_name}' is empty.")
 
-        stat_info = self._minio_client.stat_object(bucket_name, object_name)
-        resolved_etag = normalize_etag(etag) or normalize_etag(getattr(stat_info, "etag", ""))
-        document_id = compute_document_id(file_bytes)
-
-        self._repository.add_document(bucket_name, document_id)
-        self._repository.mark_object(
+        document_id, resolved_etag = self._resolve_document_identity(
             bucket_name=bucket_name,
             object_name=object_name,
-            document_id=document_id,
-            etag=resolved_etag,
+            etag=etag,
+            file_bytes=file_bytes,
         )
 
         self._set_state(
@@ -1555,6 +1609,84 @@ class IngestionService:
                 document_id=document_id,
                 metadata=extracted_metadata,
             )
+            self._set_state(
+                document_id,
+                processing_state="processing",
+                processing_progress=60,
+                partition_key=partition_key,
+                meta_key=meta_key,
+                partitions_count=len(partitions),
+                error="",
+            )
+            return {
+                "bucket_name": bucket_name,
+                "object_name": object_name,
+                "document_id": document_id,
+                "etag": resolved_etag,
+                "partition_key": partition_key,
+                "meta_key": meta_key,
+            }
+        except Exception as exc:
+            self._set_state(
+                document_id,
+                processing_state="failed",
+                processing_progress=100,
+                error=str(exc),
+            )
+            raise
+
+    def chunk_object(
+        self,
+        *,
+        bucket_name: str,
+        object_name: str,
+        document_id: str,
+    ) -> dict[str, str]:
+        """Run chunking and vector indexing for an already partitioned document.
+
+        Args:
+            bucket_name: Source bucket.
+            object_name: Source object path.
+            document_id: Canonical document hash to chunk/index.
+
+        Returns:
+            Stage payload containing bucket/object IDs and persisted key references.
+
+        Raises:
+            ValueError: If no partition payload is available for the document.
+            Exception: Any downstream chunking or indexing failure.
+        """
+        try:
+            state = self._repository.get_state(document_id)
+            partition_key = state.get("partition_key", "")
+            if not partition_key:
+                raise ValueError(
+                    f"Document '{document_id}' has no partition_key; run partition stage first."
+                )
+
+            partitions = self._repository.get_partitions_by_key(partition_key)
+            if not partitions:
+                raise ValueError(
+                    "No partitions were found for document "
+                    f"'{document_id}' and key '{partition_key}'."
+                )
+
+            meta_key = state.get("meta_key", "")
+            if not meta_key:
+                resolved_meta_key, _ = self._repository.get_document_metadata(
+                    bucket_name, document_id
+                )
+                meta_key = resolved_meta_key
+
+            self._set_state(
+                document_id,
+                processing_state="processing",
+                processing_progress=75,
+                partition_key=partition_key,
+                meta_key=meta_key,
+                partitions_count=len(partitions),
+                error="",
+            )
 
             chunks = build_partition_chunks(
                 partitions,
@@ -1564,8 +1696,10 @@ class IngestionService:
             self._set_state(
                 document_id,
                 processing_state="processing",
-                processing_progress=75,
+                processing_progress=90,
+                partition_key=partition_key,
                 meta_key=meta_key,
+                partitions_count=len(partitions),
                 chunks_count=len(chunks),
                 error="",
             )
@@ -1588,7 +1722,13 @@ class IngestionService:
                 chunks_count=len(chunks),
                 error="",
             )
-            return document_id
+            return {
+                "bucket_name": bucket_name,
+                "object_name": object_name,
+                "document_id": document_id,
+                "partition_key": partition_key,
+                "meta_key": meta_key,
+            }
         except Exception as exc:
             self._set_state(
                 document_id,
