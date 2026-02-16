@@ -1,4 +1,4 @@
-# mcp-evidencebase
+# Evidence Base
 
 Manage evidence base metadata, semantic search, and GPT summaries.
 
@@ -122,6 +122,17 @@ MINIO_SERVER_URL=http://127.0.0.1:9000
 MINIO_BROWSER_REDIRECT_URL=http://localhost:52180/minio-console
 CELERY_BROKER_URL=redis://redis:6379/0
 CELERY_RESULT_BACKEND=redis://redis:6379/1
+REDIS_URL=redis://redis:6379/2
+REDIS_PREFIX=evidencebase
+QDRANT_URL=http://qdrant:6333
+QDRANT_COLLECTION_PREFIX=evidencebase
+UNSTRUCTURED_API_URL=https://api.unstructuredapp.io/general/v0/general
+UNSTRUCTURED_API_KEY=<your-unstructured-api-key>
+UNSTRUCTURED_STRATEGY=auto
+FASTEMBED_MODEL=BAAI/bge-small-en-v1.5
+CHUNK_SIZE_CHARS=1200
+CHUNK_OVERLAP_CHARS=150
+MINIO_SCAN_INTERVAL_SECONDS=15
 CLOUDFLARE_TUNNEL_TOKEN=<your-cloudflare-tunnel-token>
 ```
 
@@ -152,13 +163,13 @@ curl -sS -X POST "$BASE_URL/buckets" \
 Expected response when created:
 
 ```json
-{"bucket_name":"research-raw","created":true}
+{"bucket_name":"research-raw","created":true,"qdrant_collection_created":true}
 ```
 
 Expected response when it already exists:
 
 ```json
-{"bucket_name":"research-raw","created":false}
+{"bucket_name":"research-raw","created":false,"qdrant_collection_created":false}
 ```
 
 Remove bucket `research-raw`:
@@ -170,11 +181,73 @@ curl -sS -X DELETE "$BASE_URL/buckets/research-raw"
 Expected response when removed:
 
 ```json
-{"bucket_name":"research-raw","removed":true}
+{"bucket_name":"research-raw","removed":true,"qdrant_collection_removed":true}
 ```
 
 Expected response when it does not exist:
 
 ```json
-{"bucket_name":"research-raw","removed":false}
+{"bucket_name":"research-raw","removed":false,"qdrant_collection_removed":false}
 ```
+
+## Document ingestion API command-line examples
+
+List documents for bucket `research-raw`:
+
+```bash
+curl -sS "$BASE_URL/collections/research-raw/documents"
+```
+
+Upload and queue processing (`document_id` is the SHA-256 hash of bytes):
+
+```bash
+curl -sS -X POST \
+  "$BASE_URL/collections/research-raw/documents/upload?file_name=paper.pdf" \
+  -H "Content-Type: application/pdf" \
+  --data-binary "@paper.pdf"
+```
+
+Queue an on-demand bucket scan (for files dropped directly into MinIO):
+
+```bash
+curl -sS -X POST "$BASE_URL/collections/research-raw/scan"
+```
+
+Update BibTeX metadata in Redis:
+
+```bash
+curl -sS -X PUT "$BASE_URL/collections/research-raw/documents/<document_id>/metadata" \
+  -H "Content-Type: application/json" \
+  -d '{"metadata":{"title":"My Paper","author":"A. Author","year":"2025","document_type":"article"}}'
+```
+
+Delete a document (keeps partition payload in Redis, removes everything else):
+
+```bash
+curl -sS -X DELETE "$BASE_URL/collections/research-raw/documents/<document_id>"
+```
+
+## Redis and Qdrant Schema
+
+`document_id` is the SHA-256 hash of file bytes and is the canonical document key.
+
+Redis keys (prefix defaults to `evidencebase`):
+- `document:<document_hash>` hash for processing state/progress (`processing_state`, `processing_progress`, `partition_key`, `meta_key`, etc.).
+- `document:<document_hash>:sources` set of `bucket/object` source locations mapped to the document hash.
+- `document:<document_hash>:partitions` Unstructured partition JSON payload.
+- `document:partition:<partition_hash>` reverse index mapping partition hash -> document hash.
+- `source:<bucket>/<object>` source mapping hash (`document_id`, `etag`, `resolver_url`, location fields).
+- `source:bucket:<bucket>` set of source locations in a bucket.
+- `meta:<bucket>/<object>` source-scoped normalized BibTeX metadata payload with `document_id` and `source`.
+
+Notes:
+- Redis stores partitions and metadata, but **does not store chunks**.
+- Deleting a document keeps `document:<document_hash>` state and partition payload by default, and removes source/meta mappings.
+- Metadata extraction attempts title/authors/DOI/ISBN; DOI extraction is intentionally limited to first-page/front-matter partitions.
+
+Qdrant stores chunk text + embeddings. Each point payload includes:
+- `document_id` (document hash)
+- `partition_key` (partition hash)
+- `meta_key` (metadata hash)
+- `resolver_url` in the form `docs://bucket/object.ext?page=`
+- `minio_location`, `chunk_index`, and `text`
