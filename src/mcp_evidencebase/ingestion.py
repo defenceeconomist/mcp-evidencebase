@@ -49,7 +49,13 @@ BIBTEX_FIELDS: tuple[str, ...] = (
     "year",
 )
 
-METADATA_FIELDS: tuple[str, ...] = (*BIBTEX_FIELDS, "document_type", "citation_key")
+AUTHORS_METADATA_FIELD = "authors"
+METADATA_FIELDS: tuple[str, ...] = (
+    *BIBTEX_FIELDS,
+    "document_type",
+    "citation_key",
+    AUTHORS_METADATA_FIELD,
+)
 
 DOI_PATTERN = re.compile(r"\b10\.\d{4,9}/[-._;()/:A-Z0-9]+\b", re.IGNORECASE)
 ISBN_PATTERN = re.compile(r"\b(?:97[89][-\s]?)?(?:\d[-\s]?){9}[\dXx]\b")
@@ -131,9 +137,68 @@ def compute_partition_key(partitions: list[dict[str, Any]]) -> str:
     return compute_hash_for_value(partitions)
 
 
-def compute_metadata_key(metadata: Mapping[str, str]) -> str:
+def _normalize_author_entries(value: Any) -> list[dict[str, str]]:
+    """Normalize structured author entries to ``[{first_name,last_name,suffix}, ...]``."""
+    payload: Any = value
+    if isinstance(payload, str):
+        stripped = payload.strip()
+        if not stripped:
+            return []
+        try:
+            payload = json.loads(stripped)
+        except json.JSONDecodeError:
+            return []
+
+    if not isinstance(payload, list):
+        return []
+
+    normalized: list[dict[str, str]] = []
+    for entry in payload:
+        if not isinstance(entry, Mapping):
+            continue
+        first_name = str(
+            entry.get("first_name")
+            or entry.get("firstName")
+            or entry.get("first")
+            or entry.get("given")
+            or ""
+        ).strip()
+        last_name = str(
+            entry.get("last_name")
+            or entry.get("lastName")
+            or entry.get("last")
+            or entry.get("family")
+            or ""
+        ).strip()
+        suffix = str(entry.get("suffix") or entry.get("suffix_name") or "").strip()
+        if not first_name and not last_name and not suffix:
+            continue
+        normalized.append(
+            {
+                "first_name": first_name,
+                "last_name": last_name,
+                "suffix": suffix,
+            }
+        )
+    return normalized
+
+
+def _serialize_author_entries(value: Any) -> str:
+    """Serialize normalized author entries into deterministic JSON text."""
+    normalized = _normalize_author_entries(value)
+    if not normalized:
+        return ""
+    return canonical_json(normalized)
+
+
+def compute_metadata_key(metadata: Mapping[str, Any]) -> str:
     """Return a deterministic metadata key for normalized metadata values."""
-    payload = {field_name: str(metadata.get(field_name, "")) for field_name in METADATA_FIELDS}
+    payload: dict[str, str] = {}
+    for field_name in METADATA_FIELDS:
+        if field_name == AUTHORS_METADATA_FIELD:
+            payload[field_name] = _serialize_author_entries(metadata.get(field_name, ""))
+        else:
+            payload[field_name] = str(metadata.get(field_name, ""))
     return compute_hash_for_value(payload)
 
 
@@ -166,16 +231,20 @@ def build_default_metadata(file_path: str, document_id: str) -> dict[str, str]:
     metadata["title"] = title
     metadata["document_type"] = "misc"
     metadata["citation_key"] = citation_key
+    metadata[AUTHORS_METADATA_FIELD] = ""
     return metadata
 
 
-def normalize_metadata(metadata: Mapping[str, str]) -> dict[str, str]:
+def normalize_metadata(metadata: Mapping[str, Any]) -> dict[str, str]:
     """Normalize metadata into the Redis schema with fixed field names."""
     normalized = {field_name: "" for field_name in METADATA_FIELDS}
     for key, value in metadata.items():
         field_name = str(key).strip().lower()
         if field_name in normalized:
-            normalized[field_name] = str(value).strip()
+            if field_name == AUTHORS_METADATA_FIELD:
+                normalized[field_name] = _serialize_author_entries(value)
+            else:
+                normalized[field_name] = str(value).strip()
 
     normalized["document_type"] = normalized.get("document_type", "") or "misc"
     return normalized
@@ -263,102 +332,627 @@ def extract_partition_bounding_box(partition: Mapping[str, Any]) -> dict[str, An
     return payload
 
 
+@dataclass(frozen=True)
+class _NormalizedElement:
+    """Normalized Unstructured element used by the chunking pipeline."""
+
+    element_id: str
+    text: str
+    raw_type: str
+    kind: str
+    page_number: int | None
+    coordinates: dict[str, Any] | None
+    source_id: str | None
+    filename: str | None
+
+
+def _safe_int(value: Any) -> int | None:
+    """Convert value to positive integer when possible."""
+    try:
+        resolved = int(value)
+    except (TypeError, ValueError):
+        return None
+    if resolved < 1:
+        return None
+    return resolved
+
+
+def _safe_non_empty_string(value: Any) -> str | None:
+    """Convert value to stripped string and return ``None`` when empty."""
+    if value is None:
+        return None
+    resolved = str(value).strip()
+    return resolved or None
+
+
+def _normalize_element_type(element: Mapping[str, Any]) -> tuple[str, str]:
+    """Return the raw element type and normalized chunking kind."""
+    raw_type = _safe_non_empty_string(element.get("type")) or _safe_non_empty_string(
+        element.get("category")
+    )
+    resolved_type = raw_type or "Text"
+    lowered = resolved_type.lower()
+    if lowered in {
+        "header",
+        "footer",
+        "pageheader",
+        "pagefooter",
+        "page-header",
+        "page-footer",
+    }:
+        return resolved_type, "excluded"
+    if "image" in lowered:
+        return resolved_type, "excluded"
+    if lowered == "title":
+        return resolved_type, "title"
+    if "table" in lowered:
+        return resolved_type, "table"
+    return resolved_type, "text"
+
+
+def _stable_fallback_element_id(
+    *,
+    raw_type: str,
+    page_number: int | None,
+    text: str,
+) -> str:
+    """Build deterministic element ID fallback for records missing ``element_id``."""
+    page_marker = str(page_number or 0)
+    payload = f"{raw_type}|{page_marker}|{text[:200]}"
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:20]
+
+
+def _normalize_chunking_elements(
+    elements: Iterable[Mapping[str, Any]],
+) -> list[_NormalizedElement]:
+    """Normalize raw Unstructured elements into deterministic internal records."""
+    normalized: list[_NormalizedElement] = []
+    for raw_element in elements:
+        text_value = raw_element.get("text")
+        if not isinstance(text_value, str):
+            continue
+        text = text_value.strip()
+        if not text:
+            continue
+
+        raw_type, kind = _normalize_element_type(raw_element)
+        if kind == "excluded":
+            continue
+        metadata = raw_element.get("metadata")
+        metadata_mapping = metadata if isinstance(metadata, Mapping) else {}
+
+        page_number = _safe_int(metadata_mapping.get("page_number"))
+        if page_number is None:
+            page_number = _safe_int(raw_element.get("page_number"))
+
+        element_id = _safe_non_empty_string(raw_element.get("element_id"))
+        if element_id is None:
+            element_id = _stable_fallback_element_id(
+                raw_type=raw_type,
+                page_number=page_number,
+                text=text,
+            )
+
+        source_id = (
+            _safe_non_empty_string(metadata_mapping.get("document_id"))
+            or _safe_non_empty_string(raw_element.get("document_id"))
+            or _safe_non_empty_string(metadata_mapping.get("source_id"))
+            or _safe_non_empty_string(raw_element.get("source_id"))
+        )
+        filename = _safe_non_empty_string(metadata_mapping.get("filename")) or (
+            _safe_non_empty_string(raw_element.get("filename"))
+        )
+        coordinates = extract_partition_bounding_box(raw_element)
+
+        normalized.append(
+            _NormalizedElement(
+                element_id=element_id,
+                text=text,
+                raw_type=raw_type,
+                kind=kind,
+                page_number=page_number,
+                coordinates=coordinates,
+                source_id=source_id,
+                filename=filename,
+            )
+        )
+    return normalized
+
+
+def _build_trace_record(
+    element: _NormalizedElement,
+    *,
+    text_len: int,
+) -> dict[str, Any]:
+    """Build minimal orig-element trace metadata for one chunk contribution."""
+    trace: dict[str, Any] = {
+        "element_id": element.element_id,
+        "type": element.raw_type,
+        "category": element.raw_type,
+        "page_number": element.page_number,
+        "text_len": int(text_len),
+    }
+    if element.coordinates is not None:
+        trace["coordinates"] = dict(element.coordinates)
+    return trace
+
+
+def _coerce_chunk_page_numbers(orig_elements: list[dict[str, Any]]) -> list[int]:
+    """Collect ordered, de-duplicated page numbers from trace records."""
+    page_numbers: list[int] = []
+    seen: set[int] = set()
+    for record in orig_elements:
+        page_number = _safe_int(record.get("page_number"))
+        if page_number is None or page_number in seen:
+            continue
+        seen.add(page_number)
+        page_numbers.append(page_number)
+    return page_numbers
+
+
+def _coerce_chunk_bounding_boxes(orig_elements: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Collect ordered, de-duplicated normalized bounding boxes from trace records."""
+    bounding_boxes: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for record in orig_elements:
+        raw_coordinates = record.get("coordinates")
+        if not isinstance(raw_coordinates, Mapping):
+            continue
+        payload = {str(key): value for key, value in raw_coordinates.items()}
+        page_number = _safe_int(record.get("page_number"))
+        if page_number is not None:
+            payload["page_number"] = page_number
+        dedupe_key = canonical_json(payload)
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        bounding_boxes.append(payload)
+    return bounding_boxes
+
+
+def _emit_chunk(
+    *,
+    chunk_type: str,
+    text: str,
+    section_title: str | None,
+    contributions: list[tuple[_NormalizedElement, int]],
+) -> dict[str, Any] | None:
+    """Build one chunk payload from normalized element contributions."""
+    resolved_text = text.strip()
+    if not resolved_text:
+        return None
+
+    orig_elements = [
+        _build_trace_record(element, text_len=text_len)
+        for element, text_len in contributions
+    ]
+    if not orig_elements:
+        return None
+
+    source_id: str | None = None
+    filename: str | None = None
+    for element, _ in contributions:
+        if source_id is None and element.source_id:
+            source_id = element.source_id
+        if filename is None and element.filename:
+            filename = element.filename
+        if source_id is not None and filename is not None:
+            break
+
+    page_numbers = _coerce_chunk_page_numbers(orig_elements)
+    page_start = min(page_numbers) if page_numbers else None
+    page_end = max(page_numbers) if page_numbers else None
+    metadata: dict[str, Any] = {
+        "page_start": page_start,
+        "page_end": page_end,
+        "section_title": section_title,
+    }
+    if source_id is not None:
+        metadata["source_id"] = source_id
+    if filename is not None:
+        metadata["filename"] = filename
+
+    return {
+        "chunk_id": "",
+        "chunk_index": 0,
+        "text": resolved_text,
+        "type": chunk_type,
+        "metadata": metadata,
+        "orig_elements": orig_elements,
+        "page_numbers": page_numbers,
+        "bounding_boxes": _coerce_chunk_bounding_boxes(orig_elements),
+    }
+
+
+def _find_split_boundary(text: str, *, start: int, hard_end: int) -> int:
+    """Find best split boundary before ``hard_end`` preferring paragraph/sentence breaks."""
+    if hard_end >= len(text):
+        return len(text)
+
+    search_start = start + max(1, (hard_end - start) // 2)
+    for delimiter in ("\n\n", "\n", ". ", "? ", "! ", "; ", ": ", ", ", " "):
+        index = text.rfind(delimiter, search_start, hard_end)
+        if index < 0:
+            continue
+        if delimiter in {". ", "? ", "! ", "; ", ": ", ", ", " "}:
+            return index + 1
+        return index + len(delimiter)
+    return hard_end
+
+
+def _split_oversized_text(
+    *,
+    text: str,
+    max_characters: int,
+    overlap_chars: int,
+) -> list[str]:
+    """Split oversized element text with optional overlap between internal slices."""
+    if len(text) <= max_characters:
+        return [text]
+
+    chunks: list[str] = []
+    cursor = 0
+    limit = len(text)
+    while cursor < limit:
+        hard_end = min(cursor + max_characters, limit)
+        end = _find_split_boundary(text, start=cursor, hard_end=hard_end)
+        if end <= cursor:
+            end = hard_end
+
+        piece = text[cursor:end].strip()
+        if piece:
+            chunks.append(piece)
+        if end >= limit:
+            break
+        cursor = max(end - overlap_chars, cursor + 1)
+    return chunks
+
+
+def _merge_text_chunks(
+    left: dict[str, Any],
+    right: dict[str, Any],
+    *,
+    max_characters: int,
+) -> dict[str, Any] | None:
+    """Merge two text chunks when safe under size constraints."""
+    if left.get("type") != "text" or right.get("type") != "text":
+        return None
+    joined_text = f"{left.get('text', '').strip()}\n\n{right.get('text', '').strip()}".strip()
+    if len(joined_text) > max_characters:
+        return None
+
+    left_metadata = left.get("metadata")
+    right_metadata = right.get("metadata")
+    left_meta = left_metadata if isinstance(left_metadata, Mapping) else {}
+    right_meta = right_metadata if isinstance(right_metadata, Mapping) else {}
+    merged_orig = [*left.get("orig_elements", []), *right.get("orig_elements", [])]
+    orig_elements = [record for record in merged_orig if isinstance(record, Mapping)]
+    resolved_orig = [{str(key): value for key, value in record.items()} for record in orig_elements]
+    page_numbers = _coerce_chunk_page_numbers(resolved_orig)
+
+    metadata: dict[str, Any] = {
+        "page_start": min(page_numbers) if page_numbers else None,
+        "page_end": max(page_numbers) if page_numbers else None,
+        "section_title": left_meta.get("section_title", right_meta.get("section_title")),
+    }
+    source_id = _safe_non_empty_string(left_meta.get("source_id")) or _safe_non_empty_string(
+        right_meta.get("source_id")
+    )
+    filename = _safe_non_empty_string(left_meta.get("filename")) or _safe_non_empty_string(
+        right_meta.get("filename")
+    )
+    if source_id is not None:
+        metadata["source_id"] = source_id
+    if filename is not None:
+        metadata["filename"] = filename
+
+    merged_boxes = [
+        box
+        for box in [*left.get("bounding_boxes", []), *right.get("bounding_boxes", [])]
+        if isinstance(box, Mapping)
+    ]
+    deduped_boxes: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for box in merged_boxes:
+        payload = {str(key): value for key, value in box.items()}
+        dedupe_key = canonical_json(payload)
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        deduped_boxes.append(payload)
+
+    return {
+        "chunk_id": "",
+        "chunk_index": 0,
+        "text": joined_text,
+        "type": "text",
+        "metadata": metadata,
+        "orig_elements": resolved_orig,
+        "page_numbers": page_numbers,
+        "bounding_boxes": deduped_boxes,
+    }
+
+
+def _consolidate_small_chunks(
+    chunks: list[dict[str, Any]],
+    *,
+    combine_under_n_chars: int,
+    max_characters: int,
+) -> list[dict[str, Any]]:
+    """Merge undersized neighboring text chunks while preserving table isolation."""
+    if combine_under_n_chars <= 0:
+        return chunks
+
+    consolidated = list(chunks)
+    index = 0
+    while index < len(consolidated):
+        chunk = consolidated[index]
+        chunk_text = str(chunk.get("text", ""))
+        if chunk.get("type") != "text" or len(chunk_text) >= combine_under_n_chars:
+            index += 1
+            continue
+
+        chunk_metadata = chunk.get("metadata")
+        metadata = chunk_metadata if isinstance(chunk_metadata, Mapping) else {}
+        section_title = metadata.get("section_title")
+
+        merged = False
+        # Prefer same-section adjacency first (previous, then next for determinism).
+        if index > 0:
+            previous = consolidated[index - 1]
+            previous_metadata = previous.get("metadata")
+            previous_meta = previous_metadata if isinstance(previous_metadata, Mapping) else {}
+            if (
+                previous.get("type") == "text"
+                and previous_meta.get("section_title") == section_title
+            ):
+                candidate = _merge_text_chunks(
+                    previous,
+                    chunk,
+                    max_characters=max_characters,
+                )
+                if candidate is not None:
+                    consolidated[index - 1] = candidate
+                    del consolidated[index]
+                    index = max(0, index - 1)
+                    merged = True
+        if merged:
+            continue
+
+        if index + 1 < len(consolidated):
+            following = consolidated[index + 1]
+            following_metadata = following.get("metadata")
+            following_meta = following_metadata if isinstance(following_metadata, Mapping) else {}
+            if (
+                following.get("type") == "text"
+                and following_meta.get("section_title") == section_title
+            ):
+                candidate = _merge_text_chunks(
+                    chunk,
+                    following,
+                    max_characters=max_characters,
+                )
+                if candidate is not None:
+                    consolidated[index] = candidate
+                    del consolidated[index + 1]
+                    merged = True
+        if merged:
+            continue
+
+        # Fallback to next text chunk regardless of section.
+        if index + 1 < len(consolidated):
+            following = consolidated[index + 1]
+            if following.get("type") == "text":
+                candidate = _merge_text_chunks(
+                    chunk,
+                    following,
+                    max_characters=max_characters,
+                )
+                if candidate is not None:
+                    consolidated[index] = candidate
+                    del consolidated[index + 1]
+                    continue
+
+        index += 1
+
+    return consolidated
+
+
+def _finalize_chunk_ids(chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Assign deterministic chunk indexes and chunk IDs."""
+    for index, chunk in enumerate(chunks):
+        metadata = chunk.get("metadata")
+        resolved_metadata = metadata if isinstance(metadata, Mapping) else {}
+        source_id = _safe_non_empty_string(resolved_metadata.get("source_id")) or (
+            _safe_non_empty_string(resolved_metadata.get("filename"))
+        )
+        orig_elements = chunk.get("orig_elements", [])
+        first_element_id = ""
+        last_element_id = ""
+        if isinstance(orig_elements, list) and orig_elements:
+            first = orig_elements[0]
+            last = orig_elements[-1]
+            if isinstance(first, Mapping):
+                first_element_id = str(first.get("element_id", ""))
+            if isinstance(last, Mapping):
+                last_element_id = str(last.get("element_id", ""))
+        section_title = _safe_non_empty_string(resolved_metadata.get("section_title")) or ""
+
+        id_payload = "|".join(
+            [
+                source_id or "",
+                first_element_id,
+                last_element_id,
+                section_title,
+                str(index),
+            ]
+        )
+        chunk["chunk_index"] = index
+        chunk["chunk_id"] = hashlib.sha256(id_payload.encode("utf-8")).hexdigest()[:24]
+    return chunks
+
+
+def chunk_unstructured_elements(
+    elements: list[dict[str, Any]],
+    **params: Any,
+) -> list[dict[str, Any]]:
+    """Chunk Unstructured JSON elements into deterministic, traceable records.
+
+    Args:
+        elements: Ordered Unstructured element dictionaries. Expected keys include
+            ``text``, ``type`` or ``category``, optional ``element_id``, and optional
+            ``metadata`` with ``page_number``/``coordinates``/``filename`` fields.
+        **params: Optional chunking controls.
+            ``max_characters`` (default ``2500``): Hard text cap per chunk.
+            ``new_after_n_chars`` (default ``1500``): Soft target to start a new
+                chunk when appending full elements.
+            ``combine_under_n_chars`` (default ``500``): Post-pass merge threshold
+                for undersized text chunks.
+            ``overlap_chars`` (default ``120``): Overlap size used only when splitting
+                one oversized element (text or table) internally.
+
+    Returns:
+        Deterministic chunk dictionaries containing:
+            ``chunk_id``, ``text``, ``type`` (``text``/``table``), ``metadata``
+            (including ``page_start``, ``page_end``, ``section_title``, and optional
+            source identifiers), plus ``orig_elements`` trace records.
+
+    Guarantees:
+        - Preserves source order and semantic element boundaries whenever possible.
+        - Excludes header/footer/image elements from chunk text and trace records.
+        - Uses Title elements as hard section boundaries.
+        - Keeps table elements isolated from narrative text.
+        - Avoids inter-chunk overlap except for oversized single-element splits.
+        - Produces deterministic IDs and metadata for stable re-ingestion.
+    """
+    max_characters = max(1, int(params.get("max_characters", 2500)))
+    new_after_n_chars = max(1, min(int(params.get("new_after_n_chars", 1500)), max_characters))
+    combine_under_n_chars = max(0, int(params.get("combine_under_n_chars", 500)))
+    overlap_chars = max(0, min(int(params.get("overlap_chars", 120)), max_characters - 1))
+
+    normalized_elements = _normalize_chunking_elements(elements)
+    if not normalized_elements:
+        return []
+
+    chunks: list[dict[str, Any]] = []
+    current_elements: list[_NormalizedElement] = []
+    current_length = 0
+    section_title: str | None = None
+
+    def flush_current_text_chunk() -> None:
+        nonlocal current_elements
+        nonlocal current_length
+        if not current_elements:
+            return
+        text = "\n\n".join(element.text for element in current_elements)
+        chunk = _emit_chunk(
+            chunk_type="text",
+            text=text,
+            section_title=section_title,
+            contributions=[(element, len(element.text)) for element in current_elements],
+        )
+        if chunk is not None:
+            chunks.append(chunk)
+        current_elements = []
+        current_length = 0
+
+    def push_text_element(element: _NormalizedElement) -> None:
+        nonlocal current_elements
+        nonlocal current_length
+        element_length = len(element.text)
+
+        if element_length > max_characters:
+            flush_current_text_chunk()
+            parts = _split_oversized_text(
+                text=element.text,
+                max_characters=max_characters,
+                overlap_chars=overlap_chars,
+            )
+            for part in parts:
+                chunk = _emit_chunk(
+                    chunk_type="text",
+                    text=part,
+                    section_title=section_title,
+                    contributions=[(element, len(part))],
+                )
+                if chunk is not None:
+                    chunks.append(chunk)
+            return
+
+        candidate_length = element_length
+        if current_elements:
+            candidate_length += current_length + 2
+            if current_length >= new_after_n_chars or candidate_length > max_characters:
+                flush_current_text_chunk()
+
+        current_elements.append(element)
+        current_length = len("\n\n".join(item.text for item in current_elements))
+
+    for element in normalized_elements:
+        if element.kind == "title":
+            flush_current_text_chunk()
+            section_title = element.text
+            push_text_element(element)
+            continue
+
+        if element.kind == "table":
+            flush_current_text_chunk()
+            table_text = element.text
+            if len(table_text) <= max_characters:
+                chunk = _emit_chunk(
+                    chunk_type="table",
+                    text=table_text,
+                    section_title=section_title,
+                    contributions=[(element, len(table_text))],
+                )
+                if chunk is not None:
+                    chunks.append(chunk)
+                continue
+
+            table_parts = _split_oversized_text(
+                text=table_text,
+                max_characters=max_characters,
+                overlap_chars=overlap_chars,
+            )
+            for part in table_parts:
+                chunk = _emit_chunk(
+                    chunk_type="table",
+                    text=part,
+                    section_title=section_title,
+                    contributions=[(element, len(part))],
+                )
+                if chunk is not None:
+                    chunks.append(chunk)
+            continue
+
+        push_text_element(element)
+
+    flush_current_text_chunk()
+    consolidated = _consolidate_small_chunks(
+        chunks,
+        combine_under_n_chars=combine_under_n_chars,
+        max_characters=max_characters,
+    )
+    return _finalize_chunk_ids(consolidated)
+
+
 def build_partition_chunks(
     partitions: Iterable[Mapping[str, Any]],
     *,
     chunk_size_chars: int,
     chunk_overlap_chars: int,
 ) -> list[dict[str, Any]]:
-    """Create overlapping chunks with page and bounding-box metadata."""
-    entries: list[dict[str, Any]] = []
+    """Backwards-compatible wrapper around ``chunk_unstructured_elements``."""
+    normalized: list[dict[str, Any]] = []
     for partition in partitions:
-        text = extract_partition_text(partition)
-        if not text:
+        if not isinstance(partition, Mapping):
             continue
-        entries.append(
-            {
-                "text": text,
-                "page_number": extract_partition_page_number(partition),
-                "bounding_box": extract_partition_bounding_box(partition),
-            }
-        )
-
-    if not entries:
-        return []
-
-    delimiter = "\n\n"
-    joined = delimiter.join(str(entry["text"]) for entry in entries)
-    size = max(128, chunk_size_chars)
-    overlap = max(0, min(chunk_overlap_chars, size - 1))
-
-    windows: list[tuple[int, int]] = []
-    if len(joined) <= size:
-        windows.append((0, len(joined)))
-    else:
-        step = size - overlap
-        cursor = 0
-        while cursor < len(joined):
-            windows.append((cursor, min(cursor + size, len(joined))))
-            cursor += step
-
-    spans: list[tuple[int, int, dict[str, Any]]] = []
-    cursor = 0
-    for index, entry in enumerate(entries):
-        text = str(entry["text"])
-        start = cursor
-        end = start + len(text)
-        spans.append((start, end, entry))
-        cursor = end
-        if index < len(entries) - 1:
-            cursor += len(delimiter)
-
-    chunks: list[dict[str, Any]] = []
-    for window_start, window_end in windows:
-        chunk_text = joined[window_start:window_end].strip()
-        if not chunk_text:
-            continue
-
-        page_numbers: list[int] = []
-        page_numbers_seen: set[int] = set()
-        bounding_boxes: list[dict[str, Any]] = []
-        bounding_boxes_seen: set[str] = set()
-
-        for partition_start, partition_end, entry in spans:
-            if partition_end <= window_start or partition_start >= window_end:
-                continue
-
-            raw_page_number = entry.get("page_number")
-            page_number = raw_page_number if isinstance(raw_page_number, int) else None
-            if page_number is not None and page_number > 0 and page_number not in page_numbers_seen:
-                page_numbers.append(page_number)
-                page_numbers_seen.add(page_number)
-
-            raw_bounding_box = entry.get("bounding_box")
-            if not isinstance(raw_bounding_box, Mapping):
-                continue
-
-            bounding_box_payload = {
-                str(key): value for key, value in raw_bounding_box.items() if key != "page_number"
-            }
-            if page_number is not None and page_number > 0:
-                bounding_box_payload["page_number"] = page_number
-
-            dedupe_key = canonical_json(bounding_box_payload)
-            if dedupe_key in bounding_boxes_seen:
-                continue
-            bounding_boxes_seen.add(dedupe_key)
-            bounding_boxes.append(bounding_box_payload)
-
-        chunks.append(
-            {
-                "chunk_index": len(chunks),
-                "text": chunk_text,
-                "page_numbers": page_numbers,
-                "bounding_boxes": bounding_boxes,
-            }
-        )
-
-    return chunks
+        normalized.append({str(key): value for key, value in partition.items()})
+    return chunk_unstructured_elements(
+        normalized,
+        max_characters=max(1, int(chunk_size_chars)),
+        overlap_chars=max(0, int(chunk_overlap_chars)),
+    )
 
 
 def chunk_partition_texts(
@@ -367,7 +961,7 @@ def chunk_partition_texts(
     chunk_size_chars: int,
     chunk_overlap_chars: int,
 ) -> list[str]:
-    """Create overlapping text chunks from partition text."""
+    """Create text chunks from partition payload entries."""
     chunks = build_partition_chunks(
         partitions,
         chunk_size_chars=chunk_size_chars,
@@ -743,7 +1337,7 @@ class RedisDocumentRepository:
         *,
         meta_key: str,
         document_id: str,
-        metadata: Mapping[str, str],
+        metadata: Mapping[str, Any],
     ) -> None:
         """Store normalized metadata payload for a source-scoped metadata key."""
         normalized = normalize_metadata(metadata)
@@ -772,7 +1366,7 @@ class RedisDocumentRepository:
         bucket_name: str,
         object_name: str,
         document_id: str,
-        metadata: Mapping[str, str],
+        metadata: Mapping[str, Any],
     ) -> str:
         """Store metadata for one source location and return its metadata key."""
         normalized = normalize_metadata(metadata)
@@ -839,7 +1433,7 @@ class RedisDocumentRepository:
         *,
         bucket_name: str,
         document_id: str,
-        metadata: Mapping[str, str],
+        metadata: Mapping[str, Any],
     ) -> dict[str, str]:
         """Update metadata for all locations in a bucket/document pair."""
         _, existing = self.get_document_metadata(bucket_name, document_id)
@@ -847,7 +1441,10 @@ class RedisDocumentRepository:
         for key, value in metadata.items():
             field_name = str(key).strip().lower()
             if field_name in METADATA_FIELDS:
-                merged[field_name] = str(value).strip()
+                if field_name == AUTHORS_METADATA_FIELD:
+                    merged[field_name] = _serialize_author_entries(value)
+                else:
+                    merged[field_name] = str(value).strip()
         merged["document_type"] = merged.get("document_type", "") or "misc"
 
         object_names = self.get_document_object_names(bucket_name, document_id)
@@ -1051,6 +1648,7 @@ class RedisDocumentRepository:
         metadata: Mapping[str, str],
     ) -> dict[str, Any]:
         """Build one UI-facing document record."""
+        normalized_authors = _normalize_author_entries(metadata.get(AUTHORS_METADATA_FIELD, ""))
         record: dict[str, Any] = {
             "id": document_id,
             "document_id": document_id,
@@ -1067,6 +1665,7 @@ class RedisDocumentRepository:
             "error": state.get("error", ""),
             "document_type": metadata.get("document_type", "misc") or "misc",
             "citation_key": metadata.get("citation_key", ""),
+            "authors": normalized_authors,
             "bibtex_fields": {
                 field_name: metadata.get(field_name, "")
                 for field_name in BIBTEX_FIELDS
@@ -1570,6 +2169,16 @@ class QdrantIndexer:
         points: list[qdrant_models.PointStruct] = []
         for index, (chunk, embedding) in enumerate(zip(chunks, embeddings, strict=False)):
             chunk_index = int(chunk.get("chunk_index", len(points)))
+            raw_metadata = chunk.get("metadata")
+            chunk_metadata = raw_metadata if isinstance(raw_metadata, Mapping) else {}
+            raw_orig_elements = chunk.get("orig_elements", [])
+            orig_elements: list[dict[str, Any]] = []
+            if isinstance(raw_orig_elements, list):
+                for value in raw_orig_elements:
+                    if not isinstance(value, Mapping):
+                        continue
+                    orig_elements.append({str(key): field for key, field in value.items()})
+
             raw_page_numbers = chunk.get("page_numbers", [])
             page_numbers: list[int] = []
             if isinstance(raw_page_numbers, list):
@@ -1580,6 +2189,19 @@ class QdrantIndexer:
                         continue
                     if page_number > 0 and page_number not in page_numbers:
                         page_numbers.append(page_number)
+            if not page_numbers and orig_elements:
+                page_numbers = _coerce_chunk_page_numbers(orig_elements)
+            if not page_numbers:
+                page_start = _safe_int(chunk_metadata.get("page_start"))
+                page_end = _safe_int(chunk_metadata.get("page_end"))
+                if page_start is not None and page_end is not None:
+                    for page_number in range(page_start, page_end + 1):
+                        if page_number not in page_numbers:
+                            page_numbers.append(page_number)
+                elif page_start is not None:
+                    page_numbers.append(page_start)
+                elif page_end is not None:
+                    page_numbers.append(page_end)
 
             raw_bounding_boxes = chunk.get("bounding_boxes", [])
             bounding_boxes: list[dict[str, Any]] = []
@@ -1616,6 +2238,8 @@ class QdrantIndexer:
                             payload_box["system"] = normalized_system
 
                     bounding_boxes.append(payload_box)
+            if not bounding_boxes and orig_elements:
+                bounding_boxes = _coerce_chunk_bounding_boxes(orig_elements)
 
             point_id = compute_chunk_point_id(
                 bucket_name=bucket_name,
@@ -1642,9 +2266,17 @@ class QdrantIndexer:
                 "minio_location": minio_location,
                 "resolver_url": resolver_url,
                 "chunk_index": chunk_index,
+                "chunk_id": str(chunk.get("chunk_id", "")),
+                "chunk_type": str(chunk.get("type", "text")),
+                "section_title": chunk_metadata.get("section_title"),
+                "page_start": chunk_metadata.get("page_start"),
+                "page_end": chunk_metadata.get("page_end"),
+                "source_id": chunk_metadata.get("source_id"),
+                "filename": chunk_metadata.get("filename"),
                 "text": str(chunk.get("text", "")),
                 "page_numbers": page_numbers,
                 "bounding_boxes": bounding_boxes,
+                "orig_elements": orig_elements,
             }
             points.append(
                 qdrant_models.PointStruct(
@@ -1746,7 +2378,36 @@ class IngestionService:
         Returns:
             List of document records for the bucket.
         """
-        return self._repository.list_documents(bucket_name)
+        records = self._repository.list_documents(bucket_name)
+        for record in records:
+            processing_state = str(record.get("processing_state", "")).strip().lower()
+            if processing_state != "processed":
+                continue
+
+            raw_partitions_tree = record.get("partitions_tree")
+            if not isinstance(raw_partitions_tree, Mapping):
+                continue
+            raw_partitions = raw_partitions_tree.get("partitions")
+            if not isinstance(raw_partitions, list):
+                continue
+
+            partitions = [
+                partition for partition in raw_partitions if isinstance(partition, Mapping)
+            ]
+            if not partitions:
+                record["chunks_tree"] = {"chunks": []}
+                continue
+
+            normalized_partitions = [
+                {str(key): value for key, value in partition.items()} for partition in partitions
+            ]
+            chunks = build_partition_chunks(
+                normalized_partitions,
+                chunk_size_chars=self._chunk_size_chars,
+                chunk_overlap_chars=self._chunk_overlap_chars,
+            )
+            record["chunks_tree"] = {"chunks": chunks}
+        return records
 
     def list_buckets(self) -> list[str]:
         """Return sorted bucket names from MinIO.
@@ -2124,7 +2785,7 @@ class IngestionService:
         *,
         bucket_name: str,
         document_id: str,
-        metadata: Mapping[str, str],
+        metadata: Mapping[str, Any],
     ) -> dict[str, str]:
         """Upsert BibTeX-style metadata for a document.
 
@@ -2140,7 +2801,10 @@ class IngestionService:
         for key, value in metadata.items():
             field_name = key.strip().lower()
             if field_name in METADATA_FIELDS:
-                normalized[field_name] = str(value).strip()
+                if field_name == AUTHORS_METADATA_FIELD:
+                    normalized[field_name] = _serialize_author_entries(value)
+                else:
+                    normalized[field_name] = str(value).strip()
 
         if "document_type" in normalized:
             normalized["document_type"] = normalized["document_type"] or "misc"

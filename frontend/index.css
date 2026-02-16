@@ -80,6 +80,17 @@
   padding: 0.5rem;
 }
 
+.authors-editor-row {
+  border: 1px dashed rgba(var(--bs-secondary-rgb), 0.45);
+  border-radius: 0.45rem;
+  padding: 0.5rem;
+  margin: 0;
+}
+
+.authors-editor-row .form-label {
+  color: var(--bs-secondary-color);
+}
+
 .detail-field-row-required {
   border-color: rgba(var(--bs-danger-rgb), 0.45);
 }

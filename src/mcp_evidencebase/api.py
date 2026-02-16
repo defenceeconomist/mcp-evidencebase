@@ -30,7 +30,7 @@ class BucketCreateRequest(BaseModel):
 class MetadataUpdateRequest(BaseModel):
     """Payload for updating document metadata fields."""
 
-    metadata: dict[str, str] = Field(
+    metadata: dict[str, Any] = Field(
         default_factory=dict,
         description="Subset of normalized metadata fields to update.",
     )

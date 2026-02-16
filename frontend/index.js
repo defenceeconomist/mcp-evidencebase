@@ -320,6 +320,8 @@
   let documentTable = null;
   let docJsonModalInstance = null;
   let documentRefreshTimerId = null;
+  const metadataSaveTimers = new Map();
+  const metadataSaveDelayMs = 650;
   let semanticSearchResults = [];
   const isMobileViewport = () => window.matchMedia("(max-width: 991.98px)").matches;
 
@@ -351,6 +353,7 @@
   };
 
   const setSelectedBucketName = (bucketName) => {
+    flushPendingMetadataSaveTimers();
     selectedBucketName = bucketName;
     if (bucketName) {
       setCookie(selectedBucketCookieName, bucketName, 60 * 60 * 24 * 365);
@@ -387,14 +390,229 @@
     return splitParts[splitParts.length - 1] || normalized;
   };
 
-  const normalizeAuthor = (rawDocument) => {
-    if (Array.isArray(rawDocument.author)) {
-      return rawDocument.author
-        .map((authorPart) => normalizeText(authorPart))
-        .filter((authorPart) => authorPart.length > 0)
-        .join(", ");
+  const knownAuthorSuffixes = new Set([
+    "jr",
+    "jr.",
+    "sr",
+    "sr.",
+    "ii",
+    "iii",
+    "iv",
+    "v",
+    "phd",
+    "m.d.",
+    "md",
+  ]);
+
+  const isLikelyAuthorSuffix = (value) => {
+    const normalizedValue = normalizeText(value).toLowerCase();
+    if (!normalizedValue) {
+      return false;
     }
-    return normalizeText(rawDocument.author || rawDocument.authors);
+    return knownAuthorSuffixes.has(normalizedValue);
+  };
+
+  const normalizeAuthorNameParts = (firstName, lastName, suffix) => {
+    const normalized = {
+      first_name: normalizeText(firstName),
+      last_name: normalizeText(lastName),
+      suffix: normalizeText(suffix),
+    };
+    if (!normalized.first_name && !normalized.last_name && !normalized.suffix) {
+      return null;
+    }
+    return normalized;
+  };
+
+  const parseAuthorFromText = (value) => {
+    const normalizedValue = normalizeText(value);
+    if (!normalizedValue) {
+      return null;
+    }
+
+    if (normalizedValue.includes(",")) {
+      const commaParts = normalizedValue
+        .split(",")
+        .map((part) => normalizeText(part))
+        .filter(Boolean);
+      if (commaParts.length >= 2) {
+        const lastName = commaParts[0];
+        const firstName = commaParts[1];
+        const suffix = commaParts.slice(2).join(", ");
+        return normalizeAuthorNameParts(firstName, lastName, suffix);
+      }
+    }
+
+    const tokens = normalizedValue.split(/\s+/).filter(Boolean);
+    if (!tokens.length) {
+      return null;
+    }
+    if (tokens.length === 1) {
+      return normalizeAuthorNameParts("", tokens[0], "");
+    }
+
+    let suffix = "";
+    let bodyTokens = [...tokens];
+    const trailingToken = tokens[tokens.length - 1];
+    if (isLikelyAuthorSuffix(trailingToken)) {
+      suffix = trailingToken;
+      bodyTokens = tokens.slice(0, -1);
+    }
+    if (!bodyTokens.length) {
+      return normalizeAuthorNameParts("", "", suffix);
+    }
+
+    const lastName = bodyTokens[bodyTokens.length - 1];
+    const firstName = bodyTokens.slice(0, -1).join(" ");
+    return normalizeAuthorNameParts(firstName, lastName, suffix);
+  };
+
+  const normalizeAuthorEntry = (rawAuthor) => {
+    if (!rawAuthor) {
+      return null;
+    }
+    if (typeof rawAuthor === "string") {
+      return parseAuthorFromText(rawAuthor);
+    }
+    if (typeof rawAuthor !== "object") {
+      return null;
+    }
+
+    return normalizeAuthorNameParts(
+      rawAuthor.first_name || rawAuthor.firstName || rawAuthor.first || rawAuthor.given || "",
+      rawAuthor.last_name || rawAuthor.lastName || rawAuthor.last || rawAuthor.family || "",
+      rawAuthor.suffix || rawAuthor.suffix_name || rawAuthor.suf || ""
+    );
+  };
+
+  const normalizeAuthorEntries = (rawAuthors) => {
+    if (!Array.isArray(rawAuthors)) {
+      return [];
+    }
+    return rawAuthors
+      .map((rawAuthor) => normalizeAuthorEntry(rawAuthor))
+      .filter((authorEntry) => Boolean(authorEntry));
+  };
+
+  const parseStructuredAuthors = (value) => {
+    if (Array.isArray(value)) {
+      return normalizeAuthorEntries(value);
+    }
+    if (typeof value !== "string") {
+      return [];
+    }
+    const normalizedValue = normalizeText(value);
+    if (!normalizedValue) {
+      return [];
+    }
+    try {
+      const parsedValue = JSON.parse(normalizedValue);
+      return normalizeAuthorEntries(parsedValue);
+    } catch (error) {
+      return [];
+    }
+  };
+
+  const parseAuthorsFromText = (value) => {
+    const normalizedValue = normalizeText(value);
+    if (!normalizedValue) {
+      return [];
+    }
+    return normalizedValue
+      .split(/\s+(?:and|&)\s+|;/i)
+      .map((authorText) => parseAuthorFromText(authorText))
+      .filter((authorEntry) => Boolean(authorEntry));
+  };
+
+  const getAuthorInitials = (firstName) => {
+    return normalizeText(firstName)
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((token) => {
+        const firstLetter = token.match(/[A-Za-z]/);
+        return firstLetter ? `${firstLetter[0].toUpperCase()}.` : "";
+      })
+      .filter(Boolean)
+      .join(" ");
+  };
+
+  const formatAuthorHarvard = (authorEntry) => {
+    if (!authorEntry || typeof authorEntry !== "object") {
+      return "";
+    }
+    const firstName = normalizeText(authorEntry.first_name);
+    const lastName = normalizeText(authorEntry.last_name);
+    const suffix = normalizeText(authorEntry.suffix);
+    const initials = getAuthorInitials(firstName);
+
+    let formattedName = "";
+    if (lastName && initials) {
+      formattedName = `${lastName}, ${initials}`;
+    } else if (lastName) {
+      formattedName = lastName;
+    } else if (firstName) {
+      formattedName = firstName;
+    }
+    if (!formattedName) {
+      return "";
+    }
+    if (suffix) {
+      return `${formattedName}, ${suffix}`;
+    }
+    return formattedName;
+  };
+
+  const formatAuthorsHarvard = (authorEntries) => {
+    const normalizedEntries = normalizeAuthorEntries(authorEntries);
+    if (!normalizedEntries.length) {
+      return "";
+    }
+    const formattedAuthors = normalizedEntries
+      .map((authorEntry) => formatAuthorHarvard(authorEntry))
+      .filter(Boolean);
+    if (!formattedAuthors.length) {
+      return "";
+    }
+    if (formattedAuthors.length === 1) {
+      return formattedAuthors[0];
+    }
+    if (formattedAuthors.length === 2) {
+      return `${formattedAuthors[0]} & ${formattedAuthors[1]}`;
+    }
+    return `${formattedAuthors.slice(0, -1).join(", ")} & ${formattedAuthors[formattedAuthors.length - 1]}`;
+  };
+
+  const normalizeAuthorEntriesFromDocument = (rawDocument, sourceBibtexFields) => {
+    const candidates = [
+      rawDocument.authors,
+      rawDocument.author_entries,
+      sourceBibtexFields.authors,
+      sourceBibtexFields.author_entries,
+      rawDocument.author,
+      sourceBibtexFields.author,
+    ];
+
+    for (const candidate of candidates) {
+      const structured = parseStructuredAuthors(candidate);
+      if (structured.length) {
+        return structured;
+      }
+
+      if (typeof candidate === "string") {
+        const parsedFromText = parseAuthorsFromText(candidate);
+        if (parsedFromText.length) {
+          return parsedFromText;
+        }
+      }
+      if (Array.isArray(candidate)) {
+        const parsedFromArray = normalizeAuthorEntries(candidate);
+        if (parsedFromArray.length) {
+          return parsedFromArray;
+        }
+      }
+    }
+
+    return [];
   };
 
   const normalizeBibtexFields = (rawDocument) => {
@@ -474,6 +692,17 @@
       record[fieldName] = fieldValue;
     });
 
+    const normalizedAuthors = normalizeAuthorEntries(record.authors);
+    if (normalizedAuthors.length > 0) {
+      record.authors = normalizedAuthors;
+      const harvardAuthorDisplay = formatAuthorsHarvard(normalizedAuthors);
+      record.author = harvardAuthorDisplay;
+      record.bibtex_fields.author = harvardAuthorDisplay;
+    } else {
+      record.authors = parseAuthorsFromText(record.bibtex_fields.author);
+      record.author = normalizeText(record.bibtex_fields.author);
+    }
+
     const titleFromBibtex = normalizeText(record.bibtex_fields.title);
     record.title = titleFromBibtex || filenameFromPath(record.file_path);
     record.year = normalizeText(record.bibtex_fields.year);
@@ -481,13 +710,21 @@
     record.publication = derivePublicationFromBibtex(record.bibtex_fields);
   };
 
-  const setBibtexFieldValue = (record, fieldName, value) => {
+  const setBibtexFieldValue = (
+    record,
+    fieldName,
+    value,
+    { preserveStructuredAuthors = false } = {}
+  ) => {
     if (!record || !bibtexFields.includes(fieldName)) {
       return;
     }
     const normalizedValue = normalizeText(value);
     if (!record.bibtex_fields || typeof record.bibtex_fields !== "object") {
       record.bibtex_fields = {};
+    }
+    if (fieldName === "author" && !preserveStructuredAuthors) {
+      record.authors = parseAuthorsFromText(normalizedValue);
     }
     record[fieldName] = normalizedValue;
     record.bibtex_fields[fieldName] = normalizedValue;
@@ -523,6 +760,8 @@
       normalizeText(sourceBibtexFields.citation_key) ||
       normalizeText(sourceBibtexFields.citekey) ||
       buildFallbackCitationKey(filePath, index);
+    const normalizedAuthorEntries = normalizeAuthorEntriesFromDocument(rawDocument, sourceBibtexFields);
+    const formattedAuthorDisplay = formatAuthorsHarvard(normalizedAuthorEntries);
 
     const processingStateSource = normalizeText(rawDocument.processing_state).toLowerCase();
     const normalizedProcessingState =
@@ -562,12 +801,13 @@
       chunks_tree: chunksTree,
       parse_status: normalizedProcessingState,
       bibtex_fields: {},
+      authors: normalizedAuthorEntries,
     };
 
     bibtexFields.forEach((fieldName) => {
       const rawValue =
         fieldName === "author"
-          ? normalizeAuthor(rawDocument) || normalizeText(sourceBibtexFields[fieldName]) || ""
+          ? formattedAuthorDisplay || normalizeText(sourceBibtexFields[fieldName]) || ""
           : normalizeText(rawDocument[fieldName]) || normalizeText(sourceBibtexFields[fieldName]) || "";
       record[fieldName] = rawValue;
       record.bibtex_fields[fieldName] = rawValue;
@@ -578,7 +818,7 @@
       record.title = record.bibtex_fields.title;
     }
     if (!record.bibtex_fields.author) {
-      record.bibtex_fields.author = normalizeAuthor(rawDocument);
+      record.bibtex_fields.author = formattedAuthorDisplay;
       record.author = record.bibtex_fields.author;
     }
     if (!record.bibtex_fields.year) {
@@ -655,6 +895,92 @@
       throw new Error(await parseErrorMessage(response));
     }
     return response.json();
+  };
+
+  const buildMetadataUpdatePayload = (record) => {
+    if (!record || typeof record !== "object") {
+      return {};
+    }
+
+    const payload = {
+      document_type: normalizeDocumentType(record.document_type),
+      citation_key: normalizeText(record.citation_key),
+      authors: "",
+    };
+
+    const normalizedAuthors = normalizeAuthorEntries(record.authors);
+    if (normalizedAuthors.length > 0) {
+      payload.authors = JSON.stringify(normalizedAuthors);
+    }
+
+    bibtexFields.forEach((fieldName) => {
+      payload[fieldName] = normalizeText(
+        (record.bibtex_fields && record.bibtex_fields[fieldName]) || record[fieldName]
+      );
+    });
+    return payload;
+  };
+
+  const persistDocumentMetadata = async (record, { silent = true } = {}) => {
+    if (
+      !record ||
+      typeof record !== "object" ||
+      !selectedBucketName ||
+      !record.document_id
+    ) {
+      return;
+    }
+    const metadata = buildMetadataUpdatePayload(record);
+    try {
+      await apiRequest(
+        `/collections/${encodeURIComponent(selectedBucketName)}/documents/${encodeURIComponent(
+          record.document_id
+        )}/metadata`,
+        {
+          method: "PUT",
+          body: JSON.stringify({ metadata }),
+        }
+      );
+    } catch (error) {
+      if (!silent) {
+        window.alert(`Could not save metadata: ${error.message}`);
+      } else {
+        console.error("Could not save metadata:", error);
+      }
+    }
+  };
+
+  const clearPendingMetadataSaveTimers = () => {
+    metadataSaveTimers.forEach((pendingSave) => {
+      window.clearTimeout(pendingSave.timerId);
+    });
+    metadataSaveTimers.clear();
+  };
+
+  const flushPendingMetadataSaveTimers = () => {
+    metadataSaveTimers.forEach((pendingSave, documentId) => {
+      window.clearTimeout(pendingSave.timerId);
+      metadataSaveTimers.delete(documentId);
+      void persistDocumentMetadata(pendingSave.record, { silent: true });
+    });
+  };
+
+  const scheduleDocumentMetadataSave = (record, { delayMs = metadataSaveDelayMs } = {}) => {
+    if (!record || typeof record !== "object" || !record.document_id) {
+      return;
+    }
+    const documentId = record.document_id;
+    const existingTimer = metadataSaveTimers.get(documentId);
+    if (existingTimer) {
+      window.clearTimeout(existingTimer.timerId);
+      metadataSaveTimers.delete(documentId);
+    }
+
+    const timerId = window.setTimeout(() => {
+      metadataSaveTimers.delete(documentId);
+      void persistDocumentMetadata(record, { silent: true });
+    }, Math.max(0, delayMs));
+    metadataSaveTimers.set(documentId, { timerId, record });
   };
 
   const setSemanticSearchStatus = (message) => {
@@ -1292,6 +1618,7 @@
             if (nextType !== newValue) {
               documentTable.setDataAtRowProp(visualRow, "document_type", nextType, "normalize");
             }
+            scheduleDocumentMetadataSave(record);
             shouldRefreshDetailForm = shouldRefreshDetailForm || record.document_id === selectedDocumentId;
             shouldRefreshDetailTable = true;
             return;
@@ -1299,12 +1626,14 @@
 
           if (property === "citation_key") {
             record.citation_key = normalizedValue;
+            scheduleDocumentMetadataSave(record);
             shouldRefreshDetailForm = shouldRefreshDetailForm || record.document_id === selectedDocumentId;
             return;
           }
 
           if (bibtexFields.includes(property)) {
             setBibtexFieldValue(record, property, normalizedValue);
+            scheduleDocumentMetadataSave(record);
             shouldRefreshDetailForm = shouldRefreshDetailForm || record.document_id === selectedDocumentId;
             shouldRefreshDetailTable = true;
             return;
@@ -1542,6 +1871,151 @@
     return row;
   };
 
+  const setRecordAuthors = (record, nextAuthors) => {
+    if (!record || typeof record !== "object") {
+      return;
+    }
+    record.authors = normalizeAuthorEntries(nextAuthors);
+    const harvardAuthorDisplay = formatAuthorsHarvard(record.authors);
+    setBibtexFieldValue(record, "author", harvardAuthorDisplay, {
+      preserveStructuredAuthors: true,
+    });
+    scheduleDocumentMetadataSave(record);
+  };
+
+  const createAuthorNameInput = (labelText, value, placeholder, onInput) => {
+    const col = document.createElement("div");
+    col.className = "col-12 col-md-4";
+
+    const label = document.createElement("label");
+    label.className = "form-label mb-1 small";
+    label.textContent = labelText;
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "form-control form-control-sm";
+    input.value = normalizeText(value);
+    input.placeholder = placeholder;
+    input.addEventListener("input", () => onInput(input.value));
+
+    col.appendChild(label);
+    col.appendChild(input);
+    return col;
+  };
+
+  const createAuthorsFieldRow = (record, status) => {
+    const row = document.createElement("div");
+    row.className = "detail-field-row";
+    if (status && statusBadgeMeta[status]) {
+      row.classList.add(`detail-field-row-${status}`);
+    }
+
+    const labelWrap = document.createElement("div");
+    labelWrap.className = "d-flex align-items-center justify-content-between gap-2 mb-1";
+
+    const label = document.createElement("label");
+    label.className = "form-label mb-0 fw-semibold small";
+    label.textContent = "Authors";
+    labelWrap.appendChild(label);
+
+    if (status && statusBadgeMeta[status]) {
+      const badge = document.createElement("span");
+      badge.className = `badge rounded-pill bibtex-status-tag ${statusBadgeMeta[status].className}`;
+      badge.textContent = statusBadgeMeta[status].label;
+      labelWrap.appendChild(badge);
+    }
+    row.appendChild(labelWrap);
+
+    const hint = document.createElement("p");
+    hint.className = "small text-body-secondary mb-2";
+    hint.textContent = "Display uses Harvard format derived from structured author names.";
+    row.appendChild(hint);
+
+    const listWrap = document.createElement("div");
+    listWrap.className = "authors-editor-list d-flex flex-column gap-2";
+    row.appendChild(listWrap);
+
+    const addAuthorButton = document.createElement("button");
+    addAuthorButton.type = "button";
+    addAuthorButton.className = "btn btn-outline-secondary btn-sm align-self-start mt-2";
+    addAuthorButton.textContent = "Add Author";
+    let authorEntries = [...normalizeAuthorEntries(record.authors)];
+
+    const renderAuthorRows = () => {
+      listWrap.innerHTML = "";
+      if (!authorEntries.length) {
+        const emptyState = document.createElement("p");
+        emptyState.className = "small text-body-secondary mb-0";
+        emptyState.textContent = "No authors added.";
+        listWrap.appendChild(emptyState);
+        return;
+      }
+
+      authorEntries.forEach((authorEntry, index) => {
+        const authorRow = document.createElement("div");
+        authorRow.className = "authors-editor-row row g-2 align-items-end";
+
+        authorRow.appendChild(
+          createAuthorNameInput(
+            "First Name",
+            authorEntry.first_name,
+            "First name",
+            (nextValue) => {
+              authorEntries[index].first_name = normalizeText(nextValue);
+              setRecordAuthors(record, authorEntries);
+              renderDetailTable();
+            }
+          )
+        );
+        authorRow.appendChild(
+          createAuthorNameInput(
+            "Last Name",
+            authorEntry.last_name,
+            "Last name",
+            (nextValue) => {
+              authorEntries[index].last_name = normalizeText(nextValue);
+              setRecordAuthors(record, authorEntries);
+              renderDetailTable();
+            }
+          )
+        );
+        authorRow.appendChild(
+          createAuthorNameInput("Suffix", authorEntry.suffix, "Suffix", (nextValue) => {
+            authorEntries[index].suffix = normalizeText(nextValue);
+            setRecordAuthors(record, authorEntries);
+            renderDetailTable();
+          })
+        );
+
+        const actionsCol = document.createElement("div");
+        actionsCol.className = "col-12 d-flex justify-content-end";
+        const removeButton = document.createElement("button");
+        removeButton.type = "button";
+        removeButton.className = "btn btn-outline-danger btn-sm";
+        removeButton.textContent = "Remove";
+        removeButton.addEventListener("click", () => {
+          authorEntries.splice(index, 1);
+          setRecordAuthors(record, authorEntries);
+          renderAuthorRows();
+          renderDetailTable();
+        });
+        actionsCol.appendChild(removeButton);
+        authorRow.appendChild(actionsCol);
+
+        listWrap.appendChild(authorRow);
+      });
+    };
+
+    addAuthorButton.addEventListener("click", () => {
+      authorEntries.push({ first_name: "", last_name: "", suffix: "" });
+      renderAuthorRows();
+    });
+
+    row.appendChild(addAuthorButton);
+    renderAuthorRows();
+    return row;
+  };
+
   const renderDetailFields = () => {
     if (!detailFieldsForm || !detailSelectedDocument) {
       return;
@@ -1562,6 +2036,7 @@
         selectOptions: documentTypes,
         onInput(nextValue) {
           selectedDocument.document_type = normalizeDocumentType(nextValue);
+          scheduleDocumentMetadataSave(selectedDocument);
           renderDetailFields();
           if (bulkEditEnabled && documentTable) {
             documentTable.render();
@@ -1575,17 +2050,28 @@
         placeholder: "citation_key",
         onInput(nextValue) {
           selectedDocument.citation_key = normalizeText(nextValue);
+          scheduleDocumentMetadataSave(selectedDocument);
         },
       })
     );
 
     getOrderedDetailBibtexFields(selectedDocument.document_type).forEach((fieldName) => {
+      if (fieldName === "author") {
+        detailFieldsForm.appendChild(
+          createAuthorsFieldRow(
+            selectedDocument,
+            getBibtexFieldStatus(selectedDocument.document_type, fieldName)
+          )
+        );
+        return;
+      }
       detailFieldsForm.appendChild(
         createFieldRow(getBibtexFieldLabel(fieldName), selectedDocument[fieldName], {
           placeholder: fieldName,
           status: getBibtexFieldStatus(selectedDocument.document_type, fieldName),
           onInput(nextValue) {
             setBibtexFieldValue(selectedDocument, fieldName, nextValue);
+            scheduleDocumentMetadataSave(selectedDocument);
             renderDetailTable();
           },
         })
@@ -1804,6 +2290,11 @@
     const fileName = filenameFromPath(selectedDocument.file_path);
     if (!window.confirm(`Remove file '${fileName}'?`)) {
       return;
+    }
+    const pendingTimer = metadataSaveTimers.get(selectedDocument.document_id);
+    if (pendingTimer) {
+      window.clearTimeout(pendingTimer.timerId);
+      metadataSaveTimers.delete(selectedDocument.document_id);
     }
 
     try {

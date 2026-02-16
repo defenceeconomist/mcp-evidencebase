@@ -43,7 +43,7 @@ class FakeIngestionService:
     search_results: list[dict[str, Any]] = field(default_factory=list)
     uploaded: list[tuple[str, str, bytes]] = field(default_factory=list)
     deleted: list[tuple[str, str, bool]] = field(default_factory=list)
-    metadata_updates: list[tuple[str, str, dict[str, str]]] = field(default_factory=list)
+    metadata_updates: list[tuple[str, str, dict[str, Any]]] = field(default_factory=list)
     search_calls: list[tuple[str, str, int, str, int]] = field(default_factory=list)
     upload_error: Exception | None = None
     delete_error: Exception | None = None
@@ -102,8 +102,8 @@ class FakeIngestionService:
         *,
         bucket_name: str,
         document_id: str,
-        metadata: dict[str, str],
-    ) -> dict[str, str]:
+        metadata: dict[str, Any],
+    ) -> dict[str, Any]:
         if self.metadata_error is not None:
             raise self.metadata_error
         self.metadata_updates.append((bucket_name, document_id, metadata))
@@ -457,6 +457,31 @@ def test_update_document_metadata_returns_payload(client: TestClient) -> None:
     }
     assert service.metadata_updates == [
         ("research-raw", "doc-1", {"title": "A Paper", "year": "2024"})
+    ]
+
+
+def test_update_document_metadata_accepts_structured_authors(client: TestClient) -> None:
+    """Check metadata update accepts structured author entries."""
+    service = FakeIngestionService()
+    _override_ingestion_service(service)
+
+    structured_authors = [
+        {"first_name": "Jane", "last_name": "Doe", "suffix": ""},
+        {"first_name": "John", "last_name": "Smith", "suffix": "Jr."},
+    ]
+    response = client.put(
+        "/collections/research-raw/documents/doc-1/metadata",
+        json={"metadata": {"authors": structured_authors}},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "bucket_name": "research-raw",
+        "document_id": "doc-1",
+        "metadata": {"authors": structured_authors},
+    }
+    assert service.metadata_updates == [
+        ("research-raw", "doc-1", {"authors": structured_authors})
     ]
 
 

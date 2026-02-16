@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import types
+import json
 from collections import defaultdict
 from dataclasses import dataclass
 from fnmatch import fnmatch
@@ -14,8 +15,8 @@ from mcp_evidencebase.ingestion import (
     QdrantIndexer,
     RedisDocumentRepository,
     UnstructuredPartitionClient,
-    build_partition_chunks,
     build_ingestion_settings,
+    build_partition_chunks,
     chunk_partition_texts,
     compute_chunk_point_id,
     compute_document_id,
@@ -451,8 +452,8 @@ def test_compute_chunk_point_id_is_deterministic_uuid() -> None:
     assert len(first) == 36
 
 
-def test_chunk_partition_texts_returns_overlapping_chunks() -> None:
-    """Check chunking applies overlap so adjacent chunks share boundary context."""
+def test_chunk_partition_texts_preserves_element_boundaries_without_global_overlap() -> None:
+    """Check chunking keeps whole-element boundaries and avoids global overlap."""
     partitions = [{"text": "a" * 60}, {"text": "b" * 60}, {"text": "c" * 60}]
 
     chunks = chunk_partition_texts(
@@ -461,10 +462,10 @@ def test_chunk_partition_texts_returns_overlapping_chunks() -> None:
         chunk_overlap_chars=20,
     )
 
-    assert len(chunks) >= 2
-    assert chunks[0]
-    assert chunks[1]
-    assert chunks[0][-20:] in chunks[1]
+    assert len(chunks) == 3
+    assert chunks[0] == "a" * 60
+    assert chunks[1] == "b" * 60
+    assert chunks[2] == "c" * 60
 
 
 def test_extract_partition_bounding_box_reads_unstructured_coordinates() -> None:
@@ -659,6 +660,46 @@ def test_chunk_object_reads_persisted_partitions_and_marks_processed() -> None:
     assert int(state["chunks_count"]) >= 1
 
 
+def test_list_documents_populates_chunks_tree_for_processed_documents() -> None:
+    """Ensure list_documents returns computed chunk payloads for modal chunk viewing."""
+    payload = b"%PDF-1.7 fake"
+    partitions = [{"text": "A" * 220, "metadata": {"page_number": 1}}]
+    minio_client = FakeMinioClient(payload, etag="etag-remote")
+    repository = RedisDocumentRepository(FakeRedis(), key_prefix="test")
+    partition_client = FakePartitionClient(partitions)
+    qdrant_indexer = RecordingQdrantIndexer()
+    service = IngestionService(
+        minio_client=minio_client,
+        repository=repository,
+        partition_client=partition_client,
+        qdrant_indexer=qdrant_indexer,  # type: ignore[arg-type]
+        chunk_size_chars=128,
+        chunk_overlap_chars=32,
+    )
+
+    partition_stage = service.partition_object(
+        bucket_name="research-raw",
+        object_name="paper.pdf",
+        etag="etag-incoming",
+    )
+    service.chunk_object(
+        bucket_name="research-raw",
+        object_name="paper.pdf",
+        document_id=partition_stage["document_id"],
+    )
+
+    documents = service.list_documents("research-raw")
+
+    assert len(documents) == 1
+    chunks_tree = documents[0]["chunks_tree"]
+    assert isinstance(chunks_tree, dict)
+    chunks = chunks_tree["chunks"]
+    assert isinstance(chunks, list)
+    assert len(chunks) >= 1
+    assert chunks[0]["text"]
+    assert "chunk_id" in chunks[0]
+
+
 def test_extract_pdf_title_author_reads_pdf_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify PDF title/author extraction reads embedded metadata values."""
 
@@ -722,6 +763,83 @@ def test_repository_persists_isbn_metadata_field() -> None:
     metadata = repository.get_metadata_by_key(meta_key)
     assert metadata["title"] == "Book Title"
     assert metadata["isbn"] == "9780393040029"
+
+
+def test_repository_persists_structured_authors_metadata_field() -> None:
+    """Ensure structured author entries are serialized and returned from metadata payload."""
+    redis_client = FakeRedis()
+    repository = RedisDocumentRepository(redis_client, key_prefix="test")
+
+    structured_authors = [
+        {"first_name": "Jane", "last_name": "Doe", "suffix": ""},
+        {"first_name": "John", "last_name": "Smith", "suffix": "Jr."},
+    ]
+    meta_key = repository.set_metadata_for_location(
+        bucket_name="research-raw",
+        object_name="paper.pdf",
+        document_id="doc-authors",
+        metadata={"title": "Paper Title", "authors": structured_authors},
+    )
+
+    metadata = repository.get_metadata_by_key(meta_key)
+    assert metadata["title"] == "Paper Title"
+    assert json.loads(metadata["authors"]) == structured_authors
+
+
+def test_list_documents_includes_structured_authors_field() -> None:
+    """Verify list_documents surfaces normalized structured author entries."""
+    redis_client = FakeRedis()
+    repository = RedisDocumentRepository(redis_client, key_prefix="test")
+    service = IngestionService(
+        minio_client=FakeMinioClient(b"%PDF-1.7 fake"),
+        repository=repository,
+        partition_client=FakePartitionClient([]),
+        qdrant_indexer=RecordingQdrantIndexer(),  # type: ignore[arg-type]
+        chunk_size_chars=1200,
+        chunk_overlap_chars=150,
+    )
+    bucket_name = "research-raw"
+    document_id = "doc-authors"
+    object_name = "paper.pdf"
+    structured_authors = [
+        {"first_name": "Jane", "last_name": "Doe", "suffix": ""},
+        {"first_name": "John", "last_name": "Smith", "suffix": "Jr."},
+    ]
+
+    repository.add_document(bucket_name, document_id)
+    repository.mark_object(
+        bucket_name=bucket_name,
+        object_name=object_name,
+        document_id=document_id,
+        etag="etag-1",
+    )
+    meta_key = repository.set_metadata_for_location(
+        bucket_name=bucket_name,
+        object_name=object_name,
+        document_id=document_id,
+        metadata={
+            "title": "Paper Title",
+            "author": "Doe, J. & Smith, J., Jr.",
+            "authors": structured_authors,
+        },
+    )
+    repository.set_state(
+        document_id,
+        {
+            "file_path": object_name,
+            "meta_key": meta_key,
+            "partition_key": "",
+            "processing_state": "processed",
+            "processing_progress": 100,
+            "partitions_count": 0,
+            "chunks_count": 0,
+        },
+    )
+
+    documents = service.list_documents(bucket_name)
+    assert len(documents) == 1
+    assert documents[0]["authors"] == structured_authors
+    assert documents[0]["author"] == "Doe, J. & Smith, J., Jr."
 
 
 def test_remove_document_keeps_partitions_but_removes_other_redis_data() -> None:

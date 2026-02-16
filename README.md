@@ -268,10 +268,21 @@ Stage details:
 3. Extract metadata:
    - title/author from embedded PDF metadata (when available),
    - DOI/ISBN from first-page partition text.
-4. Chunk text with overlap:
-   - partition text values are concatenated with `\n\n`,
-   - a sliding window of `CHUNK_SIZE_CHARS` with `CHUNK_OVERLAP_CHARS` overlap is applied,
-   - each chunk keeps `page_numbers` and `bounding_boxes` from overlapping source partitions.
+4. Chunk partitions with structure-aware deterministic chunking (`chunk_unstructured_elements`):
+   - title-aware: `Title` elements create hard section boundaries and update `section_title`,
+   - element-first: full elements are appended in order and joined with `\n\n` (semantic boundaries kept),
+   - table-safe: `Table` elements are emitted as standalone `type="table"` chunks,
+   - size controls:
+     - hard cap: `max_characters` (wired from `CHUNK_SIZE_CHARS`),
+     - soft split target: `new_after_n_chars` (defaults to 1500, clamped to hard cap),
+     - undersized merge threshold: `combine_under_n_chars` (default 500),
+     - overlap: `overlap_chars` (wired from `CHUNK_OVERLAP_CHARS`) only for internal splits of one oversized element,
+   - deterministic IDs and traces:
+     - each chunk has deterministic `chunk_id`,
+     - each chunk keeps `metadata` (`page_start`, `page_end`, `section_title`, plus `source_id`/`filename` when present),
+     - each chunk keeps `orig_elements` trace records (`element_id`, `type/category`, `page_number`,
+       `coordinates`, `text_len`),
+     - compatibility fields `chunk_index`, `page_numbers`, and `bounding_boxes` are retained.
 5. Embed chunks and upsert vectors into bucket-specific Qdrant collection:
    - dense semantic vector (`FASTEMBED_MODEL`),
    - sparse keyword vector (`FASTEMBED_KEYWORD_MODEL`, default `Qdrant/bm25`).
@@ -365,9 +376,12 @@ Qdrant point payload fields include:
 - `partition_key`
 - `meta_key`
 - `resolver_url` (`docs://bucket/object.ext?page=`)
-- `minio_location`, `chunk_index`, `text`
+- `minio_location`, `chunk_index`, `chunk_id`, `chunk_type`, `text`
+- `section_title`, `page_start`, `page_end`
+- `source_id`, `filename`
 - `page_numbers` (chunk source pages)
 - `bounding_boxes` (chunk source coordinates + page references)
+- `orig_elements` (trace records for PDF deep-linking/bbox follow-up)
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
