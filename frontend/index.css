@@ -166,8 +166,8 @@
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  cursor: pointer;
-  user-select: none;
+  cursor: default;
+  user-select: text;
 }
 
 .json-tree-toggle {
@@ -278,12 +278,22 @@
   font-weight: 600;
 }
 
+.semantic-result-meta-line {
+  font-size: 0.8rem;
+}
+
 .semantic-result-location {
   font-size: 0.8rem;
 }
 
 .semantic-result-body {
   padding: 0.8rem 1rem;
+}
+
+.semantic-search-section-title {
+  margin: 0 0 0.3rem;
+  font-size: 0.8rem;
+  color: var(--bs-secondary-color);
 }
 
 .semantic-search-snippet {

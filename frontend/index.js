@@ -52,6 +52,11 @@
   const semanticSearchResultsContainer = document.getElementById("semantic-search-results");
   const mainViewTabList = document.querySelector('ul[role="tablist"][aria-label="Main views"]');
 
+  // Keep the JSON modal outside tab panes so it can open from any active view.
+  if (docJsonModalElement && docJsonModalElement.parentElement !== document.body) {
+    document.body.appendChild(docJsonModalElement);
+  }
+
   const selectedBucketCookieName = "evidencebase_selected_bucket";
   const documentTypes = [
     "article",
@@ -1057,14 +1062,21 @@
     }
   };
 
-  const formatSearchPages = (pageNumbers) => {
-    if (!Array.isArray(pageNumbers) || pageNumbers.length === 0) {
+  const formatSearchPages = (pageStart, pageEnd) => {
+    const start = Number.parseInt(pageStart, 10);
+    const end = Number.parseInt(pageEnd, 10);
+    const hasStart = Number.isFinite(start) && start > 0;
+    const hasEnd = Number.isFinite(end) && end > 0;
+    if (!hasStart && !hasEnd) {
       return "n/a";
     }
-    return pageNumbers
-      .map((value) => Number.parseInt(value, 10))
-      .filter((value) => Number.isFinite(value) && value > 0)
-      .join(", ");
+    if (hasStart && hasEnd) {
+      return start === end ? String(start) : `${start}-${end}`;
+    }
+    if (hasStart) {
+      return String(start);
+    }
+    return String(end);
   };
 
   const formatSearchTitle = (result) => {
@@ -1077,12 +1089,16 @@
   };
 
   const formatSearchLocation = (result) => {
-    return (
-      normalizeText(result.minio_location) ||
-      normalizeText(result.file_path) ||
-      normalizeText(result.document_id) ||
-      "n/a"
-    );
+    return normalizeText(result.minio_location) || normalizeText(result.file_path) || "n/a";
+  };
+
+  const formatSearchAuthorYear = (result) => {
+    const author = normalizeText(result.author);
+    const year = normalizeText(result.year);
+    if (author && year) {
+      return `${author} (${year})`;
+    }
+    return author || year || "n/a";
   };
 
   const renderSemanticSearchResults = () => {
@@ -1111,15 +1127,25 @@
       title.className = "semantic-result-title";
       title.textContent = formatSearchTitle(result);
 
+      const authorYear = document.createElement("div");
+      authorYear.className = "semantic-result-meta-line text-body-secondary";
+      authorYear.textContent = formatSearchAuthorYear(result);
+
       const location = document.createElement("div");
       location.className = "semantic-result-location text-body-secondary";
       location.textContent = formatSearchLocation(result);
 
       header.appendChild(title);
+      header.appendChild(authorYear);
       header.appendChild(location);
 
       const body = document.createElement("div");
       body.className = "semantic-result-body";
+
+      const sectionTitle = document.createElement("p");
+      sectionTitle.className = "semantic-search-section-title";
+      sectionTitle.textContent = `Section: ${normalizeText(result.section_title) || "n/a"} | Pages: ${formatSearchPages(result.page_start, result.page_end)}`;
+      body.appendChild(sectionTitle);
 
       const snippet = document.createElement("p");
       snippet.className = "semantic-search-snippet";
@@ -1129,17 +1155,29 @@
       const footer = document.createElement("footer");
       footer.className = "semantic-result-footer d-flex justify-content-between align-items-center";
 
-      const pages = document.createElement("span");
-      pages.className = "text-body-secondary";
-      pages.textContent = `Pages: ${formatSearchPages(result.page_numbers)}`;
+      const meta = document.createElement("div");
+      meta.className = "d-flex align-items-center gap-3 flex-wrap";
 
       const score = document.createElement("span");
       score.className = "text-body-secondary";
       const scoreValue = Number.parseFloat(result.score);
       score.textContent = `Score: ${Number.isFinite(scoreValue) ? scoreValue.toFixed(4) : "0.0000"}`;
 
-      footer.appendChild(pages);
-      footer.appendChild(score);
+      meta.appendChild(score);
+
+      const actions = document.createElement("div");
+      actions.className = "d-flex align-items-center";
+      const metadataButton = document.createElement("button");
+      metadataButton.type = "button";
+      metadataButton.className = "btn btn-outline-secondary btn-sm";
+      metadataButton.textContent = "View Qdrant Metadata";
+      metadataButton.addEventListener("click", () => {
+        openSearchChunkMetadataModal(result);
+      });
+      actions.appendChild(metadataButton);
+
+      footer.appendChild(meta);
+      footer.appendChild(actions);
       card.appendChild(header);
       card.appendChild(body);
       card.appendChild(footer);
@@ -1490,7 +1528,9 @@
       childrenList.classList.toggle("d-none", !expanded);
     };
 
-    header.addEventListener("click", () => {
+    toggleButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
       setExpanded(childrenList.classList.contains("d-none"));
     });
 
@@ -1503,17 +1543,13 @@
     return item;
   };
 
-  const openDocJsonModal = (documentRecord, payloadType) => {
+  const openJsonModal = ({ title, subtitle, payload }) => {
     if (!docJsonModalElement || !docJsonModalTitle || !docJsonModalSubtitle || !docJsonModalTree) {
       return;
     }
 
-    const isPartitions = payloadType === "partitions";
-    const payload = isPartitions ? documentRecord.partitions_tree : documentRecord.chunks_tree;
-    const count = isPartitions ? documentRecord.partitions_count : documentRecord.chunks_count;
-    docJsonModalTitle.textContent = isPartitions ? "Partitions JSON Tree" : "Chunks JSON Tree";
-    docJsonModalSubtitle.textContent =
-      `${filenameFromPath(documentRecord.file_path)} | ${isPartitions ? "Partitions" : "Chunks"}: ${count}`;
+    docJsonModalTitle.textContent = normalizeText(title) || "JSON Tree";
+    docJsonModalSubtitle.textContent = normalizeText(subtitle);
     docJsonModalTree.innerHTML = "";
 
     const rootList = document.createElement("ul");
@@ -1524,6 +1560,48 @@
       docJsonModalInstance = bootstrap.Modal.getOrCreateInstance(docJsonModalElement);
     }
     docJsonModalInstance.show();
+  };
+
+  const openDocJsonModal = (documentRecord, payloadType) => {
+    const isPartitions = payloadType === "partitions";
+    const payload = isPartitions ? documentRecord.partitions_tree : documentRecord.chunks_tree;
+    const count = isPartitions ? documentRecord.partitions_count : documentRecord.chunks_count;
+    openJsonModal({
+      title: isPartitions ? "Partitions JSON Tree" : "Chunks JSON Tree",
+      subtitle: `${filenameFromPath(documentRecord.file_path)} | ${
+        isPartitions ? "Partitions" : "Chunks"
+      }: ${count}`,
+      payload,
+    });
+  };
+
+  const openSearchChunkMetadataModal = (result) => {
+    if (!result || typeof result !== "object") {
+      return;
+    }
+    const rawPayload = result.qdrant_payload;
+    const payload =
+      rawPayload && typeof rawPayload === "object"
+        ? rawPayload
+        : {
+            id: result.id,
+            document_id: result.document_id,
+            title: result.title,
+            author: result.author,
+            year: result.year,
+            file_path: result.file_path,
+            chunk_index: result.chunk_index,
+            section_title: result.section_title,
+            page_start: result.page_start,
+            page_end: result.page_end,
+            resolver_url: result.resolver_url,
+            minio_location: result.minio_location,
+          };
+    openJsonModal({
+      title: "Qdrant Chunk Metadata",
+      subtitle: `${formatSearchTitle(result)} | Chunk ID: ${normalizeText(result.id) || "n/a"}`,
+      payload,
+    });
   };
 
   const parseActionsRenderer = (instance, td, row, col, prop, value, cellProperties) => {

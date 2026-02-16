@@ -221,6 +221,9 @@ class RecordingQdrantIndexer:
         chunks: list[dict[str, Any]],
         partition_key: str,
         meta_key: str,
+        document_title: str | None = None,
+        document_author: str | None = None,
+        document_year: str | None = None,
     ) -> None:
         self.upsert_calls.append(
             {
@@ -230,6 +233,9 @@ class RecordingQdrantIndexer:
                 "chunks": chunks,
                 "partition_key": partition_key,
                 "meta_key": meta_key,
+                "document_title": document_title,
+                "document_author": document_author,
+                "document_year": document_year,
             }
         )
 
@@ -854,6 +860,10 @@ def test_chunk_object_reads_persisted_partitions_and_marks_processed() -> None:
     upsert_call = qdrant_indexer.upsert_calls[0]
     assert upsert_call["partition_key"] == partition_stage["partition_key"]
     assert upsert_call["meta_key"] == partition_stage["meta_key"]
+    _, metadata = repository.get_document_metadata("research-raw", partition_stage["document_id"])
+    assert upsert_call["document_title"] == metadata.get("title", "")
+    assert upsert_call["document_author"] == metadata.get("author", "")
+    assert upsert_call["document_year"] == metadata.get("year", "")
     assert upsert_call["chunks"]
 
     state = repository.get_state(partition_stage["document_id"])
@@ -1272,6 +1282,9 @@ def test_qdrant_payload_contains_document_partition_meta_and_resolver_keys() -> 
         ],
         partition_key="partition-hash",
         meta_key="meta-hash",
+        document_title="Paper Title",
+        document_author="Author, A.",
+        document_year="2024",
     )
 
     assert len(qdrant.upsert_calls) == 1
@@ -1285,12 +1298,19 @@ def test_qdrant_payload_contains_document_partition_meta_and_resolver_keys() -> 
     assert point.vector["dense"] == [0.1, 0.2, 0.3]
     assert point.vector["keyword"] == StubSparseVector(indices=[1, 3], values=[0.8, 0.2])
     assert point.payload["document_id"] == "abc123"
+    assert point.payload["title"] == "Paper Title"
+    assert point.payload["author"] == "Author, A."
+    assert point.payload["year"] == "2024"
     assert "document_key" not in point.payload
     assert point.payload["partition_key"] == "partition-hash"
-    assert point.payload["meta_key"] == "meta-hash"
-    assert point.payload["resolver_url"] == "docs://research-raw/paper.pdf?page="
+    assert "meta_key" not in point.payload
+    assert "bucket_name" not in point.payload
+    assert "file_path" not in point.payload
+    assert point.payload["resolver_url"] == "docs://research-raw/paper.pdf?page=1"
     assert point.payload["minio_location"] == "research-raw/paper.pdf"
-    assert point.payload["page_numbers"] == [1]
+    assert point.payload["page_start"] == 1
+    assert point.payload["page_end"] == 1
+    assert "page_numbers" not in point.payload
     assert point.payload["bounding_boxes"] == [
         {
             "page_number": 1,
@@ -1308,19 +1328,49 @@ def test_qdrant_indexer_hybrid_search_merges_dense_and_keyword_results() -> None
         types.SimpleNamespace(
             id="chunk-a",
             score=0.91,
-            payload={"document_id": "doc-a", "file_path": "a.pdf", "text": "dense match"},
+            payload={
+                "document_id": "doc-a",
+                "title": "Document A",
+                "author": "Doe, J.",
+                "year": "2023",
+                "minio_location": "research-raw/a.pdf",
+                "section_title": "Methods",
+                "page_start": 2,
+                "page_end": 3,
+                "text": "dense\n\nmatch",
+            },
         )
     ]
     qdrant.search_results["keyword"] = [
         types.SimpleNamespace(
             id="chunk-b",
             score=0.88,
-            payload={"document_id": "doc-b", "file_path": "b.pdf", "text": "keyword match"},
+            payload={
+                "document_id": "doc-b",
+                "title": "Document B",
+                "author": "Smith, R.",
+                "year": "2021",
+                "minio_location": "research-raw/b.pdf",
+                "section_title": "Findings",
+                "page_start": 5,
+                "page_end": 5,
+                "text": "keyword\nmatch",
+            },
         ),
         types.SimpleNamespace(
             id="chunk-a",
             score=0.7,
-            payload={"document_id": "doc-a", "file_path": "a.pdf", "text": "dense match"},
+            payload={
+                "document_id": "doc-a",
+                "title": "Document A",
+                "author": "Doe, J.",
+                "year": "2023",
+                "minio_location": "research-raw/a.pdf",
+                "section_title": "Methods",
+                "page_start": 2,
+                "page_end": 3,
+                "text": "dense\n\nmatch",
+            },
         ),
     ]
     indexer = StubQdrantIndexer(
@@ -1341,6 +1391,26 @@ def test_qdrant_indexer_hybrid_search_merges_dense_and_keyword_results() -> None
     assert [item["id"] for item in results] == ["chunk-a", "chunk-b"]
     assert results[0]["document_id"] == "doc-a"
     assert results[1]["document_id"] == "doc-b"
+    assert results[0]["title"] == "Document A"
+    assert results[1]["title"] == "Document B"
+    assert results[0]["author"] == "Doe, J."
+    assert results[1]["author"] == "Smith, R."
+    assert results[0]["year"] == "2023"
+    assert results[1]["year"] == "2021"
+    assert results[0]["file_path"] == "a.pdf"
+    assert results[1]["file_path"] == "b.pdf"
+    assert results[0]["section_title"] == "Methods"
+    assert results[1]["section_title"] == "Findings"
+    assert results[0]["text"] == "dense match"
+    assert results[1]["text"] == "keyword match"
+    assert results[0]["page_start"] == 2
+    assert results[0]["page_end"] == 3
+    assert results[1]["page_start"] == 5
+    assert results[1]["page_end"] == 5
+    assert results[0]["qdrant_payload"]["text"] == "dense\n\nmatch"
+    assert results[1]["qdrant_payload"]["text"] == "keyword\nmatch"
+    assert results[0]["qdrant_payload"]["document_id"] == "doc-a"
+    assert results[1]["qdrant_payload"]["document_id"] == "doc-b"
     assert [call["vector_name"] for call in qdrant.search_calls] == ["dense", "keyword"]
 
 

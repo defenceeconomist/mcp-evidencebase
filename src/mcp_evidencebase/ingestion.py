@@ -248,11 +248,25 @@ def compute_metadata_key(metadata: Mapping[str, Any]) -> str:
     return compute_hash_for_value(payload)
 
 
-def build_resolver_url(bucket_name: str, object_name: str) -> str:
-    """Build a resolver URL placeholder for future deep link implementation."""
+def build_resolver_url(
+    bucket_name: str,
+    object_name: str,
+    *,
+    page_start: int | None = None,
+) -> str:
+    """Build a resolver URL with an optional page number deep link."""
     normalized_bucket = bucket_name.strip()
     normalized_object = object_name.strip().lstrip("/")
-    return f"docs://{normalized_bucket}/{normalized_object}?page="
+    resolved_page: int | None = None
+    if page_start is not None:
+        try:
+            candidate_page = int(page_start)
+        except (TypeError, ValueError):
+            candidate_page = 0
+        if candidate_page > 0:
+            resolved_page = candidate_page
+    page_value = str(resolved_page) if resolved_page is not None else ""
+    return f"docs://{normalized_bucket}/{normalized_object}?page={page_value}"
 
 
 def compute_chunk_point_id(
@@ -388,7 +402,6 @@ class _NormalizedElement:
     kind: str
     page_number: int | None
     coordinates: dict[str, Any] | None
-    source_id: str | None
     filename: str | None
 
 
@@ -428,6 +441,11 @@ def _normalize_element_type(element: Mapping[str, Any]) -> tuple[str, str]:
     }:
         return resolved_type, "excluded"
     if "image" in lowered:
+        return resolved_type, "excluded"
+    if lowered in {
+        "uncategorizedtext",
+        "uncategorized_text",
+    }:
         return resolved_type, "excluded"
     if lowered == "title":
         return resolved_type, "title"
@@ -479,12 +497,6 @@ def _normalize_chunking_elements(
                 text=text,
             )
 
-        source_id = (
-            _safe_non_empty_string(metadata_mapping.get("document_id"))
-            or _safe_non_empty_string(raw_element.get("document_id"))
-            or _safe_non_empty_string(metadata_mapping.get("source_id"))
-            or _safe_non_empty_string(raw_element.get("source_id"))
-        )
         filename = _safe_non_empty_string(metadata_mapping.get("filename")) or (
             _safe_non_empty_string(raw_element.get("filename"))
         )
@@ -498,7 +510,6 @@ def _normalize_chunking_elements(
                 kind=kind,
                 page_number=page_number,
                 coordinates=coordinates,
-                source_id=source_id,
                 filename=filename,
             )
         )
@@ -575,14 +586,11 @@ def _emit_chunk(
     if not orig_elements:
         return None
 
-    source_id: str | None = None
     filename: str | None = None
     for element, _ in contributions:
-        if source_id is None and element.source_id:
-            source_id = element.source_id
         if filename is None and element.filename:
             filename = element.filename
-        if source_id is not None and filename is not None:
+        if filename is not None:
             break
 
     page_numbers = _coerce_chunk_page_numbers(orig_elements)
@@ -593,8 +601,6 @@ def _emit_chunk(
         "page_end": page_end,
         "section_title": section_title,
     }
-    if source_id is not None:
-        metadata["source_id"] = source_id
     if filename is not None:
         metadata["filename"] = filename
 
@@ -681,14 +687,9 @@ def _merge_text_chunks(
         "page_end": max(page_numbers) if page_numbers else None,
         "section_title": left_meta.get("section_title", right_meta.get("section_title")),
     }
-    source_id = _safe_non_empty_string(left_meta.get("source_id")) or _safe_non_empty_string(
-        right_meta.get("source_id")
-    )
     filename = _safe_non_empty_string(left_meta.get("filename")) or _safe_non_empty_string(
         right_meta.get("filename")
     )
-    if source_id is not None:
-        metadata["source_id"] = source_id
     if filename is not None:
         metadata["filename"] = filename
 
@@ -809,9 +810,7 @@ def _finalize_chunk_ids(chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for index, chunk in enumerate(chunks):
         metadata = chunk.get("metadata")
         resolved_metadata = metadata if isinstance(metadata, Mapping) else {}
-        source_id = _safe_non_empty_string(resolved_metadata.get("source_id")) or (
-            _safe_non_empty_string(resolved_metadata.get("filename"))
-        )
+        source_marker = _safe_non_empty_string(resolved_metadata.get("filename"))
         orig_elements = chunk.get("orig_elements", [])
         first_element_id = ""
         last_element_id = ""
@@ -826,7 +825,7 @@ def _finalize_chunk_ids(chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
         id_payload = "|".join(
             [
-                source_id or "",
+                source_marker or "",
                 first_element_id,
                 last_element_id,
                 section_title,
@@ -860,8 +859,8 @@ def chunk_unstructured_elements(
     Returns:
         Deterministic chunk dictionaries containing:
             ``chunk_id``, ``text``, ``type`` (``text``/``table``), ``metadata``
-            (including ``page_start``, ``page_end``, ``section_title``, and optional
-            source identifiers), plus ``orig_elements`` trace records.
+            (including ``page_start``, ``page_end``, ``section_title``), plus
+            ``orig_elements`` trace records.
 
     Guarantees:
         - Preserves source order and semantic element boundaries whenever possible.
@@ -938,7 +937,6 @@ def chunk_unstructured_elements(
         if element.kind == "title":
             flush_current_text_chunk()
             section_title = element.text
-            push_text_element(element)
             continue
 
         if element.kind == "table":
@@ -2333,6 +2331,22 @@ class QdrantIndexer:
             return {}
         return {str(key): payload_value for key, payload_value in value.items()}
 
+    @staticmethod
+    def _normalize_search_result_text(value: Any) -> str:
+        """Normalize chunk text returned by search into a single display line."""
+        raw = str(value or "")
+        # Collapse paragraph/line breaks and repeated whitespace in API search text.
+        return re.sub(r"\s+", " ", raw).strip()
+
+    @staticmethod
+    def _extract_file_path_from_minio_location(value: Any) -> str:
+        """Extract object path from ``bucket/object`` style minio location."""
+        location = str(value or "").strip().lstrip("/")
+        if not location or "/" not in location:
+            return ""
+        _, object_path = location.split("/", 1)
+        return object_path.strip()
+
     def _format_result_payload(
         self,
         *,
@@ -2344,18 +2358,26 @@ class QdrantIndexer:
             score = float(raw_score)
         except (TypeError, ValueError):
             score = 0.0
+        minio_location = str(payload.get("minio_location", ""))
+        file_path = str(payload.get("file_path", "")).strip()
+        if not file_path:
+            file_path = self._extract_file_path_from_minio_location(minio_location)
         return {
             "id": point_id,
             "score": score,
             "document_id": str(payload.get("document_id", "")),
-            "file_path": str(payload.get("file_path", "")),
+            "title": str(payload.get("title", "")),
+            "author": str(payload.get("author", "")),
+            "year": str(payload.get("year", "")),
+            "file_path": file_path,
             "chunk_index": int(payload.get("chunk_index", 0) or 0),
-            "text": str(payload.get("text", "")),
-            "page_numbers": payload.get("page_numbers", []),
+            "section_title": str(payload.get("section_title", "")),
+            "text": self._normalize_search_result_text(payload.get("text", "")),
+            "page_start": _safe_int(payload.get("page_start")),
+            "page_end": _safe_int(payload.get("page_end")),
             "resolver_url": str(payload.get("resolver_url", "")),
-            "minio_location": str(payload.get("minio_location", "")),
-            "meta_key": str(payload.get("meta_key", "")),
-            "partition_key": str(payload.get("partition_key", "")),
+            "minio_location": minio_location,
+            "qdrant_payload": dict(payload),
         }
 
     def _format_result_point(self, point: Any, *, fallback_rank: int) -> dict[str, Any]:
@@ -2519,6 +2541,9 @@ class QdrantIndexer:
         chunks: list[dict[str, Any]],
         partition_key: str,
         meta_key: str,
+        document_title: str | None = None,
+        document_author: str | None = None,
+        document_year: str | None = None,
     ) -> None:
         """Embed chunk text and upsert vectors into Qdrant."""
         if not chunks:
@@ -2545,8 +2570,10 @@ class QdrantIndexer:
 
         from qdrant_client import models as qdrant_models
 
-        resolver_url = build_resolver_url(bucket_name, file_path)
         minio_location = f"{bucket_name}/{file_path}"
+        resolved_document_title = str(document_title or "").strip()
+        resolved_document_author = str(document_author or "").strip()
+        resolved_document_year = str(document_year or "").strip()
 
         points: list[qdrant_models.PointStruct] = []
         for index, (chunk, embedding) in enumerate(zip(chunks, embeddings, strict=False)):
@@ -2584,6 +2611,14 @@ class QdrantIndexer:
                     page_numbers.append(page_start)
                 elif page_end is not None:
                     page_numbers.append(page_end)
+            chunk_page_start = _safe_int(chunk_metadata.get("page_start"))
+            chunk_page_end = _safe_int(chunk_metadata.get("page_end"))
+            if chunk_page_start is None and page_numbers:
+                chunk_page_start = min(page_numbers)
+            if chunk_page_end is None and page_numbers:
+                chunk_page_end = max(page_numbers)
+            if chunk_page_start is None and chunk_page_end is not None:
+                chunk_page_start = chunk_page_end
 
             raw_bounding_boxes = chunk.get("bounding_boxes", [])
             bounding_boxes: list[dict[str, Any]] = []
@@ -2639,24 +2674,27 @@ class QdrantIndexer:
                         indices=sparse_indices,
                         values=sparse_values,
                     )
+            resolver_url = build_resolver_url(
+                bucket_name,
+                file_path,
+                page_start=chunk_page_start,
+            )
             payload = {
-                "bucket_name": bucket_name,
                 "document_id": document_id,
+                "title": resolved_document_title,
+                "author": resolved_document_author,
+                "year": resolved_document_year,
                 "partition_key": partition_key,
-                "meta_key": meta_key,
-                "file_path": file_path,
                 "minio_location": minio_location,
                 "resolver_url": resolver_url,
                 "chunk_index": chunk_index,
                 "chunk_id": str(chunk.get("chunk_id", "")),
                 "chunk_type": str(chunk.get("type", "text")),
                 "section_title": chunk_metadata.get("section_title"),
-                "page_start": chunk_metadata.get("page_start"),
-                "page_end": chunk_metadata.get("page_end"),
-                "source_id": chunk_metadata.get("source_id"),
+                "page_start": chunk_page_start,
+                "page_end": chunk_page_end,
                 "filename": chunk_metadata.get("filename"),
                 "text": str(chunk.get("text", "")),
-                "page_numbers": page_numbers,
                 "bounding_boxes": bounding_boxes,
                 "orig_elements": orig_elements,
             }
@@ -3096,11 +3134,14 @@ class IngestionService:
                 )
 
             meta_key = state.get("meta_key", "")
+            resolved_meta_key, metadata = self._repository.get_document_metadata(
+                bucket_name, document_id
+            )
             if not meta_key:
-                resolved_meta_key, _ = self._repository.get_document_metadata(
-                    bucket_name, document_id
-                )
                 meta_key = resolved_meta_key
+            document_title = str(metadata.get("title", "")).strip()
+            document_author = str(metadata.get("author", "")).strip()
+            document_year = str(metadata.get("year", "")).strip()
 
             self._set_state(
                 document_id,
@@ -3135,6 +3176,9 @@ class IngestionService:
                 chunks=chunks,
                 partition_key=partition_key,
                 meta_key=meta_key,
+                document_title=document_title,
+                document_author=document_author,
+                document_year=document_year,
             )
             self._set_state(
                 document_id,

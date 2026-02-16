@@ -244,13 +244,43 @@ def test_chunking_excludes_headers_footers_and_images() -> None:
     all_element_ids = {
         str(item["element_id"]) for chunk in chunks for item in chunk.get("orig_elements", [])
     }
-    assert "t1" in all_element_ids
+    assert "t1" not in all_element_ids
     assert "b1" in all_element_ids
     assert "h1" not in all_element_ids
     assert "i1" not in all_element_ids
     assert "f1" not in all_element_ids
 
     merged_text = "\n".join(str(chunk["text"]) for chunk in chunks)
+    assert "Overview" not in merged_text
     assert "Company Confidential" not in merged_text
     assert "Image OCR text should be excluded." not in merged_text
     assert "Page 1" not in merged_text
+
+
+def test_chunking_excludes_uncategorized_text() -> None:
+    elements = [
+        _element(
+            text="Parser noise that should not be indexed.",
+            element_id="u1",
+            element_type="UncategorizedText",
+            page_number=1,
+        ),
+        _element(text="Keep this narrative block.", element_id="n1", page_number=1),
+    ]
+
+    chunks = chunk_unstructured_elements(
+        elements,
+        max_characters=2000,
+        new_after_n_chars=1500,
+        combine_under_n_chars=0,
+    )
+
+    assert chunks
+    all_element_ids = {
+        str(item["element_id"]) for chunk in chunks for item in chunk.get("orig_elements", [])
+    }
+    assert "u1" not in all_element_ids
+    assert "n1" in all_element_ids
+    merged_text = "\n".join(str(chunk["text"]) for chunk in chunks)
+    assert "Parser noise that should not be indexed." not in merged_text
+    assert "Keep this narrative block." in merged_text
