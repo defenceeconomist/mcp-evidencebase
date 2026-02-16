@@ -1,0 +1,793 @@
+{
+  "filters": {
+    "untracked": 37,
+    "total": 37,
+    "passed": 37,
+    "marker_counts": {
+      "area_api": 16,
+      "area_cli": 1,
+      "area_core": 7,
+      "area_ingestion": 9,
+      "area_settings": 4
+    }
+  },
+  "results": [
+    {
+      "test": "test_healthz_returns_ok",
+      "nodeid": "tests/test_api.py::test_healthz_returns_ok",
+      "status": "passed",
+      "duration": 0.001821791986003518,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_api"
+      ],
+      "file": "tests/test_api.py",
+      "line": 158,
+      "stdout": "",
+      "stderr": "INFO - HTTP Request: GET http://testserver/healthz \"HTTP/1.1 200 OK\"\n",
+      "timestamp": "2026-02-16T11:45:33.133524Z",
+      "screenshot": "screenshots",
+      "logs": "HTTP Request: GET http://testserver/healthz \"HTTP/1.1 200 OK\"",
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_get_buckets_returns_bucket_names",
+      "nodeid": "tests/test_api.py::test_get_buckets_returns_bucket_names",
+      "status": "passed",
+      "duration": 0.000963500002399087,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_api"
+      ],
+      "file": "tests/test_api.py",
+      "line": 165,
+      "stdout": "",
+      "stderr": "INFO - HTTP Request: GET http://testserver/buckets \"HTTP/1.1 200 OK\"\n",
+      "timestamp": "2026-02-16T11:45:33.136063Z",
+      "screenshot": "screenshots",
+      "logs": "HTTP Request: GET http://testserver/buckets \"HTTP/1.1 200 OK\"",
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_get_buckets_maps_s3_errors_to_bad_request",
+      "nodeid": "tests/test_api.py::test_get_buckets_maps_s3_errors_to_bad_request",
+      "status": "passed",
+      "duration": 0.0006579580949619412,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_api"
+      ],
+      "file": "tests/test_api.py",
+      "line": 175,
+      "stdout": "",
+      "stderr": "INFO - HTTP Request: GET http://testserver/buckets \"HTTP/1.1 400 Bad Request\"\n",
+      "timestamp": "2026-02-16T11:45:33.137798Z",
+      "screenshot": "screenshots",
+      "logs": "HTTP Request: GET http://testserver/buckets \"HTTP/1.1 400 Bad Request\"",
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_create_bucket_returns_created_result",
+      "nodeid": "tests/test_api.py::test_create_bucket_returns_created_result",
+      "status": "passed",
+      "duration": 0.001091000041924417,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_api"
+      ],
+      "file": "tests/test_api.py",
+      "line": 185,
+      "stdout": "",
+      "stderr": "INFO - HTTP Request: POST http://testserver/buckets \"HTTP/1.1 200 OK\"\n",
+      "timestamp": "2026-02-16T11:45:33.139943Z",
+      "screenshot": "screenshots",
+      "logs": "HTTP Request: POST http://testserver/buckets \"HTTP/1.1 200 OK\"",
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_create_bucket_maps_value_error_to_bad_request",
+      "nodeid": "tests/test_api.py::test_create_bucket_maps_value_error_to_bad_request",
+      "status": "passed",
+      "duration": 0.0008013749029487371,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_api"
+      ],
+      "file": "tests/test_api.py",
+      "line": 200,
+      "stdout": "",
+      "stderr": "INFO - HTTP Request: POST http://testserver/buckets \"HTTP/1.1 400 Bad Request\"\n",
+      "timestamp": "2026-02-16T11:45:33.141829Z",
+      "screenshot": "screenshots",
+      "logs": "HTTP Request: POST http://testserver/buckets \"HTTP/1.1 400 Bad Request\"",
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_delete_bucket_returns_removed_result",
+      "nodeid": "tests/test_api.py::test_delete_bucket_returns_removed_result",
+      "status": "passed",
+      "duration": 0.0009641660144552588,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_api"
+      ],
+      "file": "tests/test_api.py",
+      "line": 212,
+      "stdout": "",
+      "stderr": "INFO - HTTP Request: DELETE http://testserver/buckets/research-raw \"HTTP/1.1 200 OK\"\n",
+      "timestamp": "2026-02-16T11:45:33.143870Z",
+      "screenshot": "screenshots",
+      "logs": "HTTP Request: DELETE http://testserver/buckets/research-raw \"HTTP/1.1 200 OK\"",
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_delete_bucket_maps_s3_errors_to_bad_request",
+      "nodeid": "tests/test_api.py::test_delete_bucket_maps_s3_errors_to_bad_request",
+      "status": "passed",
+      "duration": 0.0007426670053973794,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_api"
+      ],
+      "file": "tests/test_api.py",
+      "line": 227,
+      "stdout": "",
+      "stderr": "INFO - HTTP Request: DELETE http://testserver/buckets/research-raw \"HTTP/1.1 400 Bad Request\"\n",
+      "timestamp": "2026-02-16T11:45:33.145640Z",
+      "screenshot": "screenshots",
+      "logs": "HTTP Request: DELETE http://testserver/buckets/research-raw \"HTTP/1.1 400 Bad Request\"",
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_create_bucket_returns_bad_gateway_when_qdrant_sync_fails",
+      "nodeid": "tests/test_api.py::test_create_bucket_returns_bad_gateway_when_qdrant_sync_fails",
+      "status": "passed",
+      "duration": 0.0007499160710722208,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_api"
+      ],
+      "file": "tests/test_api.py",
+      "line": 237,
+      "stdout": "",
+      "stderr": "INFO - HTTP Request: POST http://testserver/buckets \"HTTP/1.1 502 Bad Gateway\"\n",
+      "timestamp": "2026-02-16T11:45:33.147423Z",
+      "screenshot": "screenshots",
+      "logs": "HTTP Request: POST http://testserver/buckets \"HTTP/1.1 502 Bad Gateway\"",
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_delete_bucket_returns_bad_gateway_when_qdrant_sync_fails",
+      "nodeid": "tests/test_api.py::test_delete_bucket_returns_bad_gateway_when_qdrant_sync_fails",
+      "status": "passed",
+      "duration": 0.000779333058744669,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_api"
+      ],
+      "file": "tests/test_api.py",
+      "line": 250,
+      "stdout": "",
+      "stderr": "INFO - HTTP Request: DELETE http://testserver/buckets/research-raw \"HTTP/1.1 502 Bad Gateway\"\n",
+      "timestamp": "2026-02-16T11:45:33.149267Z",
+      "screenshot": "screenshots",
+      "logs": "HTTP Request: DELETE http://testserver/buckets/research-raw \"HTTP/1.1 502 Bad Gateway\"",
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_get_documents_returns_documents",
+      "nodeid": "tests/test_api.py::test_get_documents_returns_documents",
+      "status": "passed",
+      "duration": 0.0008115419186651707,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_api"
+      ],
+      "file": "tests/test_api.py",
+      "line": 263,
+      "stdout": "",
+      "stderr": "INFO - HTTP Request: GET http://testserver/collections/research-raw/documents \"HTTP/1.1 200 OK\"\n",
+      "timestamp": "2026-02-16T11:45:33.151127Z",
+      "screenshot": "screenshots",
+      "logs": "HTTP Request: GET http://testserver/collections/research-raw/documents \"HTTP/1.1 200 OK\"",
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_upload_document_queues_processing_task",
+      "nodeid": "tests/test_api.py::test_upload_document_queues_processing_task",
+      "status": "passed",
+      "duration": 0.0007332500535994768,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_api"
+      ],
+      "file": "tests/test_api.py",
+      "line": 287,
+      "stdout": "",
+      "stderr": "INFO - HTTP Request: POST http://testserver/collections/research-raw/documents/upload?file_name=paper.pdf \"HTTP/1.1 200 OK\"\n",
+      "timestamp": "2026-02-16T11:45:33.152874Z",
+      "screenshot": "screenshots",
+      "logs": "HTTP Request: POST http://testserver/collections/research-raw/documents/upload?file_name=paper.pdf \"HTTP/1.1 200 OK\"",
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_trigger_bucket_scan_queues_task",
+      "nodeid": "tests/test_api.py::test_trigger_bucket_scan_queues_task",
+      "status": "passed",
+      "duration": 0.0006808328907936811,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_api"
+      ],
+      "file": "tests/test_api.py",
+      "line": 311,
+      "stdout": "",
+      "stderr": "INFO - HTTP Request: POST http://testserver/collections/research-raw/scan \"HTTP/1.1 200 OK\"\n",
+      "timestamp": "2026-02-16T11:45:33.154564Z",
+      "screenshot": "screenshots",
+      "logs": "HTTP Request: POST http://testserver/collections/research-raw/scan \"HTTP/1.1 200 OK\"",
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_upload_document_returns_queued_false_when_broker_is_unavailable",
+      "nodeid": "tests/test_api.py::test_upload_document_returns_queued_false_when_broker_is_unavailable",
+      "status": "passed",
+      "duration": 0.0011262089246883988,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_api"
+      ],
+      "file": "tests/test_api.py",
+      "line": 331,
+      "stdout": "",
+      "stderr": "ERROR - Failed to enqueue process_minio_object task.\nTraceback (most recent call last):\n  File \"/Users/lukeheley/Developer/mcp-evidencebase/src/mcp_evidencebase/api.py\", line 270, in upload_document\n    task = process_minio_object.delay(normalized_bucket_name, object_name, None)\n  File \"/Users/lukeheley/Developer/mcp-evidencebase/tests/test_api.py\", line 145, in delay\n    raise RuntimeError(self.message)\nRuntimeError: retry limit exceeded while trying to reconnect\nINFO - HTTP Request: POST http://testserver/collections/research-raw/documents/upload?file_name=paper.pdf \"HTTP/1.1 200 OK\"\n",
+      "timestamp": "2026-02-16T11:45:33.156717Z",
+      "screenshot": "screenshots",
+      "logs": "Failed to enqueue process_minio_object task.\nHTTP Request: POST http://testserver/collections/research-raw/documents/upload?file_name=paper.pdf \"HTTP/1.1 200 OK\"",
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_trigger_bucket_scan_returns_queued_false_when_broker_is_unavailable",
+      "nodeid": "tests/test_api.py::test_trigger_bucket_scan_returns_queued_false_when_broker_is_unavailable",
+      "status": "passed",
+      "duration": 0.0009070830419659615,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_api"
+      ],
+      "file": "tests/test_api.py",
+      "line": 356,
+      "stdout": "",
+      "stderr": "ERROR - Failed to enqueue scan_minio_objects task.\nTraceback (most recent call last):\n  File \"/Users/lukeheley/Developer/mcp-evidencebase/src/mcp_evidencebase/api.py\", line 300, in trigger_bucket_scan\n    task = scan_minio_objects.delay(normalized_bucket_name)\n  File \"/Users/lukeheley/Developer/mcp-evidencebase/tests/test_api.py\", line 145, in delay\n    raise RuntimeError(self.message)\nRuntimeError: retry limit exceeded while trying to reconnect\nINFO - HTTP Request: POST http://testserver/collections/research-raw/scan \"HTTP/1.1 200 OK\"\n",
+      "timestamp": "2026-02-16T11:45:33.158710Z",
+      "screenshot": "screenshots",
+      "logs": "Failed to enqueue scan_minio_objects task.\nHTTP Request: POST http://testserver/collections/research-raw/scan \"HTTP/1.1 200 OK\"",
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_update_document_metadata_returns_payload",
+      "nodeid": "tests/test_api.py::test_update_document_metadata_returns_payload",
+      "status": "passed",
+      "duration": 0.0009171670535579324,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_api"
+      ],
+      "file": "tests/test_api.py",
+      "line": 375,
+      "stdout": "",
+      "stderr": "INFO - HTTP Request: PUT http://testserver/collections/research-raw/documents/doc-1/metadata \"HTTP/1.1 200 OK\"\n",
+      "timestamp": "2026-02-16T11:45:33.160712Z",
+      "screenshot": "screenshots",
+      "logs": "HTTP Request: PUT http://testserver/collections/research-raw/documents/doc-1/metadata \"HTTP/1.1 200 OK\"",
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_delete_document_keeps_partitions",
+      "nodeid": "tests/test_api.py::test_delete_document_keeps_partitions",
+      "status": "passed",
+      "duration": 0.0008712499402463436,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_api"
+      ],
+      "file": "tests/test_api.py",
+      "line": 396,
+      "stdout": "",
+      "stderr": "INFO - HTTP Request: DELETE http://testserver/collections/research-raw/documents/doc-1 \"HTTP/1.1 200 OK\"\n",
+      "timestamp": "2026-02-16T11:45:33.162614Z",
+      "screenshot": "screenshots",
+      "logs": "HTTP Request: DELETE http://testserver/collections/research-raw/documents/doc-1 \"HTTP/1.1 200 OK\"",
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_version_is_non_empty",
+      "nodeid": "tests/test_cli.py::test_version_is_non_empty",
+      "status": "passed",
+      "duration": 3.891601227223873e-05,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_cli"
+      ],
+      "file": "tests/test_cli.py",
+      "line": 7,
+      "stdout": "",
+      "stderr": "",
+      "timestamp": "2026-02-16T11:45:33.163371Z",
+      "screenshot": "screenshots",
+      "logs": [],
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_healthcheck",
+      "nodeid": "tests/test_core.py::test_healthcheck",
+      "status": "passed",
+      "duration": 4.125002305954695e-05,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_core"
+      ],
+      "file": "tests/test_core.py",
+      "line": 12,
+      "stdout": "",
+      "stderr": "",
+      "timestamp": "2026-02-16T11:45:33.163674Z",
+      "screenshot": "screenshots",
+      "logs": [],
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_add_minio_bucket_creates_when_missing",
+      "nodeid": "tests/test_core.py::test_add_minio_bucket_creates_when_missing",
+      "status": "passed",
+      "duration": 6.583402864634991e-05,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_core"
+      ],
+      "file": "tests/test_core.py",
+      "line": 45,
+      "stdout": "",
+      "stderr": "",
+      "timestamp": "2026-02-16T11:45:33.163945Z",
+      "screenshot": "screenshots",
+      "logs": [],
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_add_minio_bucket_returns_false_when_exists",
+      "nodeid": "tests/test_core.py::test_add_minio_bucket_returns_false_when_exists",
+      "status": "passed",
+      "duration": 3.975001163780689e-05,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_core"
+      ],
+      "file": "tests/test_core.py",
+      "line": 56,
+      "stdout": "",
+      "stderr": "",
+      "timestamp": "2026-02-16T11:45:33.164195Z",
+      "screenshot": "screenshots",
+      "logs": [],
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_add_minio_bucket_rejects_empty_bucket_name",
+      "nodeid": "tests/test_core.py::test_add_minio_bucket_rejects_empty_bucket_name",
+      "status": "passed",
+      "duration": 0.0001503330422565341,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_core"
+      ],
+      "file": "tests/test_core.py",
+      "line": 66,
+      "stdout": "",
+      "stderr": "",
+      "timestamp": "2026-02-16T11:45:33.164544Z",
+      "screenshot": "screenshots",
+      "logs": [],
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_remove_minio_bucket_removes_when_exists",
+      "nodeid": "tests/test_core.py::test_remove_minio_bucket_removes_when_exists",
+      "status": "passed",
+      "duration": 4.9708993174135685e-05,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_core"
+      ],
+      "file": "tests/test_core.py",
+      "line": 74,
+      "stdout": "",
+      "stderr": "",
+      "timestamp": "2026-02-16T11:45:33.164797Z",
+      "screenshot": "screenshots",
+      "logs": [],
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_remove_minio_bucket_returns_false_when_missing",
+      "nodeid": "tests/test_core.py::test_remove_minio_bucket_returns_false_when_missing",
+      "status": "passed",
+      "duration": 4.0708924643695354e-05,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_core"
+      ],
+      "file": "tests/test_core.py",
+      "line": 85,
+      "stdout": "",
+      "stderr": "",
+      "timestamp": "2026-02-16T11:45:33.165038Z",
+      "screenshot": "screenshots",
+      "logs": [],
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_list_minio_buckets_returns_sorted_names",
+      "nodeid": "tests/test_core.py::test_list_minio_buckets_returns_sorted_names",
+      "status": "passed",
+      "duration": 5.545897874981165e-05,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_core"
+      ],
+      "file": "tests/test_core.py",
+      "line": 95,
+      "stdout": "",
+      "stderr": "",
+      "timestamp": "2026-02-16T11:45:33.165288Z",
+      "screenshot": "screenshots",
+      "logs": [],
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_compute_document_id_is_deterministic",
+      "nodeid": "tests/test_ingestion.py::test_compute_document_id_is_deterministic",
+      "status": "passed",
+      "duration": 6.070896051824093e-05,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_ingestion"
+      ],
+      "file": "tests/test_ingestion.py",
+      "line": 180,
+      "stdout": "",
+      "stderr": "",
+      "timestamp": "2026-02-16T11:45:33.165602Z",
+      "screenshot": "screenshots",
+      "logs": [],
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_compute_chunk_point_id_is_deterministic_uuid",
+      "nodeid": "tests/test_ingestion.py::test_compute_chunk_point_id_is_deterministic_uuid",
+      "status": "passed",
+      "duration": 9.254203177988529e-05,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_ingestion"
+      ],
+      "file": "tests/test_ingestion.py",
+      "line": 190,
+      "stdout": "",
+      "stderr": "",
+      "timestamp": "2026-02-16T11:45:33.165894Z",
+      "screenshot": "screenshots",
+      "logs": [],
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_chunk_partition_texts_returns_overlapping_chunks",
+      "nodeid": "tests/test_ingestion.py::test_chunk_partition_texts_returns_overlapping_chunks",
+      "status": "passed",
+      "duration": 7.220800034701824e-05,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_ingestion"
+      ],
+      "file": "tests/test_ingestion.py",
+      "line": 213,
+      "stdout": "",
+      "stderr": "",
+      "timestamp": "2026-02-16T11:45:33.166171Z",
+      "screenshot": "screenshots",
+      "logs": [],
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_extract_metadata_limits_doi_extraction_to_first_page",
+      "nodeid": "tests/test_ingestion.py::test_extract_metadata_limits_doi_extraction_to_first_page",
+      "status": "passed",
+      "duration": 0.00025416596326977015,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_ingestion"
+      ],
+      "file": "tests/test_ingestion.py",
+      "line": 229,
+      "stdout": "",
+      "stderr": "",
+      "timestamp": "2026-02-16T11:45:33.166626Z",
+      "screenshot": "screenshots",
+      "logs": [],
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_extract_metadata_can_parse_first_page_identifiers",
+      "nodeid": "tests/test_ingestion.py::test_extract_metadata_can_parse_first_page_identifiers",
+      "status": "passed",
+      "duration": 9.445799514651299e-05,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_ingestion"
+      ],
+      "file": "tests/test_ingestion.py",
+      "line": 253,
+      "stdout": "",
+      "stderr": "",
+      "timestamp": "2026-02-16T11:45:33.166932Z",
+      "screenshot": "screenshots",
+      "logs": [],
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_repository_maps_document_to_multiple_minio_locations",
+      "nodeid": "tests/test_ingestion.py::test_repository_maps_document_to_multiple_minio_locations",
+      "status": "passed",
+      "duration": 0.0001804589992389083,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_ingestion"
+      ],
+      "file": "tests/test_ingestion.py",
+      "line": 277,
+      "stdout": "",
+      "stderr": "",
+      "timestamp": "2026-02-16T11:45:33.167315Z",
+      "screenshot": "screenshots",
+      "logs": [],
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_remove_document_keeps_partitions_but_removes_other_redis_data",
+      "nodeid": "tests/test_ingestion.py::test_remove_document_keeps_partitions_but_removes_other_redis_data",
+      "status": "passed",
+      "duration": 0.00025820895098149776,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_ingestion"
+      ],
+      "file": "tests/test_ingestion.py",
+      "line": 306,
+      "stdout": "",
+      "stderr": "",
+      "timestamp": "2026-02-16T11:45:33.167779Z",
+      "screenshot": "screenshots",
+      "logs": [],
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_remove_document_can_remove_partitions",
+      "nodeid": "tests/test_ingestion.py::test_remove_document_can_remove_partitions",
+      "status": "passed",
+      "duration": 6.412493530660868e-05,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_ingestion"
+      ],
+      "file": "tests/test_ingestion.py",
+      "line": 359,
+      "stdout": "",
+      "stderr": "",
+      "timestamp": "2026-02-16T11:45:33.168050Z",
+      "screenshot": "screenshots",
+      "logs": [],
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_qdrant_payload_contains_document_partition_meta_and_resolver_keys",
+      "nodeid": "tests/test_ingestion.py::test_qdrant_payload_contains_document_partition_meta_and_resolver_keys",
+      "status": "passed",
+      "duration": 0.00018370908219367266,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_ingestion"
+      ],
+      "file": "tests/test_ingestion.py",
+      "line": 380,
+      "stdout": "",
+      "stderr": "",
+      "timestamp": "2026-02-16T11:45:33.168434Z",
+      "screenshot": "screenshots",
+      "logs": [],
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_to_bool_accepts_common_truthy_values",
+      "nodeid": "tests/test_minio_settings.py::test_to_bool_accepts_common_truthy_values",
+      "status": "passed",
+      "duration": 4.337495192885399e-05,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_settings"
+      ],
+      "file": "tests/test_minio_settings.py",
+      "line": 9,
+      "stdout": "",
+      "stderr": "",
+      "timestamp": "2026-02-16T11:45:33.168735Z",
+      "screenshot": "screenshots",
+      "logs": [],
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_to_bool_returns_false_for_none_or_unknown_values",
+      "nodeid": "tests/test_minio_settings.py::test_to_bool_returns_false_for_none_or_unknown_values",
+      "status": "passed",
+      "duration": 3.63748986274004e-05,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_settings"
+      ],
+      "file": "tests/test_minio_settings.py",
+      "line": 16,
+      "stdout": "",
+      "stderr": "",
+      "timestamp": "2026-02-16T11:45:33.168972Z",
+      "screenshot": "screenshots",
+      "logs": [],
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_build_minio_settings_uses_defaults",
+      "nodeid": "tests/test_minio_settings.py::test_build_minio_settings_uses_defaults",
+      "status": "passed",
+      "duration": 5.420902743935585e-05,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_settings"
+      ],
+      "file": "tests/test_minio_settings.py",
+      "line": 22,
+      "stdout": "",
+      "stderr": "",
+      "timestamp": "2026-02-16T11:45:33.169222Z",
+      "screenshot": "screenshots",
+      "logs": [],
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_build_minio_settings_reads_env_values",
+      "nodeid": "tests/test_minio_settings.py::test_build_minio_settings_reads_env_values",
+      "status": "passed",
+      "duration": 4.108401481062174e-05,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_settings"
+      ],
+      "file": "tests/test_minio_settings.py",
+      "line": 33,
+      "stdout": "",
+      "stderr": "",
+      "timestamp": "2026-02-16T11:45:33.169460Z",
+      "screenshot": "screenshots",
+      "logs": [],
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    }
+  ]
+}

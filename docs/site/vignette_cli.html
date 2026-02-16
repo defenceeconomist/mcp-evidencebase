@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="./">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Command-Line Vignette: End-To-End Workflow &#8212; mcp-evidencebase 0.1.0 documentation</title>
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="_static/alabaster.css?v=27fed22d" />
+    <script src="_static/documentation_options.js?v=01f34227"></script>
+    <script src="_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Reference" href="reference.html" />
+    <link rel="prev" title="Evidence Base" href="readme.html" />
+   
+  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <section id="command-line-vignette-end-to-end-workflow">
+<h1>Command-Line Vignette: End-To-End Workflow<a class="headerlink" href="#command-line-vignette-end-to-end-workflow" title="Link to this heading">¶</a></h1>
+<p>This vignette shows an end-to-end run using only command-line tools against the
+compose stack.</p>
+<section id="start-the-stack">
+<h2>1. Start the stack<a class="headerlink" href="#start-the-stack" title="Link to this heading">¶</a></h2>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>-d<span class="w"> </span>--build
+</pre></div>
+</div>
+<p>Check API readiness:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>http://localhost:52180/api/healthz
+<span class="c1"># {&quot;status&quot;:&quot;ok&quot;}</span>
+</pre></div>
+</div>
+</section>
+<section id="set-workflow-variables">
+<h2>2. Set workflow variables<a class="headerlink" href="#set-workflow-variables" title="Link to this heading">¶</a></h2>
+<p>Use your own PDF path for <code class="docutils literal notranslate"><span class="pre">PDF_PATH</span></code>.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">BASE_URL</span><span class="o">=</span><span class="s2">&quot;http://localhost:52180/api&quot;</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">BUCKET</span><span class="o">=</span><span class="s2">&quot;research-raw&quot;</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">PDF_PATH</span><span class="o">=</span><span class="s2">&quot;./paper.pdf&quot;</span>
+</pre></div>
+</div>
+<p>Compute deterministic <code class="docutils literal notranslate"><span class="pre">document_id</span></code> (SHA-256 of bytes):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">DOC_ID</span><span class="o">=</span><span class="s2">&quot;</span><span class="k">$(</span><span class="w"> </span><span class="o">(</span>shasum<span class="w"> </span>-a<span class="w"> </span><span class="m">256</span><span class="w"> </span><span class="s2">&quot;</span><span class="nv">$PDF_PATH</span><span class="s2">&quot;</span><span class="w"> </span><span class="m">2</span>&gt;/dev/null<span class="w"> </span><span class="o">||</span><span class="w"> </span>sha256sum<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$PDF_PATH</span><span class="s2">&quot;</span><span class="k">)</span><span class="s2"> | awk &#39;{print </span><span class="nv">$1</span><span class="s2">}&#39; )&quot;</span>
+</pre></div>
+</div>
+</section>
+<section id="create-a-bucket-and-paired-qdrant-collection">
+<h2>3. Create a bucket (and paired Qdrant collection)<a class="headerlink" href="#create-a-bucket-and-paired-qdrant-collection" title="Link to this heading">¶</a></h2>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$BASE_URL</span><span class="s2">/buckets&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-d<span class="w"> </span><span class="s2">&quot;{\&quot;bucket_name\&quot;:\&quot;</span><span class="nv">$BUCKET</span><span class="s2">\&quot;}&quot;</span>
+</pre></div>
+</div>
+<p>Expected shape:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span><span class="nt">&quot;bucket_name&quot;</span><span class="p">:</span><span class="s2">&quot;research-raw&quot;</span><span class="p">,</span><span class="nt">&quot;created&quot;</span><span class="p">:</span><span class="kc">true</span><span class="p">,</span><span class="nt">&quot;qdrant_collection_created&quot;</span><span class="p">:</span><span class="kc">true</span><span class="p">}</span>
+</pre></div>
+</div>
+</section>
+<section id="upload-a-document-and-queue-processing">
+<h2>4. Upload a document and queue processing<a class="headerlink" href="#upload-a-document-and-queue-processing" title="Link to this heading">¶</a></h2>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="s2">&quot;</span><span class="nv">$BASE_URL</span><span class="s2">/collections/</span><span class="nv">$BUCKET</span><span class="s2">/documents/upload?file_name=</span><span class="k">$(</span>basename<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$PDF_PATH</span><span class="s2">&quot;</span><span class="k">)</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/pdf&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--data-binary<span class="w"> </span><span class="s2">&quot;@</span><span class="nv">$PDF_PATH</span><span class="s2">&quot;</span>
+</pre></div>
+</div>
+<p>This stores the object in MinIO and queues a Celery task for:</p>
+<ul class="simple">
+<li><p>Unstructured partition extraction</p></li>
+<li><p>metadata extraction</p></li>
+<li><p>chunking and Qdrant upsert</p></li>
+</ul>
+</section>
+<section id="monitor-processing-from-the-api">
+<h2>5. Monitor processing from the API<a class="headerlink" href="#monitor-processing-from-the-api" title="Link to this heading">¶</a></h2>
+<p>Inspect all documents:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$BASE_URL</span><span class="s2">/collections/</span><span class="nv">$BUCKET</span><span class="s2">/documents&quot;</span>
+</pre></div>
+</div>
+<p>If <code class="docutils literal notranslate"><span class="pre">jq</span></code> is installed, filter one record:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$BASE_URL</span><span class="s2">/collections/</span><span class="nv">$BUCKET</span><span class="s2">/documents&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span>--arg<span class="w"> </span>doc<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$DOC_ID</span><span class="s2">&quot;</span><span class="w"> </span><span class="s1">&#39;.documents[] | select(.document_id == $doc) |</span>
+<span class="s1">    {document_id, processing_state, processing_progress, partitions_count, chunks_count}&#39;</span>
+</pre></div>
+</div>
+<p>Wait until <code class="docutils literal notranslate"><span class="pre">processing_state</span></code> becomes <code class="docutils literal notranslate"><span class="pre">processed</span></code> (or inspect <code class="docutils literal notranslate"><span class="pre">error</span></code> if <code class="docutils literal notranslate"><span class="pre">failed</span></code>).</p>
+</section>
+<section id="update-metadata">
+<h2>6. Update metadata<a class="headerlink" href="#update-metadata" title="Link to this heading">¶</a></h2>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>PUT<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$BASE_URL</span><span class="s2">/collections/</span><span class="nv">$BUCKET</span><span class="s2">/documents/</span><span class="nv">$DOC_ID</span><span class="s2">/metadata&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{</span>
+<span class="s1">    &quot;metadata&quot;: {</span>
+<span class="s1">      &quot;title&quot;: &quot;Example Paper&quot;,</span>
+<span class="s1">      &quot;author&quot;: &quot;A. Author and B. Author&quot;,</span>
+<span class="s1">      &quot;year&quot;: &quot;2026&quot;,</span>
+<span class="s1">      &quot;document_type&quot;: &quot;article&quot;,</span>
+<span class="s1">      &quot;doi&quot;: &quot;10.1000/example-doi&quot;</span>
+<span class="s1">    }</span>
+<span class="s1">  }&#39;</span>
+</pre></div>
+</div>
+</section>
+<section id="trigger-an-on-demand-scan-optional">
+<h2>7. Trigger an on-demand scan (optional)<a class="headerlink" href="#trigger-an-on-demand-scan-optional" title="Link to this heading">¶</a></h2>
+<p>Use this when files are dropped into MinIO outside the upload API.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$BASE_URL</span><span class="s2">/collections/</span><span class="nv">$BUCKET</span><span class="s2">/scan&quot;</span>
+</pre></div>
+</div>
+</section>
+<section id="delete-document-and-bucket">
+<h2>8. Delete document and bucket<a class="headerlink" href="#delete-document-and-bucket" title="Link to this heading">¶</a></h2>
+<p>Delete the document by <code class="docutils literal notranslate"><span class="pre">document_id</span></code>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>DELETE<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$BASE_URL</span><span class="s2">/collections/</span><span class="nv">$BUCKET</span><span class="s2">/documents/</span><span class="nv">$DOC_ID</span><span class="s2">&quot;</span>
+</pre></div>
+</div>
+<p>Delete the bucket:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>DELETE<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$BASE_URL</span><span class="s2">/buckets/</span><span class="nv">$BUCKET</span><span class="s2">&quot;</span>
+</pre></div>
+</div>
+</section>
+<section id="stop-the-stack">
+<h2>9. Stop the stack<a class="headerlink" href="#stop-the-stack" title="Link to this heading">¶</a></h2>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docker<span class="w"> </span>compose<span class="w"> </span>down
+</pre></div>
+</div>
+</section>
+</section>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="index.html">mcp-evidencebase</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="readme.html">Evidence Base</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Command-Line Vignette: End-To-End Workflow</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#start-the-stack">1. Start the stack</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#set-workflow-variables">2. Set workflow variables</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#create-a-bucket-and-paired-qdrant-collection">3. Create a bucket (and paired Qdrant collection)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#upload-a-document-and-queue-processing">4. Upload a document and queue processing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#monitor-processing-from-the-api">5. Monitor processing from the API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#update-metadata">6. Update metadata</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#trigger-an-on-demand-scan-optional">7. Trigger an on-demand scan (optional)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#delete-document-and-bucket">8. Delete document and bucket</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#stop-the-stack">9. Stop the stack</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="reference.html">Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tests.html">Tests</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="index.html">Documentation overview</a><ul>
+      <li>Previous: <a href="readme.html" title="previous chapter">Evidence Base</a></li>
+      <li>Next: <a href="reference.html" title="next chapter">Reference</a></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 9.1.0</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+      |
+      <a href="_sources/vignette_cli.md.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>

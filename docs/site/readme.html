@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="./">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Evidence Base &#8212; mcp-evidencebase 0.1.0 documentation</title>
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="_static/alabaster.css?v=27fed22d" />
+    <script src="_static/documentation_options.js?v=01f34227"></script>
+    <script src="_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Command-Line Vignette: End-To-End Workflow" href="vignette_cli.html" />
+    <link rel="prev" title="mcp-evidencebase Documentation" href="index.html" />
+   
+  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <section id="evidence-base">
+<h1>Evidence Base<a class="headerlink" href="#evidence-base" title="Link to this heading">¶</a></h1>
+<p>Manage evidence base metadata, semantic search, and GPT summaries.</p>
+<section id="project-layout">
+<h2>Project layout<a class="headerlink" href="#project-layout" title="Link to this heading">¶</a></h2>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>.
+├── deploy/
+│   └── nginx/
+│       └── default.conf
+├── docker-compose.yml
+├── frontend/
+│   ├── Dockerfile
+│   ├── index.html
+│   └── package.json
+├── pyproject.toml
+├── src/
+│   └── mcp_evidencebase/
+│       ├── __init__.py
+│       ├── __main__.py
+│       ├── cli.py
+│       └── core.py
+└── tests/
+    ├── test_cli.py
+    └── test_core.py
+</pre></div>
+</div>
+</section>
+<section id="quickstart">
+<h2>Quickstart<a class="headerlink" href="#quickstart" title="Link to this heading">¶</a></h2>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-m<span class="w"> </span>venv<span class="w"> </span>.venv
+<span class="nb">source</span><span class="w"> </span>.venv/bin/activate
+python<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">&quot;.[dev]&quot;</span>
+</pre></div>
+</div>
+<p>Run checks:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>ruff<span class="w"> </span>check<span class="w"> </span>.
+mypy<span class="w"> </span>.
+pytest
+</pre></div>
+</div>
+<p>Run the CLI:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-m<span class="w"> </span>mcp_evidencebase<span class="w"> </span>--healthcheck
+<span class="c1"># ok</span>
+</pre></div>
+</div>
+</section>
+<section id="docker-compose-stack">
+<h2>Docker compose stack<a class="headerlink" href="#docker-compose-stack" title="Link to this heading">¶</a></h2>
+<p>Starts:</p>
+<ul class="simple">
+<li><p>NGINX reverse proxy (<code class="docutils literal notranslate"><span class="pre">52180</span></code> by default)</p></li>
+<li><p>Frontend dashboard (via proxy)</p></li>
+<li><p>Bucket API service (via proxy)</p></li>
+<li><p>Documentation site (via proxy)</p></li>
+<li><p>MinIO (via proxy)</p></li>
+<li><p>MinIO Console (via proxy)</p></li>
+<li><p>Redis (internal only)</p></li>
+<li><p>RedisInsight (via proxy)</p></li>
+<li><p>Qdrant HTTP API (via proxy)</p></li>
+<li><p>Celery worker</p></li>
+<li><p>Flower (via proxy)</p></li>
+<li><p>Cloudflare Tunnel (optional <code class="docutils literal notranslate"><span class="pre">cloudflare</span></code> profile)</p></li>
+</ul>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>-d<span class="w"> </span>--build
+</pre></div>
+</div>
+<p>Enable Cloudflare Tunnel:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docker<span class="w"> </span>compose<span class="w"> </span>--profile<span class="w"> </span>cloudflare<span class="w"> </span>up<span class="w"> </span>-d<span class="w"> </span>cloudflared
+</pre></div>
+</div>
+<p>The tunnel token is read from <code class="docutils literal notranslate"><span class="pre">CLOUDFLARE_TUNNEL_TOKEN</span></code> in <code class="docutils literal notranslate"><span class="pre">.env</span></code>.
+If your Cloudflare public hostname currently points to <code class="docutils literal notranslate"><span class="pre">http://localhost:52180</span></code>,
+set the tunnel service target to <code class="docutils literal notranslate"><span class="pre">http://proxy:80</span></code> for this compose stack.</p>
+<p>All web services are exposed through one host port (<code class="docutils literal notranslate"><span class="pre">${PROXY_PORT:-52180}</span></code>) using
+path-based routing on the main host (<code class="docutils literal notranslate"><span class="pre">localhost</span></code>) and via Cloudflare (<code class="docutils literal notranslate"><span class="pre">evidencebase.heley.uk</span></code>):</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>http://localhost:52180
+http://localhost:52180/docs/
+http://localhost:52180/docs/readme.html
+http://localhost:52180/docs/reference.html
+http://localhost:52180/docs/tests.html
+http://localhost:52180/minio-console/
+http://localhost:52180/redisinsight/
+http://localhost:52180/dashboard/
+http://localhost:52180/flower/
+
+https://evidencebase.heley.uk
+https://evidencebase.heley.uk/docs/
+https://evidencebase.heley.uk/docs/readme.html
+https://evidencebase.heley.uk/docs/reference.html
+https://evidencebase.heley.uk/docs/tests.html
+https://evidencebase.heley.uk/minio-console/
+https://evidencebase.heley.uk/redisinsight/
+https://evidencebase.heley.uk/dashboard/
+https://evidencebase.heley.uk/flower/
+</pre></div>
+</div>
+</section>
+<section id="documentation">
+<h2>Documentation<a class="headerlink" href="#documentation" title="Link to this heading">¶</a></h2>
+<p>Build docs locally (includes test output from <code class="docutils literal notranslate"><span class="pre">pytest-html-plus</span></code>):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docs/build_docs.sh
+</pre></div>
+</div>
+<p>Optional environment overrides:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">PROXY_PORT</span><span class="o">=</span><span class="m">52180</span>
+<span class="nv">MINIO_ROOT_USER</span><span class="o">=</span>minioadmin
+<span class="nv">MINIO_ROOT_PASSWORD</span><span class="o">=</span>minioadmin
+<span class="nv">MINIO_SERVER_URL</span><span class="o">=</span>http://127.0.0.1:9000
+<span class="nv">MINIO_BROWSER_REDIRECT_URL</span><span class="o">=</span>http://localhost:52180/minio-console
+<span class="nv">CELERY_BROKER_URL</span><span class="o">=</span>redis://redis:6379/0
+<span class="nv">CELERY_RESULT_BACKEND</span><span class="o">=</span>redis://redis:6379/1
+<span class="nv">REDIS_URL</span><span class="o">=</span>redis://redis:6379/2
+<span class="nv">REDIS_PREFIX</span><span class="o">=</span>evidencebase
+<span class="nv">QDRANT_URL</span><span class="o">=</span>http://qdrant:6333
+<span class="nv">QDRANT_COLLECTION_PREFIX</span><span class="o">=</span>evidencebase
+<span class="nv">UNSTRUCTURED_API_URL</span><span class="o">=</span>https://api.unstructuredapp.io/general/v0/general
+<span class="nv">UNSTRUCTURED_API_KEY</span><span class="o">=</span>&lt;your-unstructured-api-key&gt;
+<span class="nv">UNSTRUCTURED_STRATEGY</span><span class="o">=</span>auto
+<span class="nv">FASTEMBED_MODEL</span><span class="o">=</span>BAAI/bge-small-en-v1.5
+<span class="nv">CHUNK_SIZE_CHARS</span><span class="o">=</span><span class="m">1200</span>
+<span class="nv">CHUNK_OVERLAP_CHARS</span><span class="o">=</span><span class="m">150</span>
+<span class="nv">MINIO_SCAN_INTERVAL_SECONDS</span><span class="o">=</span><span class="m">15</span>
+<span class="nv">CLOUDFLARE_TUNNEL_TOKEN</span><span class="o">=</span>&lt;your-cloudflare-tunnel-token&gt;
+</pre></div>
+</div>
+</section>
+<section id="bucket-api-command-line-examples">
+<h2>Bucket API command-line examples<a class="headerlink" href="#bucket-api-command-line-examples" title="Link to this heading">¶</a></h2>
+<p>The UI calls the same API shown below. These are copy/paste commands.</p>
+<p>Set the API base URL:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">BASE_URL</span><span class="o">=</span><span class="s2">&quot;http://localhost:52180/api&quot;</span>
+</pre></div>
+</div>
+<p>List buckets:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$BASE_URL</span><span class="s2">/buckets&quot;</span>
+</pre></div>
+</div>
+<p>Add bucket <code class="docutils literal notranslate"><span class="pre">research-raw</span></code>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$BASE_URL</span><span class="s2">/buckets&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{&quot;bucket_name&quot;:&quot;research-raw&quot;}&#39;</span>
+</pre></div>
+</div>
+<p>Expected response when created:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span><span class="nt">&quot;bucket_name&quot;</span><span class="p">:</span><span class="s2">&quot;research-raw&quot;</span><span class="p">,</span><span class="nt">&quot;created&quot;</span><span class="p">:</span><span class="kc">true</span><span class="p">,</span><span class="nt">&quot;qdrant_collection_created&quot;</span><span class="p">:</span><span class="kc">true</span><span class="p">}</span>
+</pre></div>
+</div>
+<p>Expected response when it already exists:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span><span class="nt">&quot;bucket_name&quot;</span><span class="p">:</span><span class="s2">&quot;research-raw&quot;</span><span class="p">,</span><span class="nt">&quot;created&quot;</span><span class="p">:</span><span class="kc">false</span><span class="p">,</span><span class="nt">&quot;qdrant_collection_created&quot;</span><span class="p">:</span><span class="kc">false</span><span class="p">}</span>
+</pre></div>
+</div>
+<p>Remove bucket <code class="docutils literal notranslate"><span class="pre">research-raw</span></code>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>DELETE<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$BASE_URL</span><span class="s2">/buckets/research-raw&quot;</span>
+</pre></div>
+</div>
+<p>Expected response when removed:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span><span class="nt">&quot;bucket_name&quot;</span><span class="p">:</span><span class="s2">&quot;research-raw&quot;</span><span class="p">,</span><span class="nt">&quot;removed&quot;</span><span class="p">:</span><span class="kc">true</span><span class="p">,</span><span class="nt">&quot;qdrant_collection_removed&quot;</span><span class="p">:</span><span class="kc">true</span><span class="p">}</span>
+</pre></div>
+</div>
+<p>Expected response when it does not exist:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span><span class="nt">&quot;bucket_name&quot;</span><span class="p">:</span><span class="s2">&quot;research-raw&quot;</span><span class="p">,</span><span class="nt">&quot;removed&quot;</span><span class="p">:</span><span class="kc">false</span><span class="p">,</span><span class="nt">&quot;qdrant_collection_removed&quot;</span><span class="p">:</span><span class="kc">false</span><span class="p">}</span>
+</pre></div>
+</div>
+</section>
+<section id="document-ingestion-api-command-line-examples">
+<h2>Document ingestion API command-line examples<a class="headerlink" href="#document-ingestion-api-command-line-examples" title="Link to this heading">¶</a></h2>
+<p>List documents for bucket <code class="docutils literal notranslate"><span class="pre">research-raw</span></code>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$BASE_URL</span><span class="s2">/collections/research-raw/documents&quot;</span>
+</pre></div>
+</div>
+<p>Upload and queue processing (<code class="docutils literal notranslate"><span class="pre">document_id</span></code> is the SHA-256 hash of bytes):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="s2">&quot;</span><span class="nv">$BASE_URL</span><span class="s2">/collections/research-raw/documents/upload?file_name=paper.pdf&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/pdf&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--data-binary<span class="w"> </span><span class="s2">&quot;@paper.pdf&quot;</span>
+</pre></div>
+</div>
+<p>Queue an on-demand bucket scan (for files dropped directly into MinIO):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$BASE_URL</span><span class="s2">/collections/research-raw/scan&quot;</span>
+</pre></div>
+</div>
+<p>Update BibTeX metadata in Redis:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>PUT<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$BASE_URL</span><span class="s2">/collections/research-raw/documents/&lt;document_id&gt;/metadata&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{&quot;metadata&quot;:{&quot;title&quot;:&quot;My Paper&quot;,&quot;author&quot;:&quot;A. Author&quot;,&quot;year&quot;:&quot;2025&quot;,&quot;document_type&quot;:&quot;article&quot;}}&#39;</span>
+</pre></div>
+</div>
+<p>Delete a document (keeps partition payload in Redis, removes everything else):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>DELETE<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$BASE_URL</span><span class="s2">/collections/research-raw/documents/&lt;document_id&gt;&quot;</span>
+</pre></div>
+</div>
+</section>
+<section id="redis-and-qdrant-schema">
+<h2>Redis and Qdrant Schema<a class="headerlink" href="#redis-and-qdrant-schema" title="Link to this heading">¶</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">document_id</span></code> is the SHA-256 hash of file bytes and is the canonical document key.</p>
+<p>Redis keys (prefix defaults to <code class="docutils literal notranslate"><span class="pre">evidencebase</span></code>):</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">document:&lt;document_hash&gt;</span></code> hash for processing state/progress (<code class="docutils literal notranslate"><span class="pre">processing_state</span></code>, <code class="docutils literal notranslate"><span class="pre">processing_progress</span></code>, <code class="docutils literal notranslate"><span class="pre">partition_key</span></code>, <code class="docutils literal notranslate"><span class="pre">meta_key</span></code>, etc.).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">document:&lt;document_hash&gt;:sources</span></code> set of <code class="docutils literal notranslate"><span class="pre">bucket/object</span></code> source locations mapped to the document hash.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">document:&lt;document_hash&gt;:partitions</span></code> Unstructured partition JSON payload.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">document:partition:&lt;partition_hash&gt;</span></code> reverse index mapping partition hash -&gt; document hash.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">source:&lt;bucket&gt;/&lt;object&gt;</span></code> source mapping hash (<code class="docutils literal notranslate"><span class="pre">document_id</span></code>, <code class="docutils literal notranslate"><span class="pre">etag</span></code>, <code class="docutils literal notranslate"><span class="pre">resolver_url</span></code>, location fields).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">source:bucket:&lt;bucket&gt;</span></code> set of source locations in a bucket.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">meta:&lt;bucket&gt;/&lt;object&gt;</span></code> source-scoped normalized BibTeX metadata payload with <code class="docutils literal notranslate"><span class="pre">document_id</span></code> and <code class="docutils literal notranslate"><span class="pre">source</span></code>.</p></li>
+</ul>
+<p>Notes:</p>
+<ul class="simple">
+<li><p>Redis stores partitions and metadata, but <strong>does not store chunks</strong>.</p></li>
+<li><p>Deleting a document keeps <code class="docutils literal notranslate"><span class="pre">document:&lt;document_hash&gt;</span></code> state and partition payload by default, and removes source/meta mappings.</p></li>
+<li><p>Metadata extraction attempts title/authors/DOI/ISBN; DOI extraction is intentionally limited to first-page/front-matter partitions.</p></li>
+</ul>
+<p>Qdrant stores chunk text + embeddings. Each point payload includes:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">document_id</span></code> (document hash)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">partition_key</span></code> (partition hash)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">meta_key</span></code> (metadata hash)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">resolver_url</span></code> in the form <code class="docutils literal notranslate"><span class="pre">docs://bucket/object.ext?page=</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">minio_location</span></code>, <code class="docutils literal notranslate"><span class="pre">chunk_index</span></code>, and <code class="docutils literal notranslate"><span class="pre">text</span></code></p></li>
+</ul>
+</section>
+</section>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="index.html">mcp-evidencebase</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Evidence Base</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#project-layout">Project layout</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#quickstart">Quickstart</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#docker-compose-stack">Docker compose stack</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#documentation">Documentation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#bucket-api-command-line-examples">Bucket API command-line examples</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#document-ingestion-api-command-line-examples">Document ingestion API command-line examples</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#redis-and-qdrant-schema">Redis and Qdrant Schema</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="vignette_cli.html">Command-Line Vignette: End-To-End Workflow</a></li>
+<li class="toctree-l1"><a class="reference internal" href="reference.html">Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tests.html">Tests</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="index.html">Documentation overview</a><ul>
+      <li>Previous: <a href="index.html" title="previous chapter">mcp-evidencebase Documentation</a></li>
+      <li>Next: <a href="vignette_cli.html" title="next chapter">Command-Line Vignette: End-To-End Workflow</a></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 9.1.0</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+      |
+      <a href="_sources/readme.md.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>
