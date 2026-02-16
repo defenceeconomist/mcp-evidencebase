@@ -71,11 +71,16 @@ services:
       UNSTRUCTURED_API_URL: ${UNSTRUCTURED_API_URL:-https://api.unstructuredapp.io/general/v0/general}
       UNSTRUCTURED_API_KEY: ${UNSTRUCTURED_API_KEY:-}
       UNSTRUCTURED_STRATEGY: ${UNSTRUCTURED_STRATEGY:-auto}
+      UNSTRUCTURED_TIMEOUT_SECONDS: ${UNSTRUCTURED_TIMEOUT_SECONDS:-300}
       FASTEMBED_MODEL: ${FASTEMBED_MODEL:-BAAI/bge-small-en-v1.5}
       FASTEMBED_KEYWORD_MODEL: ${FASTEMBED_KEYWORD_MODEL:-Qdrant/bm25}
+      HF_HOME: ${HF_HOME:-/model-cache/huggingface}
+      FASTEMBED_CACHE_PATH: ${FASTEMBED_CACHE_PATH:-/model-cache/fastembed}
       CHUNK_SIZE_CHARS: ${CHUNK_SIZE_CHARS:-1200}
       CHUNK_OVERLAP_CHARS: ${CHUNK_OVERLAP_CHARS:-150}
       MINIO_SCAN_INTERVAL_SECONDS: ${MINIO_SCAN_INTERVAL_SECONDS:-15}
+    volumes:
+      - model-cache:/model-cache
     command: ["celery", "-A", "mcp_evidencebase.celery_app", "worker", "--loglevel=info"]
 
   flower:
@@ -132,11 +137,16 @@ services:
       UNSTRUCTURED_API_URL: ${UNSTRUCTURED_API_URL:-https://api.unstructuredapp.io/general/v0/general}
       UNSTRUCTURED_API_KEY: ${UNSTRUCTURED_API_KEY:-}
       UNSTRUCTURED_STRATEGY: ${UNSTRUCTURED_STRATEGY:-auto}
+      UNSTRUCTURED_TIMEOUT_SECONDS: ${UNSTRUCTURED_TIMEOUT_SECONDS:-300}
       FASTEMBED_MODEL: ${FASTEMBED_MODEL:-BAAI/bge-small-en-v1.5}
       FASTEMBED_KEYWORD_MODEL: ${FASTEMBED_KEYWORD_MODEL:-Qdrant/bm25}
+      HF_HOME: ${HF_HOME:-/model-cache/huggingface}
+      FASTEMBED_CACHE_PATH: ${FASTEMBED_CACHE_PATH:-/model-cache/fastembed}
       CHUNK_SIZE_CHARS: ${CHUNK_SIZE_CHARS:-1200}
       CHUNK_OVERLAP_CHARS: ${CHUNK_OVERLAP_CHARS:-150}
       MINIO_SCAN_INTERVAL_SECONDS: ${MINIO_SCAN_INTERVAL_SECONDS:-15}
+    volumes:
+      - model-cache:/model-cache
     depends_on:
       minio:
         condition: service_started
@@ -199,3 +209,4 @@ volumes:
   qdrant-storage:
   redis-data:
   redisinsight-data:
+  model-cache:

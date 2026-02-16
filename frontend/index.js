@@ -46,7 +46,8 @@
   const semanticSearchSubmit = document.getElementById("semantic-search-submit");
   const semanticSearchStatus = document.getElementById("semantic-search-status");
   const semanticSearchCount = document.getElementById("semantic-search-count");
-  const semanticSearchResultsBody = document.getElementById("semantic-search-results");
+  const semanticSearchResultsScroll = document.getElementById("semantic-search-results-scroll");
+  const semanticSearchResultsContainer = document.getElementById("semantic-search-results");
   const mainViewTabList = document.querySelector('ul[role="tablist"][aria-label="Main views"]');
 
   const selectedBucketCookieName = "evidencebase_selected_bucket";
@@ -678,51 +679,87 @@
       .join(", ");
   };
 
+  const formatSearchTitle = (result) => {
+    const title =
+      normalizeText(result.title) ||
+      normalizeText(filenameFromPath(result.file_path || "")) ||
+      normalizeText(result.document_id) ||
+      "Untitled chunk";
+    return title;
+  };
+
+  const formatSearchLocation = (result) => {
+    return (
+      normalizeText(result.minio_location) ||
+      normalizeText(result.file_path) ||
+      normalizeText(result.document_id) ||
+      "n/a"
+    );
+  };
+
   const renderSemanticSearchResults = () => {
-    if (!semanticSearchResultsBody) {
+    if (!semanticSearchResultsContainer) {
       return;
     }
-    semanticSearchResultsBody.innerHTML = "";
+    semanticSearchResultsContainer.innerHTML = "";
 
     if (!semanticSearchResults.length) {
-      const row = document.createElement("tr");
-      const cell = document.createElement("td");
-      cell.colSpan = 4;
-      cell.className = "text-body-secondary";
-      cell.textContent = "No search results yet.";
-      row.appendChild(cell);
-      semanticSearchResultsBody.appendChild(row);
+      const emptyState = document.createElement("div");
+      emptyState.className = "semantic-result-empty";
+      emptyState.textContent = "No search results yet.";
+      semanticSearchResultsContainer.appendChild(emptyState);
       setSemanticSearchCount(0);
       return;
     }
 
     semanticSearchResults.forEach((result) => {
-      const row = document.createElement("tr");
+      const card = document.createElement("article");
+      card.className = "semantic-result-card";
 
-      const scoreCell = document.createElement("td");
+      const header = document.createElement("header");
+      header.className = "semantic-result-header";
+
+      const title = document.createElement("div");
+      title.className = "semantic-result-title";
+      title.textContent = formatSearchTitle(result);
+
+      const location = document.createElement("div");
+      location.className = "semantic-result-location text-body-secondary";
+      location.textContent = formatSearchLocation(result);
+
+      header.appendChild(title);
+      header.appendChild(location);
+
+      const body = document.createElement("div");
+      body.className = "semantic-result-body";
+
+      const snippet = document.createElement("p");
+      snippet.className = "semantic-search-snippet";
+      snippet.textContent = normalizeText(result.text || "");
+      body.appendChild(snippet);
+
+      const footer = document.createElement("footer");
+      footer.className = "semantic-result-footer d-flex justify-content-between align-items-center";
+
+      const pages = document.createElement("span");
+      pages.className = "text-body-secondary";
+      pages.textContent = `Pages: ${formatSearchPages(result.page_numbers)}`;
+
+      const score = document.createElement("span");
+      score.className = "text-body-secondary";
       const scoreValue = Number.parseFloat(result.score);
-      scoreCell.textContent = Number.isFinite(scoreValue) ? scoreValue.toFixed(4) : "0.0000";
+      score.textContent = `Score: ${Number.isFinite(scoreValue) ? scoreValue.toFixed(4) : "0.0000"}`;
 
-      const documentCell = document.createElement("td");
-      documentCell.innerHTML =
-        `<div class="fw-semibold">${filenameFromPath(result.file_path || "")}</div>` +
-        `<div class="small text-body-secondary">${normalizeText(result.document_id || "")}</div>`;
-
-      const textCell = document.createElement("td");
-      textCell.className = "semantic-search-snippet";
-      textCell.textContent = normalizeText(result.text || "");
-
-      const pagesCell = document.createElement("td");
-      pagesCell.textContent = formatSearchPages(result.page_numbers);
-
-      row.appendChild(scoreCell);
-      row.appendChild(documentCell);
-      row.appendChild(textCell);
-      row.appendChild(pagesCell);
-      semanticSearchResultsBody.appendChild(row);
+      footer.appendChild(pages);
+      footer.appendChild(score);
+      card.appendChild(header);
+      card.appendChild(body);
+      card.appendChild(footer);
+      semanticSearchResultsContainer.appendChild(card);
     });
 
     setSemanticSearchCount(semanticSearchResults.length);
+    window.requestAnimationFrame(setIndependentScrollHeights);
   };
 
   const searchCollection = async () => {
@@ -813,11 +850,7 @@
         tabPane.classList.toggle("is-active", isActive);
         tabPane.hidden = !isActive;
         tabPane.setAttribute("aria-hidden", String(!isActive));
-        tabPane.style.display = isActive
-          ? paneId === "document-meta-pane"
-            ? "flex"
-            : "block"
-          : "none";
+        tabPane.style.display = isActive ? "flex" : "none";
       }
     });
   };
@@ -895,6 +928,9 @@
       if (documentHotWrapper) {
         documentHotWrapper.scrollTop = 0;
       }
+      if (semanticSearchResultsScroll) {
+        semanticSearchResultsScroll.scrollTop = 0;
+      }
       window.scrollTo(0, 0);
     }
 
@@ -904,6 +940,7 @@
       clearElementHeight(detailFieldsForm);
       clearElementHeight(detailViewContainer);
       clearElementHeight(documentHotWrapper);
+      clearElementHeight(semanticSearchResultsScroll);
       if (documentTable) {
         documentTable.updateSettings({ height: 420 });
         documentTable.render();
@@ -913,6 +950,7 @@
     }
 
     calculateHeight(collectionsListScroll);
+    calculateHeight(semanticSearchResultsScroll);
     if (bulkEditEnabled) {
       const tableHeight = calculateHeight(documentHotWrapper);
       if (documentTable && Number.isFinite(tableHeight)) {
@@ -1853,7 +1891,6 @@
     setMainTabState(nextPaneId);
     if (nextPaneId === "semantic-search-pane") {
       resetSemanticSearchScroll();
-      return;
     }
     window.requestAnimationFrame(setIndependentScrollHeights);
   };

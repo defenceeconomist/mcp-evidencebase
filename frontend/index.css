@@ -8,6 +8,14 @@
   min-height: 0;
 }
 
+#semantic-search-pane {
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
 #main-panel .tab-content {
   display: flex;
   flex-direction: column;
@@ -229,15 +237,61 @@
 
 #semantic-search-pane .card-body {
   min-height: 0;
+  overflow: hidden;
 }
 
-#semantic-search-table td {
-  vertical-align: top;
+#semantic-search-pane .card {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+#semantic-search-results-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.semantic-result-card {
+  border: 1px solid var(--bs-border-color);
+  border-radius: 0.6rem;
+  background: var(--bs-body-bg);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.semantic-result-header {
+  padding: 0.75rem 1rem 0.55rem;
+  border-bottom: 1px solid var(--bs-border-color-translucent);
+}
+
+.semantic-result-title {
+  font-weight: 600;
+}
+
+.semantic-result-location {
+  font-size: 0.8rem;
+}
+
+.semantic-result-body {
+  padding: 0.8rem 1rem;
 }
 
 .semantic-search-snippet {
   white-space: pre-wrap;
   word-break: break-word;
+  margin: 0;
+}
+
+.semantic-result-footer {
+  padding: 0.55rem 1rem;
+  border-top: 1px solid var(--bs-border-color-translucent);
+  font-size: 0.8rem;
+}
+
+.semantic-result-empty {
+  border: 1px dashed var(--bs-border-color);
+  border-radius: 0.6rem;
+  padding: 1rem;
+  color: var(--bs-secondary-color);
 }
 
 @media (min-width: 992px) {
@@ -281,6 +335,11 @@
 
   #document-meta-pane {
     height: auto;
+  }
+
+  #semantic-search-pane {
+    height: auto;
+    overflow: visible;
   }
 
   #document-hot-wrapper {

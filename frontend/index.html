@@ -14,7 +14,7 @@
       rel="stylesheet"
       crossorigin="anonymous"
     />
-    <link href="./index.css?v=20260216b" rel="stylesheet" />
+    <link href="./index.css?v=20260216c" rel="stylesheet" />
   </head>
   <body class="bg-body-tertiary d-flex flex-column vh-100">
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
@@ -303,7 +303,7 @@
               aria-labelledby="semantic-search-tab"
               tabindex="0"
             >
-              <div class="card d-flex flex-column">
+              <div class="card h-100 d-flex flex-column">
                 <div class="card-header py-3">
                   <h1 class="h4 mb-0 text-primary">Hybrid Search</h1>
                 </div>
@@ -396,18 +396,8 @@
                     <small id="semantic-search-count" class="text-body-secondary">0 results</small>
                   </div>
 
-                  <div class="table-responsive flex-grow-1">
-                    <table class="table table-striped align-middle mb-0" id="semantic-search-table">
-                      <thead>
-                        <tr>
-                          <th scope="col" style="width: 7rem">Score</th>
-                          <th scope="col" style="width: 13rem">Document</th>
-                          <th scope="col">Chunk Text</th>
-                          <th scope="col" style="width: 10rem">Pages</th>
-                        </tr>
-                      </thead>
-                      <tbody id="semantic-search-results"></tbody>
-                    </table>
+                  <div id="semantic-search-results-scroll" class="flex-grow-1">
+                    <div id="semantic-search-results" class="d-flex flex-column gap-3"></div>
                   </div>
                 </div>
               </div>
@@ -426,6 +416,6 @@
       src="https://cdn.jsdelivr.net/npm/handsontable@14.6.1/dist/handsontable.full.min.js"
       crossorigin="anonymous"
     ></script>
-    <script src="./index.js?v=20260216b"></script>
+    <script src="./index.js?v=20260216c"></script>
   </body>
 </html>
