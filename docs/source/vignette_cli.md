@@ -56,9 +56,10 @@ curl -sS -X POST \
 ```
 
 This stores the object in MinIO and queues a Celery task for:
-- Unstructured partition extraction
-- metadata extraction
-- chunking and Qdrant upsert
+- Unstructured partition extraction (raw partition JSON persisted in Redis)
+- metadata extraction (PDF metadata + first-page DOI/ISBN heuristics)
+- chunking with overlap (`CHUNK_SIZE_CHARS`, `CHUNK_OVERLAP_CHARS`)
+- Qdrant upsert (chunk text + `page_numbers` + `bounding_boxes`)
 
 ## 5. Monitor processing from the API
 
@@ -116,7 +117,25 @@ Delete the bucket:
 curl -sS -X DELETE "$BASE_URL/buckets/$BUCKET"
 ```
 
-## 9. Stop the stack
+## 9. Celery task reference
+
+Tasks are defined in `src/mcp_evidencebase/tasks.py`:
+
+- `mcp_evidencebase.ping`: simple worker health task.
+- `mcp_evidencebase.scan_minio_objects(bucket_name=None)`: scans MinIO and enqueues
+  `process_minio_object` for objects that are new or have changed ETag.
+- `mcp_evidencebase.process_minio_object(bucket_name, object_name, etag=None)`: performs the
+  end-to-end ingestion pipeline for one object.
+
+Current workflow shape:
+
+- The task pipeline is intentionally linear and centralized in
+  `IngestionService.process_object()`.
+- No immediate refactor is required for correctness.
+- Refactor to stage-specific tasks only when you need independent reruns per stage (for example
+  re-chunking/re-indexing without re-partitioning) or non-linear workflows.
+
+## 10. Stop the stack
 
 ```bash
 docker compose down

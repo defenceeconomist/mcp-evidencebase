@@ -205,6 +205,159 @@ def extract_partition_page_number(partition: Mapping[str, Any]) -> int | None:
     return page_number
 
 
+def _normalize_coordinate_points(points: Any) -> list[list[float]]:
+    """Normalize a coordinates points payload to ``[[x, y], ...]``."""
+    if not isinstance(points, list):
+        return []
+
+    normalized: list[list[float]] = []
+    for pair in points:
+        if not isinstance(pair, (list, tuple)) or len(pair) != 2:
+            continue
+        try:
+            x = float(pair[0])
+            y = float(pair[1])
+        except (TypeError, ValueError):
+            continue
+        normalized.append([x, y])
+    return normalized
+
+
+def extract_partition_bounding_box(partition: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Read normalized bounding-box coordinates from partition payload metadata."""
+    coordinates: Mapping[str, Any] | None = None
+
+    metadata = partition.get("metadata")
+    if isinstance(metadata, Mapping):
+        raw_coordinates = metadata.get("coordinates")
+        if isinstance(raw_coordinates, Mapping):
+            coordinates = raw_coordinates
+
+    if coordinates is None:
+        raw_coordinates = partition.get("coordinates")
+        if isinstance(raw_coordinates, Mapping):
+            coordinates = raw_coordinates
+
+    if coordinates is None:
+        return None
+
+    points = _normalize_coordinate_points(coordinates.get("points"))
+    if not points:
+        return None
+
+    payload: dict[str, Any] = {"points": points}
+    raw_layout_width = coordinates.get("layout_width")
+    if isinstance(raw_layout_width, (int, float)):
+        payload["layout_width"] = float(raw_layout_width)
+    raw_layout_height = coordinates.get("layout_height")
+    if isinstance(raw_layout_height, (int, float)):
+        payload["layout_height"] = float(raw_layout_height)
+    raw_system = coordinates.get("system")
+    if isinstance(raw_system, str):
+        normalized_system = raw_system.strip()
+        if normalized_system:
+            payload["system"] = normalized_system
+    return payload
+
+
+def build_partition_chunks(
+    partitions: Iterable[Mapping[str, Any]],
+    *,
+    chunk_size_chars: int,
+    chunk_overlap_chars: int,
+) -> list[dict[str, Any]]:
+    """Create overlapping chunks with page and bounding-box metadata."""
+    entries: list[dict[str, Any]] = []
+    for partition in partitions:
+        text = extract_partition_text(partition)
+        if not text:
+            continue
+        entries.append(
+            {
+                "text": text,
+                "page_number": extract_partition_page_number(partition),
+                "bounding_box": extract_partition_bounding_box(partition),
+            }
+        )
+
+    if not entries:
+        return []
+
+    delimiter = "\n\n"
+    joined = delimiter.join(str(entry["text"]) for entry in entries)
+    size = max(128, chunk_size_chars)
+    overlap = max(0, min(chunk_overlap_chars, size - 1))
+
+    windows: list[tuple[int, int]] = []
+    if len(joined) <= size:
+        windows.append((0, len(joined)))
+    else:
+        step = size - overlap
+        cursor = 0
+        while cursor < len(joined):
+            windows.append((cursor, min(cursor + size, len(joined))))
+            cursor += step
+
+    spans: list[tuple[int, int, dict[str, Any]]] = []
+    cursor = 0
+    for index, entry in enumerate(entries):
+        text = str(entry["text"])
+        start = cursor
+        end = start + len(text)
+        spans.append((start, end, entry))
+        cursor = end
+        if index < len(entries) - 1:
+            cursor += len(delimiter)
+
+    chunks: list[dict[str, Any]] = []
+    for window_start, window_end in windows:
+        chunk_text = joined[window_start:window_end].strip()
+        if not chunk_text:
+            continue
+
+        page_numbers: list[int] = []
+        page_numbers_seen: set[int] = set()
+        bounding_boxes: list[dict[str, Any]] = []
+        bounding_boxes_seen: set[str] = set()
+
+        for partition_start, partition_end, entry in spans:
+            if partition_end <= window_start or partition_start >= window_end:
+                continue
+
+            raw_page_number = entry.get("page_number")
+            page_number = raw_page_number if isinstance(raw_page_number, int) else None
+            if page_number is not None and page_number > 0 and page_number not in page_numbers_seen:
+                page_numbers.append(page_number)
+                page_numbers_seen.add(page_number)
+
+            raw_bounding_box = entry.get("bounding_box")
+            if not isinstance(raw_bounding_box, Mapping):
+                continue
+
+            bounding_box_payload = {
+                str(key): value for key, value in raw_bounding_box.items() if key != "page_number"
+            }
+            if page_number is not None and page_number > 0:
+                bounding_box_payload["page_number"] = page_number
+
+            dedupe_key = canonical_json(bounding_box_payload)
+            if dedupe_key in bounding_boxes_seen:
+                continue
+            bounding_boxes_seen.add(dedupe_key)
+            bounding_boxes.append(bounding_box_payload)
+
+        chunks.append(
+            {
+                "chunk_index": len(chunks),
+                "text": chunk_text,
+                "page_numbers": page_numbers,
+                "bounding_boxes": bounding_boxes,
+            }
+        )
+
+    return chunks
+
+
 def chunk_partition_texts(
     partitions: Iterable[Mapping[str, Any]],
     *,
@@ -212,25 +365,12 @@ def chunk_partition_texts(
     chunk_overlap_chars: int,
 ) -> list[str]:
     """Create overlapping text chunks from partition text."""
-    texts = [extract_partition_text(partition) for partition in partitions]
-    joined = "\n\n".join(text for text in texts if text)
-    if not joined:
-        return []
-
-    size = max(128, chunk_size_chars)
-    overlap = max(0, min(chunk_overlap_chars, size - 1))
-    if len(joined) <= size:
-        return [joined]
-
-    chunks: list[str] = []
-    step = size - overlap
-    cursor = 0
-    while cursor < len(joined):
-        chunk = joined[cursor : cursor + size].strip()
-        if chunk:
-            chunks.append(chunk)
-        cursor += step
-    return chunks
+    chunks = build_partition_chunks(
+        partitions,
+        chunk_size_chars=chunk_size_chars,
+        chunk_overlap_chars=chunk_overlap_chars,
+    )
+    return [str(chunk.get("text", "")) for chunk in chunks if str(chunk.get("text", ""))]
 
 
 def _extract_first_page_partitions(partitions: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1065,6 +1205,53 @@ class QdrantIndexer:
         points: list[qdrant_models.PointStruct] = []
         for chunk, embedding in zip(chunks, embeddings, strict=False):
             chunk_index = int(chunk.get("chunk_index", len(points)))
+            raw_page_numbers = chunk.get("page_numbers", [])
+            page_numbers: list[int] = []
+            if isinstance(raw_page_numbers, list):
+                for value in raw_page_numbers:
+                    try:
+                        page_number = int(value)
+                    except (TypeError, ValueError):
+                        continue
+                    if page_number > 0 and page_number not in page_numbers:
+                        page_numbers.append(page_number)
+
+            raw_bounding_boxes = chunk.get("bounding_boxes", [])
+            bounding_boxes: list[dict[str, Any]] = []
+            if isinstance(raw_bounding_boxes, list):
+                for value in raw_bounding_boxes:
+                    if not isinstance(value, Mapping):
+                        continue
+                    points_payload = _normalize_coordinate_points(value.get("points"))
+                    if not points_payload:
+                        continue
+                    payload_box: dict[str, Any] = {"points": points_payload}
+
+                    raw_page_number = value.get("page_number")
+                    if raw_page_number is not None:
+                        bbox_page_number: int | None
+                        try:
+                            bbox_page_number = int(raw_page_number)
+                        except (TypeError, ValueError):
+                            bbox_page_number = None
+                        if bbox_page_number is not None and bbox_page_number > 0:
+                            payload_box["page_number"] = bbox_page_number
+
+                    raw_layout_width = value.get("layout_width")
+                    if isinstance(raw_layout_width, (int, float)):
+                        payload_box["layout_width"] = float(raw_layout_width)
+                    raw_layout_height = value.get("layout_height")
+                    if isinstance(raw_layout_height, (int, float)):
+                        payload_box["layout_height"] = float(raw_layout_height)
+
+                    raw_system = value.get("system")
+                    if isinstance(raw_system, str):
+                        normalized_system = raw_system.strip()
+                        if normalized_system:
+                            payload_box["system"] = normalized_system
+
+                    bounding_boxes.append(payload_box)
+
             point_id = compute_chunk_point_id(
                 bucket_name=bucket_name,
                 document_id=document_id,
@@ -1081,6 +1268,8 @@ class QdrantIndexer:
                 "resolver_url": resolver_url,
                 "chunk_index": chunk_index,
                 "text": str(chunk.get("text", "")),
+                "page_numbers": page_numbers,
+                "bounding_boxes": bounding_boxes,
             }
             points.append(qdrant_models.PointStruct(id=point_id, vector=vector, payload=payload))
 
@@ -1367,18 +1556,11 @@ class IngestionService:
                 metadata=extracted_metadata,
             )
 
-            chunk_texts = chunk_partition_texts(
+            chunks = build_partition_chunks(
                 partitions,
                 chunk_size_chars=self._chunk_size_chars,
                 chunk_overlap_chars=self._chunk_overlap_chars,
             )
-            chunks = [
-                {
-                    "chunk_index": index,
-                    "text": text,
-                }
-                for index, text in enumerate(chunk_texts)
-            ]
             self._set_state(
                 document_id,
                 processing_state="processing",

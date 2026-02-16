@@ -13,10 +13,12 @@ from mcp_evidencebase.ingestion import (
     IngestionService,
     QdrantIndexer,
     RedisDocumentRepository,
+    build_partition_chunks,
     chunk_partition_texts,
     compute_chunk_point_id,
     compute_document_id,
     extract_metadata_from_partitions,
+    extract_partition_bounding_box,
     extract_pdf_title_author,
 )
 
@@ -234,6 +236,62 @@ def test_chunk_partition_texts_returns_overlapping_chunks() -> None:
     assert chunks[0]
     assert chunks[1]
     assert chunks[0][-20:] in chunks[1]
+
+
+def test_extract_partition_bounding_box_reads_unstructured_coordinates() -> None:
+    """Ensure partition coordinate metadata is normalized into a bounding-box payload."""
+    bounding_box = extract_partition_bounding_box(
+        {
+            "metadata": {
+                "coordinates": {
+                    "points": [[10, 20], [30, 20], [30, 40], [10, 40]],
+                    "layout_width": 612,
+                    "layout_height": 792,
+                    "system": "PixelSpace",
+                }
+            }
+        }
+    )
+
+    assert bounding_box == {
+        "points": [[10.0, 20.0], [30.0, 20.0], [30.0, 40.0], [10.0, 40.0]],
+        "layout_width": 612.0,
+        "layout_height": 792.0,
+        "system": "PixelSpace",
+    }
+
+
+def test_build_partition_chunks_attaches_page_numbers_and_bounding_boxes() -> None:
+    """Verify chunk records include source page numbers and bounding-box metadata."""
+    partitions = [
+        {
+            "text": "A" * 90,
+            "metadata": {
+                "page_number": 1,
+                "coordinates": {"points": [[0, 0], [10, 0], [10, 10], [0, 10]]},
+            },
+        },
+        {
+            "text": "B" * 90,
+            "metadata": {
+                "page_number": 2,
+                "coordinates": {"points": [[1, 1], [11, 1], [11, 11], [1, 11]]},
+            },
+        },
+    ]
+
+    chunks = build_partition_chunks(
+        partitions,
+        chunk_size_chars=128,
+        chunk_overlap_chars=32,
+    )
+
+    assert len(chunks) >= 2
+    assert chunks[0]["text"]
+    assert 1 in chunks[0]["page_numbers"]
+    assert chunks[0]["bounding_boxes"]
+    assert "points" in chunks[0]["bounding_boxes"][0]
+    assert chunks[0]["bounding_boxes"][0]["page_number"] == 1
 
 
 def test_extract_metadata_limits_doi_extraction_to_first_page() -> None:
@@ -531,7 +589,7 @@ def test_remove_document_can_remove_partitions() -> None:
 
 
 def test_qdrant_payload_contains_document_partition_meta_and_resolver_keys() -> None:
-    """Validate Qdrant payload contains document, partition, metadata, and resolver keys."""
+    """Validate Qdrant payload contains resolver, partition, and spatial metadata keys."""
     install_qdrant_client_stub()
     qdrant = FakeQdrantClient()
     indexer = StubQdrantIndexer(
@@ -544,7 +602,19 @@ def test_qdrant_payload_contains_document_partition_meta_and_resolver_keys() -> 
         bucket_name="research-raw",
         document_id="abc123",
         file_path="paper.pdf",
-        chunks=[{"chunk_index": 0, "text": "hello world"}],
+        chunks=[
+            {
+                "chunk_index": 0,
+                "text": "hello world",
+                "page_numbers": [1],
+                "bounding_boxes": [
+                    {
+                        "page_number": 1,
+                        "points": [[10, 20], [30, 20], [30, 40], [10, 40]],
+                    }
+                ],
+            }
+        ],
         partition_key="partition-hash",
         meta_key="meta-hash",
     )
@@ -562,3 +632,10 @@ def test_qdrant_payload_contains_document_partition_meta_and_resolver_keys() -> 
     assert point.payload["meta_key"] == "meta-hash"
     assert point.payload["resolver_url"] == "docs://research-raw/paper.pdf?page="
     assert point.payload["minio_location"] == "research-raw/paper.pdf"
+    assert point.payload["page_numbers"] == [1]
+    assert point.payload["bounding_boxes"] == [
+        {
+            "page_number": 1,
+            "points": [[10.0, 20.0], [30.0, 20.0], [30.0, 40.0], [10.0, 40.0]],
+        }
+    ]
