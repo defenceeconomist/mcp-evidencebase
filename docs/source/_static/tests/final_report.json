@@ -1,73 +1,30 @@
 {
   "filters": {
-    "untracked": 3,
-    "total": 3,
-    "passed": 3,
+    "untracked": 1,
+    "total": 1,
+    "passed": 1,
     "marker_counts": {
-      "area_api": 1,
-      "area_ingestion": 2
+      "area_api": 1
     }
   },
   "results": [
     {
-      "test": "test_update_document_metadata_accepts_structured_authors",
-      "nodeid": "tests/test_api.py::test_update_document_metadata_accepts_structured_authors",
+      "test": "test_fetch_document_metadata_from_crossref_returns_payload",
+      "nodeid": "tests/test_api.py::test_fetch_document_metadata_from_crossref_returns_payload",
       "status": "passed",
-      "duration": 0.002141999999366817,
+      "duration": 0.001711583000542305,
       "trace": null,
       "error": null,
       "markers": [
         "area_api"
       ],
       "file": "tests/test_api.py",
-      "line": 462,
+      "line": 504,
       "stdout": "",
-      "stderr": "INFO - HTTP Request: PUT http://testserver/collections/research-raw/documents/doc-1/metadata \"HTTP/1.1 200 OK\"\n",
-      "timestamp": "2026-02-16T18:05:35.705358Z",
+      "stderr": "INFO - HTTP Request: POST http://testserver/collections/research-raw/documents/doc-1/metadata/fetch \"HTTP/1.1 200 OK\"\n",
+      "timestamp": "2026-02-16T18:22:11.359624Z",
       "screenshot": "screenshots",
-      "logs": "HTTP Request: PUT http://testserver/collections/research-raw/documents/doc-1/metadata \"HTTP/1.1 200 OK\"",
-      "worker": "main",
-      "links": [],
-      "flaky": false
-    },
-    {
-      "test": "test_repository_persists_structured_authors_metadata_field",
-      "nodeid": "tests/test_ingestion.py::test_repository_persists_structured_authors_metadata_field",
-      "status": "passed",
-      "duration": 0.00023995799983822508,
-      "trace": null,
-      "error": null,
-      "markers": [
-        "area_ingestion"
-      ],
-      "file": "tests/test_ingestion.py",
-      "line": 767,
-      "stdout": "",
-      "stderr": "",
-      "timestamp": "2026-02-16T18:05:35.706541Z",
-      "screenshot": "screenshots",
-      "logs": [],
-      "worker": "main",
-      "links": [],
-      "flaky": false
-    },
-    {
-      "test": "test_list_documents_includes_structured_authors_field",
-      "nodeid": "tests/test_ingestion.py::test_list_documents_includes_structured_authors_field",
-      "status": "passed",
-      "duration": 0.0003646670002126484,
-      "trace": null,
-      "error": null,
-      "markers": [
-        "area_ingestion"
-      ],
-      "file": "tests/test_ingestion.py",
-      "line": 788,
-      "stdout": "",
-      "stderr": "",
-      "timestamp": "2026-02-16T18:05:35.707161Z",
-      "screenshot": "screenshots",
-      "logs": [],
+      "logs": "HTTP Request: POST http://testserver/collections/research-raw/documents/doc-1/metadata/fetch \"HTTP/1.1 200 OK\"",
       "worker": "main",
       "links": [],
       "flaky": false

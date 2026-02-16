@@ -21,6 +21,8 @@
   const detailDocumentTableBody = document.getElementById("detail-document-tbody");
   const detailFieldsForm = document.getElementById("detail-fields-form");
   const detailSelectedDocument = document.getElementById("detail-selected-document");
+  const detailFetchMetaButton = document.getElementById("detail-fetch-meta-btn");
+  const detailClearMetaButton = document.getElementById("detail-clear-meta-btn");
   const bulkViewContainer = document.getElementById("bulk-view-container");
   const documentHotWrapper = document.getElementById("document-hot-wrapper");
   const documentHotContainer = document.getElementById("document-hot-container");
@@ -76,6 +78,7 @@
     "crossref",
     "doi",
     "isbn",
+    "issn",
     "edition",
     "editor",
     "email",
@@ -98,7 +101,7 @@
   const bibtexTypeRules = {
     article: {
       required: ["author", "title", "journal", "year"],
-      recommended: ["volume", "number", "pages", "month", "note", "doi"],
+      recommended: ["volume", "number", "pages", "month", "note", "doi", "issn"],
     },
     book: {
       required: ["title", "author", "year", "publisher", "address"],
@@ -244,6 +247,7 @@
   const bibtexFieldLabelOverrides = {
     doi: "DOI",
     isbn: "ISBN",
+    issn: "ISSN",
     month: "Month",
     year: "Year",
   };
@@ -424,8 +428,20 @@
     return normalized;
   };
 
+  const stripOuterBraces = (value) => {
+    let normalizedValue = normalizeText(value);
+    while (
+      normalizedValue.startsWith("{") &&
+      normalizedValue.endsWith("}") &&
+      normalizedValue.length >= 2
+    ) {
+      normalizedValue = normalizeText(normalizedValue.slice(1, -1));
+    }
+    return normalizedValue;
+  };
+
   const parseAuthorFromText = (value) => {
-    const normalizedValue = normalizeText(value);
+    const normalizedValue = stripOuterBraces(value);
     if (!normalizedValue) {
       return null;
     }
@@ -433,13 +449,18 @@
     if (normalizedValue.includes(",")) {
       const commaParts = normalizedValue
         .split(",")
-        .map((part) => normalizeText(part))
+        .map((part) => stripOuterBraces(part))
         .filter(Boolean);
-      if (commaParts.length >= 2) {
+      if (commaParts.length >= 3) {
+        const lastName = commaParts[0];
+        const suffix = commaParts[1];
+        const firstName = commaParts.slice(2).join(", ");
+        return normalizeAuthorNameParts(firstName, lastName, suffix);
+      }
+      if (commaParts.length === 2) {
         const lastName = commaParts[0];
         const firstName = commaParts[1];
-        const suffix = commaParts.slice(2).join(", ");
-        return normalizeAuthorNameParts(firstName, lastName, suffix);
+        return normalizeAuthorNameParts(firstName, lastName, "");
       }
     }
 
@@ -518,8 +539,9 @@
     if (!normalizedValue) {
       return [];
     }
+    const splitPattern = /\s+and\s+|\s+(?:&|;)\s+/i;
     return normalizedValue
-      .split(/\s+(?:and|&)\s+|;/i)
+      .split(splitPattern)
       .map((authorText) => parseAuthorFromText(authorText))
       .filter((authorEntry) => Boolean(authorEntry));
   };
@@ -580,6 +602,40 @@
       return `${formattedAuthors[0]} & ${formattedAuthors[1]}`;
     }
     return `${formattedAuthors.slice(0, -1).join(", ")} & ${formattedAuthors[formattedAuthors.length - 1]}`;
+  };
+
+  const formatAuthorBibtex = (authorEntry) => {
+    if (!authorEntry || typeof authorEntry !== "object") {
+      return "";
+    }
+    const firstName = normalizeText(authorEntry.first_name);
+    const lastName = normalizeText(authorEntry.last_name);
+    const suffix = normalizeText(authorEntry.suffix);
+
+    if (lastName && suffix && firstName) {
+      return `${lastName}, ${suffix}, ${firstName}`;
+    }
+    if (lastName && firstName) {
+      return `${lastName}, ${firstName}`;
+    }
+    if (lastName && suffix) {
+      return `${lastName}, ${suffix}`;
+    }
+    if (lastName) {
+      return lastName;
+    }
+    if (firstName) {
+      return firstName;
+    }
+    return "";
+  };
+
+  const formatAuthorsBibtex = (authorEntries) => {
+    const normalizedEntries = normalizeAuthorEntries(authorEntries);
+    if (!normalizedEntries.length) {
+      return "";
+    }
+    return normalizedEntries.map((authorEntry) => formatAuthorBibtex(authorEntry)).filter(Boolean).join(" and ");
   };
 
   const normalizeAuthorEntriesFromDocument = (rawDocument, sourceBibtexFields) => {
@@ -695,9 +751,9 @@
     const normalizedAuthors = normalizeAuthorEntries(record.authors);
     if (normalizedAuthors.length > 0) {
       record.authors = normalizedAuthors;
-      const harvardAuthorDisplay = formatAuthorsHarvard(normalizedAuthors);
-      record.author = harvardAuthorDisplay;
-      record.bibtex_fields.author = harvardAuthorDisplay;
+      const bibtexAuthorDisplay = formatAuthorsBibtex(normalizedAuthors);
+      record.author = bibtexAuthorDisplay;
+      record.bibtex_fields.author = bibtexAuthorDisplay;
     } else {
       record.authors = parseAuthorsFromText(record.bibtex_fields.author);
       record.author = normalizeText(record.bibtex_fields.author);
@@ -914,8 +970,12 @@
     }
 
     bibtexFields.forEach((fieldName) => {
+      const hasBibtexField =
+        record.bibtex_fields &&
+        typeof record.bibtex_fields === "object" &&
+        Object.prototype.hasOwnProperty.call(record.bibtex_fields, fieldName);
       payload[fieldName] = normalizeText(
-        (record.bibtex_fields && record.bibtex_fields[fieldName]) || record[fieldName]
+        hasBibtexField ? record.bibtex_fields[fieldName] : record[fieldName]
       );
     });
     return payload;
@@ -928,7 +988,7 @@
       !selectedBucketName ||
       !record.document_id
     ) {
-      return;
+      return false;
     }
     const metadata = buildMetadataUpdatePayload(record);
     try {
@@ -941,12 +1001,14 @@
           body: JSON.stringify({ metadata }),
         }
       );
+      return true;
     } catch (error) {
       if (!silent) {
         window.alert(`Could not save metadata: ${error.message}`);
       } else {
         console.error("Could not save metadata:", error);
       }
+      return false;
     }
   };
 
@@ -1671,6 +1733,24 @@
     return documents.find((documentRecord) => documentRecord.document_id === selectedDocumentId) || null;
   };
 
+  const getActionTargetDocument = () => {
+    const selectedDocument = getSelectedDocument();
+    if (selectedDocument) {
+      return selectedDocument;
+    }
+    if (!Array.isArray(visibleDocuments) || visibleDocuments.length <= 0) {
+      return null;
+    }
+    const fallback = visibleDocuments[0];
+    if (!fallback || !fallback.document_id) {
+      return null;
+    }
+    selectedDocumentId = fallback.document_id;
+    renderDetailTable();
+    renderDetailFields();
+    return fallback;
+  };
+
   const ensureSelectedDocument = (candidateDocuments) => {
     if (!Array.isArray(candidateDocuments) || candidateDocuments.length === 0) {
       selectedDocumentId = null;
@@ -1749,11 +1829,18 @@
   };
 
   const updateRemoveDocumentButtonState = () => {
-    if (!removeDocumentButton) {
-      return;
+    const hasActionTarget =
+      Boolean(getSelectedDocument()) || (Array.isArray(visibleDocuments) && visibleDocuments.length > 0);
+    const actionsDisabled = !selectedBucketName || !hasActionTarget;
+    if (removeDocumentButton) {
+      removeDocumentButton.disabled = actionsDisabled;
     }
-    const selectedDocument = getSelectedDocument();
-    removeDocumentButton.disabled = !selectedBucketName || !selectedDocument;
+    if (detailFetchMetaButton) {
+      detailFetchMetaButton.disabled = actionsDisabled;
+    }
+    if (detailClearMetaButton) {
+      detailClearMetaButton.disabled = actionsDisabled;
+    }
   };
 
   const renderDetailTable = () => {
@@ -1876,8 +1963,8 @@
       return;
     }
     record.authors = normalizeAuthorEntries(nextAuthors);
-    const harvardAuthorDisplay = formatAuthorsHarvard(record.authors);
-    setBibtexFieldValue(record, "author", harvardAuthorDisplay, {
+    const bibtexAuthorDisplay = formatAuthorsBibtex(record.authors);
+    setBibtexFieldValue(record, "author", bibtexAuthorDisplay, {
       preserveStructuredAuthors: true,
     });
     scheduleDocumentMetadataSave(record);
@@ -1928,7 +2015,8 @@
 
     const hint = document.createElement("p");
     hint.className = "small text-body-secondary mb-2";
-    hint.textContent = "Display uses Harvard format derived from structured author names.";
+    hint.textContent =
+      "Uses BibTeX author format: Lastname, Suffix, Firstname and Lastname, Firstname.";
     row.appendChild(hint);
 
     const listWrap = document.createElement("div");
@@ -2260,20 +2348,104 @@
     }
   };
 
-  const triggerBucketScan = async () => {
+  const fetchSelectedDocumentMetadata = async () => {
     if (!selectedBucketName) {
       window.alert("Select a collection first.");
       return;
     }
+    const selectedDocument = getActionTargetDocument();
+    if (!selectedDocument) {
+      window.alert("Select a document first.");
+      return;
+    }
+
+    const pendingTimer = metadataSaveTimers.get(selectedDocument.document_id);
+    if (pendingTimer) {
+      window.clearTimeout(pendingTimer.timerId);
+      metadataSaveTimers.delete(selectedDocument.document_id);
+      const pendingSaveSuccessful = await persistDocumentMetadata(pendingTimer.record, {
+        silent: true,
+      });
+      if (!pendingSaveSuccessful) {
+        return;
+      }
+    }
 
     try {
-      await apiRequest(`/collections/${encodeURIComponent(selectedBucketName)}/scan`, {
-        method: "POST",
-      });
+      const payload = await apiRequest(
+        `/collections/${encodeURIComponent(selectedBucketName)}/documents/${encodeURIComponent(
+          selectedDocument.document_id
+        )}/metadata/fetch`,
+        {
+          method: "POST",
+        }
+      );
       await refreshDocuments({ silent: true, preserveSelection: true });
+      const lookupField = normalizeText(payload.lookup_field).toUpperCase();
+      const confidence = Number.parseFloat(normalizeText(payload.confidence));
+      const confidenceSuffix = Number.isFinite(confidence) ? ` (${confidence.toFixed(2)})` : "";
+      if (lookupField) {
+        window.alert(`Crossref metadata fetched via ${lookupField}${confidenceSuffix}.`);
+      } else {
+        window.alert("Crossref metadata fetched.");
+      }
     } catch (error) {
-      window.alert(`Could not queue scan: ${error.message}`);
+      const message = normalizeText(error.message);
+      if (message.includes("404")) {
+        window.alert(
+          "Could not fetch metadata from Crossref: API metadata fetch endpoint is unavailable (404). " +
+            "Rebuild/restart the API container."
+        );
+        return;
+      }
+      window.alert(`Could not fetch metadata from Crossref: ${message || "Unknown error"}`);
     }
+  };
+
+  const clearDocumentMetadata = (record) => {
+    if (!record || typeof record !== "object") {
+      return;
+    }
+    record.document_type = "misc";
+    record.authors = [];
+    if (!record.bibtex_fields || typeof record.bibtex_fields !== "object") {
+      record.bibtex_fields = {};
+    }
+    bibtexFields.forEach((fieldName) => {
+      record[fieldName] = "";
+      record.bibtex_fields[fieldName] = "";
+    });
+    syncRecordCoreFields(record);
+  };
+
+  const clearSelectedDocumentMetadata = async () => {
+    if (!selectedBucketName) {
+      window.alert("Select a collection first.");
+      return;
+    }
+    const selectedDocument = getActionTargetDocument();
+    if (!selectedDocument) {
+      window.alert("Select a document first.");
+      return;
+    }
+    const fileName = filenameFromPath(selectedDocument.file_path);
+    if (!window.confirm(`Clear metadata for '${fileName}'?`)) {
+      return;
+    }
+
+    const pendingTimer = metadataSaveTimers.get(selectedDocument.document_id);
+    if (pendingTimer) {
+      window.clearTimeout(pendingTimer.timerId);
+      metadataSaveTimers.delete(selectedDocument.document_id);
+    }
+
+    clearDocumentMetadata(selectedDocument);
+    const saveSuccessful = await persistDocumentMetadata(selectedDocument, { silent: false });
+    if (!saveSuccessful) {
+      return;
+    }
+    await refreshDocuments({ silent: true, preserveSelection: true });
+    window.alert("Metadata cleared.");
   };
 
   const removeSelectedDocument = async () => {
@@ -2347,7 +2519,13 @@
     picker.click();
   });
   fetchMetaButton?.addEventListener("click", () => {
-    void triggerBucketScan();
+    void fetchSelectedDocumentMetadata();
+  });
+  detailFetchMetaButton?.addEventListener("click", () => {
+    void fetchSelectedDocumentMetadata();
+  });
+  detailClearMetaButton?.addEventListener("click", () => {
+    void clearSelectedDocumentMetadata();
   });
   removeDocumentButton?.addEventListener("click", () => {
     void removeSelectedDocument();

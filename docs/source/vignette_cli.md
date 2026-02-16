@@ -57,7 +57,7 @@ curl -sS -X POST \
 
 This stores the object in MinIO and queues a Celery task for:
 - Unstructured partition extraction (raw partition JSON persisted in Redis)
-- metadata extraction (PDF metadata + first-page DOI/ISBN heuristics)
+- metadata extraction (PDF metadata + first-page DOI/ISBN/ISSN heuristics)
 - chunking with overlap (`CHUNK_SIZE_CHARS`, `CHUNK_OVERLAP_CHARS`) using internal chunk logic
 - Qdrant upsert (chunk text + `page_numbers` + `bounding_boxes`)
 
@@ -93,6 +93,12 @@ curl -sS -X PUT "$BASE_URL/collections/$BUCKET/documents/$DOC_ID/metadata" \
       "doi": "10.1000/example-doi"
     }
   }'
+```
+
+Fetch metadata from Crossref (DOI -> ISBN -> ISSN -> title, high-confidence only):
+
+```bash
+curl -sS -X POST "$BASE_URL/collections/$BUCKET/documents/$DOC_ID/metadata/fetch"
 ```
 
 ## 7. Trigger an on-demand scan (optional)

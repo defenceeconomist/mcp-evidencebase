@@ -44,10 +44,12 @@ class FakeIngestionService:
     uploaded: list[tuple[str, str, bytes]] = field(default_factory=list)
     deleted: list[tuple[str, str, bool]] = field(default_factory=list)
     metadata_updates: list[tuple[str, str, dict[str, Any]]] = field(default_factory=list)
+    metadata_fetches: list[tuple[str, str]] = field(default_factory=list)
     search_calls: list[tuple[str, str, int, str, int]] = field(default_factory=list)
     upload_error: Exception | None = None
     delete_error: Exception | None = None
     metadata_error: Exception | None = None
+    metadata_fetch_error: Exception | None = None
     search_error: Exception | None = None
     qdrant_create_result: bool = True
     qdrant_delete_result: bool = True
@@ -108,6 +110,21 @@ class FakeIngestionService:
             raise self.metadata_error
         self.metadata_updates.append((bucket_name, document_id, metadata))
         return metadata
+
+    def fetch_metadata_from_crossref(
+        self,
+        *,
+        bucket_name: str,
+        document_id: str,
+    ) -> dict[str, Any]:
+        if self.metadata_fetch_error is not None:
+            raise self.metadata_fetch_error
+        self.metadata_fetches.append((bucket_name, document_id))
+        return {
+            "lookup_field": "doi",
+            "confidence": 1.0,
+            "metadata": {"title": "Fetched Title", "document_type": "article"},
+        }
 
     def ensure_bucket_qdrant_collection(self, bucket_name: str) -> bool:
         if self.qdrant_create_error is not None:
@@ -483,6 +500,24 @@ def test_update_document_metadata_accepts_structured_authors(client: TestClient)
     assert service.metadata_updates == [
         ("research-raw", "doc-1", {"authors": structured_authors})
     ]
+
+
+def test_fetch_document_metadata_from_crossref_returns_payload(client: TestClient) -> None:
+    """Check Crossref metadata fetch endpoint returns lookup/confidence payload."""
+    service = FakeIngestionService()
+    _override_ingestion_service(service)
+
+    response = client.post("/collections/research-raw/documents/doc-1/metadata/fetch")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "bucket_name": "research-raw",
+        "document_id": "doc-1",
+        "lookup_field": "doi",
+        "confidence": 1.0,
+        "metadata": {"title": "Fetched Title", "document_type": "article"},
+    }
+    assert service.metadata_fetches == [("research-raw", "doc-1")]
 
 
 def test_delete_document_keeps_partitions(client: TestClient) -> None:

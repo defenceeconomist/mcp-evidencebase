@@ -233,6 +233,12 @@ curl -sS -X PUT "$BASE_URL/collections/research-raw/documents/<document_id>/meta
   -d '{"metadata":{"title":"My Paper","author":"A. Author","year":"2025","document_type":"article"}}'
 ```
 
+Fetch metadata from Crossref (DOI -> ISBN -> ISSN -> title, high-confidence only):
+
+```bash
+curl -sS -X POST "$BASE_URL/collections/research-raw/documents/<document_id>/metadata/fetch"
+```
+
 Run hybrid search:
 
 ```bash
@@ -267,7 +273,7 @@ Stage details:
    `partition:<partition_hash>`.
 3. Extract metadata:
    - title/author from embedded PDF metadata (when available),
-   - DOI/ISBN from first-page partition text.
+   - DOI/ISBN/ISSN from first-page partition text.
 4. Chunk partitions with structure-aware deterministic chunking (`chunk_unstructured_elements`):
    - title-aware: `Title` elements create hard section boundaries and update `section_title`,
    - element-first: full elements are appended in order and joined with `\n\n` (semantic boundaries kept),

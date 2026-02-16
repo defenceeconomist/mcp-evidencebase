@@ -12,8 +12,10 @@ import uuid
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from difflib import SequenceMatcher
 from pathlib import PurePosixPath
 from typing import Any, Protocol
+from urllib.parse import quote
 
 from minio import Minio
 from minio.error import S3Error
@@ -34,6 +36,7 @@ BIBTEX_FIELDS: tuple[str, ...] = (
     "howpublished",
     "institution",
     "isbn",
+    "issn",
     "journal",
     "month",
     "note",
@@ -59,7 +62,50 @@ METADATA_FIELDS: tuple[str, ...] = (
 
 DOI_PATTERN = re.compile(r"\b10\.\d{4,9}/[-._;()/:A-Z0-9]+\b", re.IGNORECASE)
 ISBN_PATTERN = re.compile(r"\b(?:97[89][-\s]?)?(?:\d[-\s]?){9}[\dXx]\b")
+ISSN_PATTERN = re.compile(
+    r"\b(?:e[-\s]?issn|p[-\s]?issn|issn)\s*[:#]?\s*(\d{4}[-\s]?\d{3}[\dXx])\b",
+    re.IGNORECASE,
+)
 SEARCH_MODES: tuple[str, ...] = ("semantic", "keyword", "hybrid")
+CROSSREF_API_BASE_URL = "https://api.crossref.org"
+CROSSREF_CONFIDENCE_THRESHOLD = 0.92
+CROSSREF_MAX_RESULTS = 8
+CROSSREF_TIMEOUT_SECONDS = 12.0
+MONTH_ABBREVIATIONS: tuple[str, ...] = (
+    "",
+    "jan",
+    "feb",
+    "mar",
+    "apr",
+    "may",
+    "jun",
+    "jul",
+    "aug",
+    "sep",
+    "oct",
+    "nov",
+    "dec",
+)
+CROSSREF_TYPE_TO_DOCUMENT_TYPE: dict[str, str] = {
+    "journal-article": "article",
+    "journal-volume": "article",
+    "journal-issue": "article",
+    "book": "book",
+    "edited-book": "book",
+    "reference-book": "book",
+    "monograph": "book",
+    "book-chapter": "incollection",
+    "book-part": "incollection",
+    "book-section": "incollection",
+    "reference-entry": "incollection",
+    "proceedings-article": "inproceedings",
+    "proceedings": "proceedings",
+    "report": "techreport",
+    "report-component": "techreport",
+    "dissertation": "phdthesis",
+    "standard": "manual",
+    "posted-content": "unpublished",
+}
 
 
 class MinioObjectLike(Protocol):
@@ -1002,6 +1048,16 @@ def _extract_isbn(text: str) -> str:
     return ""
 
 
+def _extract_issn(text: str) -> str:
+    """Extract the first labeled ISSN value from text."""
+    for match in ISSN_PATTERN.finditer(text):
+        raw = match.group(1)
+        normalized = re.sub(r"[^0-9Xx]", "", raw).upper()
+        if len(normalized) == 8:
+            return f"{normalized[:4]}-{normalized[4:]}"
+    return ""
+
+
 def _normalize_pdf_metadata_value(value: Any) -> str:
     """Normalize one PDF metadata field value to a non-empty string."""
     if value is None:
@@ -1061,8 +1117,8 @@ def extract_metadata_from_partitions(
 ) -> dict[str, str]:
     """Extract metadata using PDF metadata + first-page text identifiers.
 
-    Title and author are read from PDF metadata when available. DOI and ISBN
-    are extracted from first-page partitions only.
+    Title and author are read from PDF metadata when available. DOI, ISBN,
+    and ISSN are extracted from first-page partitions only.
     """
     metadata = build_default_metadata(file_path, document_id)
     if pdf_metadata:
@@ -1090,6 +1146,332 @@ def extract_metadata_from_partitions(
     extracted_isbn = _extract_isbn(first_page_text)
     if extracted_isbn:
         metadata["isbn"] = extracted_isbn
+
+    extracted_issn = _extract_issn(first_page_text)
+    if extracted_issn:
+        metadata["issn"] = extracted_issn
+
+    return metadata
+
+
+def _normalize_doi_lookup_value(value: str) -> str:
+    """Normalize DOI metadata values for Crossref lookup and comparisons."""
+    normalized = str(value).strip()
+    if not normalized:
+        return ""
+    normalized = re.sub(r"^https?://(?:dx\.)?doi\.org/", "", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"^doi:\s*", "", normalized, flags=re.IGNORECASE)
+    matched_doi = DOI_PATTERN.search(normalized)
+    if matched_doi:
+        return _normalize_doi(matched_doi.group(0))
+    return _normalize_doi(normalized)
+
+
+def _normalize_isbn_value(value: str) -> str:
+    """Normalize ISBN values to compact uppercase text."""
+    normalized = re.sub(r"[^0-9Xx]", "", str(value)).upper()
+    if len(normalized) in {10, 13}:
+        return normalized
+    return ""
+
+
+def _normalize_issn_value(value: str) -> str:
+    """Normalize ISSN values to ``NNNN-NNNN`` format."""
+    normalized = re.sub(r"[^0-9Xx]", "", str(value)).upper()
+    if len(normalized) == 8:
+        return f"{normalized[:4]}-{normalized[4:]}"
+    return ""
+
+
+def _normalize_title_for_match(value: str) -> str:
+    """Normalize title text for fuzzy comparisons."""
+    normalized = re.sub(r"[^a-z0-9]+", " ", str(value).lower()).strip()
+    return re.sub(r"\s+", " ", normalized)
+
+
+def _title_similarity(left: str, right: str) -> float:
+    """Return title similarity ratio in ``[0, 1]``."""
+    normalized_left = _normalize_title_for_match(left)
+    normalized_right = _normalize_title_for_match(right)
+    if not normalized_left or not normalized_right:
+        return 0.0
+    return float(SequenceMatcher(None, normalized_left, normalized_right).ratio())
+
+
+def _crossref_first_text(value: Any) -> str:
+    """Extract the first non-empty text value from list-or-string payloads."""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, list):
+        for item in value:
+            if isinstance(item, str):
+                normalized = item.strip()
+                if normalized:
+                    return normalized
+    return ""
+
+
+def _crossref_extract_year_month(item: Mapping[str, Any]) -> tuple[str, str]:
+    """Extract publication year/month from Crossref date-parts."""
+    raw_issued = item.get("issued")
+    if not isinstance(raw_issued, Mapping):
+        return "", ""
+    raw_date_parts = raw_issued.get("date-parts")
+    if not isinstance(raw_date_parts, list) or not raw_date_parts:
+        return "", ""
+    first_row = raw_date_parts[0]
+    if not isinstance(first_row, list) or not first_row:
+        return "", ""
+
+    year = ""
+    month = ""
+    try:
+        parsed_year = int(first_row[0])
+        if parsed_year > 0:
+            year = str(parsed_year)
+    except (TypeError, ValueError):
+        year = ""
+
+    if len(first_row) >= 2:
+        try:
+            parsed_month = int(first_row[1])
+            if 1 <= parsed_month <= 12:
+                month = MONTH_ABBREVIATIONS[parsed_month]
+        except (TypeError, ValueError):
+            month = ""
+
+    return year, month
+
+
+def _crossref_extract_author_entries(item: Mapping[str, Any]) -> list[dict[str, str]]:
+    """Extract normalized author entries from a Crossref work item."""
+    raw_authors = item.get("author")
+    if not isinstance(raw_authors, list):
+        return []
+
+    normalized_authors: list[dict[str, str]] = []
+    for raw_author in raw_authors:
+        if not isinstance(raw_author, Mapping):
+            continue
+        first_name = str(raw_author.get("given") or "").strip()
+        last_name = str(raw_author.get("family") or "").strip()
+        suffix = str(raw_author.get("suffix") or "").strip()
+        if not first_name and not last_name and not suffix:
+            continue
+        normalized_authors.append(
+            {
+                "first_name": first_name,
+                "last_name": last_name,
+                "suffix": suffix,
+            }
+        )
+    return normalized_authors
+
+
+def _author_initials(first_name: str) -> str:
+    """Convert first-name tokens to dotted initials."""
+    initials: list[str] = []
+    for token in str(first_name).strip().split():
+        for char in token:
+            if char.isalpha():
+                initials.append(f"{char.upper()}.")
+                break
+    return " ".join(initials)
+
+
+def _format_author_harvard(author_entry: Mapping[str, Any]) -> str:
+    """Format one author entry as ``Last, F.`` with optional suffix."""
+    first_name = str(author_entry.get("first_name") or "").strip()
+    last_name = str(author_entry.get("last_name") or "").strip()
+    suffix = str(author_entry.get("suffix") or "").strip()
+    initials = _author_initials(first_name)
+
+    if last_name and initials:
+        formatted = f"{last_name}, {initials}"
+    elif last_name:
+        formatted = last_name
+    elif first_name:
+        formatted = first_name
+    else:
+        formatted = ""
+
+    if not formatted:
+        return ""
+    if suffix:
+        return f"{formatted}, {suffix}"
+    return formatted
+
+
+def _format_authors_harvard(author_entries: list[dict[str, str]]) -> str:
+    """Format author entries using the same display style as the dashboard."""
+    formatted = [
+        value
+        for value in (_format_author_harvard(author_entry) for author_entry in author_entries)
+        if value
+    ]
+    if not formatted:
+        return ""
+    if len(formatted) == 1:
+        return formatted[0]
+    if len(formatted) == 2:
+        return f"{formatted[0]} & {formatted[1]}"
+    return f"{', '.join(formatted[:-1])} & {formatted[-1]}"
+
+
+def _map_crossref_document_type(value: str) -> str:
+    """Map Crossref work type values to supported BibTeX entry types."""
+    normalized = str(value).strip().lower()
+    if not normalized:
+        return "misc"
+    return CROSSREF_TYPE_TO_DOCUMENT_TYPE.get(normalized, "misc")
+
+
+def _crossref_extract_item_title(item: Mapping[str, Any]) -> str:
+    """Return the first title-like value from a Crossref work item."""
+    title = _crossref_first_text(item.get("title"))
+    if title:
+        return title
+    return _crossref_first_text(item.get("short-title"))
+
+
+def _crossref_score_item(
+    item: Mapping[str, Any],
+    *,
+    lookup_field: str,
+    expected_doi: str,
+    expected_isbn: str,
+    expected_issn: str,
+    expected_title: str,
+    expected_year: str,
+) -> float:
+    """Score one Crossref candidate in ``[0, 1]`` for acceptance."""
+    item_title = _crossref_extract_item_title(item)
+    title_score = _title_similarity(expected_title, item_title) if expected_title else 0.0
+
+    item_year, _ = _crossref_extract_year_month(item)
+    year_score = 0.0
+    if expected_year and item_year:
+        try:
+            difference = abs(int(expected_year) - int(item_year))
+            if difference == 0:
+                year_score = 1.0
+            elif difference == 1:
+                year_score = 0.5
+        except ValueError:
+            year_score = 0.0
+
+    if lookup_field == "doi":
+        item_doi = _normalize_doi_lookup_value(str(item.get("DOI") or ""))
+        if expected_doi and item_doi and item_doi.lower() == expected_doi.lower():
+            return 1.0
+        return 0.0
+
+    if lookup_field == "isbn":
+        raw_isbns = item.get("ISBN")
+        isbn_candidates = raw_isbns if isinstance(raw_isbns, list) else []
+        normalized_candidates = {
+            normalized
+            for normalized in (
+                _normalize_isbn_value(str(raw_isbn)) for raw_isbn in isbn_candidates
+            )
+            if normalized
+        }
+        identifier_score = 1.0 if expected_isbn and expected_isbn in normalized_candidates else 0.0
+        return min(1.0, 0.96 * identifier_score + (0.03 * title_score) + (0.01 * year_score))
+
+    if lookup_field == "issn":
+        raw_issns = item.get("ISSN")
+        issn_candidates = raw_issns if isinstance(raw_issns, list) else []
+        normalized_candidates = {
+            normalized
+            for normalized in (
+                _normalize_issn_value(str(raw_issn)) for raw_issn in issn_candidates
+            )
+            if normalized
+        }
+        identifier_score = 1.0 if expected_issn and expected_issn in normalized_candidates else 0.0
+        if not expected_title:
+            return 0.55 * identifier_score
+        return min(1.0, (0.45 * identifier_score) + (0.5 * title_score) + (0.05 * year_score))
+
+    if lookup_field == "title":
+        if not expected_title:
+            return 0.0
+        return min(1.0, (0.93 * title_score) + (0.07 * year_score))
+
+    return 0.0
+
+
+def _crossref_map_item_to_metadata(
+    item: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Map one accepted Crossref item to internal metadata fields."""
+    metadata: dict[str, Any] = {}
+
+    title = _crossref_extract_item_title(item)
+    if title:
+        metadata["title"] = title
+
+    doi = _normalize_doi_lookup_value(str(item.get("DOI") or ""))
+    if doi:
+        metadata["doi"] = doi
+
+    raw_isbns = item.get("ISBN")
+    if isinstance(raw_isbns, list):
+        for raw_isbn in raw_isbns:
+            normalized_isbn = _normalize_isbn_value(str(raw_isbn))
+            if normalized_isbn:
+                metadata["isbn"] = normalized_isbn
+                break
+
+    raw_issns = item.get("ISSN")
+    if isinstance(raw_issns, list):
+        for raw_issn in raw_issns:
+            normalized_issn = _normalize_issn_value(str(raw_issn))
+            if normalized_issn:
+                metadata["issn"] = normalized_issn
+                break
+
+    document_type = _map_crossref_document_type(str(item.get("type") or ""))
+    metadata["document_type"] = document_type or "misc"
+
+    raw_crossref_type = str(item.get("type") or "").strip()
+    if raw_crossref_type:
+        metadata["type"] = raw_crossref_type
+
+    container_title = _crossref_first_text(item.get("container-title"))
+    if container_title:
+        if metadata["document_type"] in {"inproceedings", "incollection", "inbook"}:
+            metadata["booktitle"] = container_title
+        else:
+            metadata["journal"] = container_title
+
+    publisher = str(item.get("publisher") or "").strip()
+    if publisher:
+        metadata["publisher"] = publisher
+
+    page_range = str(item.get("page") or "").strip()
+    if page_range:
+        metadata["pages"] = page_range
+
+    volume = str(item.get("volume") or "").strip()
+    if volume:
+        metadata["volume"] = volume
+
+    issue = str(item.get("issue") or "").strip()
+    if issue:
+        metadata["number"] = issue
+
+    year, month = _crossref_extract_year_month(item)
+    if year:
+        metadata["year"] = year
+    if month:
+        metadata["month"] = month
+
+    authors = _crossref_extract_author_entries(item)
+    if authors:
+        metadata[AUTHORS_METADATA_FIELD] = authors
+        metadata["author"] = _format_authors_harvard(authors)
 
     return metadata
 
@@ -1416,7 +1798,7 @@ class RedisDocumentRepository:
         existing_metadata = self.get_metadata_by_key(meta_key)
         if any(
             existing_metadata.get(field_name, "")
-            for field_name in ("title", "author", "doi", "isbn")
+            for field_name in ("title", "author", "doi", "isbn", "issn")
         ):
             return meta_key
 
@@ -2814,6 +3196,205 @@ class IngestionService:
             document_id=document_id,
             metadata=normalized,
         )
+
+    def _crossref_get_json(
+        self,
+        *,
+        path: str,
+        params: Mapping[str, str] | None = None,
+    ) -> Mapping[str, Any]:
+        """Fetch a Crossref API payload and return decoded JSON mapping."""
+        try:
+            import httpx
+        except ImportError as exc:
+            raise RuntimeError("httpx is required for Crossref metadata fetching.") from exc
+
+        request_timeout = httpx.Timeout(
+            timeout=CROSSREF_TIMEOUT_SECONDS,
+            connect=min(5.0, CROSSREF_TIMEOUT_SECONDS),
+            read=CROSSREF_TIMEOUT_SECONDS,
+            write=CROSSREF_TIMEOUT_SECONDS,
+        )
+        with httpx.Client(timeout=request_timeout, follow_redirects=True) as client:
+            response = client.get(
+                f"{CROSSREF_API_BASE_URL}{path}",
+                params=dict(params or {}),
+                headers={
+                    "Accept": "application/json",
+                    "User-Agent": "mcp-evidencebase/0.1 (+https://evidencebase.heley.uk)",
+                },
+            )
+
+        if response.status_code == 404:
+            return {}
+        response.raise_for_status()
+        payload = response.json()
+        if isinstance(payload, Mapping):
+            return payload
+        return {}
+
+    @staticmethod
+    def _crossref_extract_single_item(payload: Mapping[str, Any]) -> Mapping[str, Any] | None:
+        """Extract one work item from a Crossref API payload."""
+        message = payload.get("message")
+        if isinstance(message, Mapping):
+            return message
+        return None
+
+    @staticmethod
+    def _crossref_extract_items(payload: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+        """Extract work-item lists from a Crossref search payload."""
+        message = payload.get("message")
+        if not isinstance(message, Mapping):
+            return []
+        raw_items = message.get("items")
+        if not isinstance(raw_items, list):
+            return []
+        return [item for item in raw_items if isinstance(item, Mapping)]
+
+    def _crossref_select_best_item(
+        self,
+        *,
+        items: list[Mapping[str, Any]],
+        lookup_field: str,
+        expected_doi: str,
+        expected_isbn: str,
+        expected_issn: str,
+        expected_title: str,
+        expected_year: str,
+    ) -> tuple[Mapping[str, Any] | None, float]:
+        """Return the highest-scoring Crossref item for the current lookup mode."""
+        best_item: Mapping[str, Any] | None = None
+        best_score = 0.0
+
+        for item in items:
+            score = _crossref_score_item(
+                item,
+                lookup_field=lookup_field,
+                expected_doi=expected_doi,
+                expected_isbn=expected_isbn,
+                expected_issn=expected_issn,
+                expected_title=expected_title,
+                expected_year=expected_year,
+            )
+            if score > best_score:
+                best_item = item
+                best_score = score
+
+        return best_item, best_score
+
+    def fetch_metadata_from_crossref(
+        self,
+        *,
+        bucket_name: str,
+        document_id: str,
+    ) -> dict[str, Any]:
+        """Fetch and persist document metadata from Crossref with confidence gating."""
+        _, existing_metadata = self._repository.get_document_metadata(bucket_name, document_id)
+
+        expected_doi = _normalize_doi_lookup_value(existing_metadata.get("doi", ""))
+        expected_isbn = _normalize_isbn_value(existing_metadata.get("isbn", ""))
+        expected_issn = _normalize_issn_value(existing_metadata.get("issn", ""))
+        expected_title = str(existing_metadata.get("title", "")).strip()
+        expected_year = str(existing_metadata.get("year", "")).strip()
+
+        if not any([expected_doi, expected_isbn, expected_issn, expected_title]):
+            raise ValueError("No DOI, ISBN, ISSN, or title is available for Crossref lookup.")
+
+        lookup_plan: list[tuple[str, str, Mapping[str, str]]] = []
+        if expected_doi:
+            lookup_plan.append(("doi", f"/works/{quote(expected_doi, safe='')}", {}))
+        if expected_isbn:
+            isbn_params: dict[str, str] = {
+                "filter": f"isbn:{expected_isbn}",
+                "rows": str(CROSSREF_MAX_RESULTS),
+            }
+            if expected_title:
+                isbn_params["query.title"] = expected_title
+            lookup_plan.append(("isbn", "/works", isbn_params))
+        if expected_issn:
+            issn_params: dict[str, str] = {
+                "filter": f"issn:{expected_issn}",
+                "rows": str(CROSSREF_MAX_RESULTS),
+            }
+            if expected_title:
+                issn_params["query.title"] = expected_title
+            lookup_plan.append(("issn", "/works", issn_params))
+        if expected_title:
+            lookup_plan.append(
+                (
+                    "title",
+                    "/works",
+                    {
+                        "query.title": expected_title,
+                        "rows": str(CROSSREF_MAX_RESULTS),
+                    },
+                )
+            )
+
+        best_attempt_field = ""
+        best_attempt_score = 0.0
+        for lookup_field, path, params in lookup_plan:
+            payload = self._crossref_get_json(path=path, params=params)
+            if not payload:
+                continue
+
+            if lookup_field == "doi":
+                single_item = self._crossref_extract_single_item(payload)
+                if not single_item:
+                    continue
+                candidate_item = single_item
+                confidence = _crossref_score_item(
+                    candidate_item,
+                    lookup_field=lookup_field,
+                    expected_doi=expected_doi,
+                    expected_isbn=expected_isbn,
+                    expected_issn=expected_issn,
+                    expected_title=expected_title,
+                    expected_year=expected_year,
+                )
+            else:
+                items = self._crossref_extract_items(payload)
+                candidate_item, confidence = self._crossref_select_best_item(
+                    items=items,
+                    lookup_field=lookup_field,
+                    expected_doi=expected_doi,
+                    expected_isbn=expected_isbn,
+                    expected_issn=expected_issn,
+                    expected_title=expected_title,
+                    expected_year=expected_year,
+                )
+                if not candidate_item:
+                    continue
+
+            if confidence > best_attempt_score:
+                best_attempt_score = confidence
+                best_attempt_field = lookup_field
+
+            if confidence < CROSSREF_CONFIDENCE_THRESHOLD:
+                continue
+
+            fetched_metadata = _crossref_map_item_to_metadata(
+                candidate_item,
+            )
+            merged = self.update_metadata(
+                bucket_name=bucket_name,
+                document_id=document_id,
+                metadata=fetched_metadata,
+            )
+            return {
+                "lookup_field": lookup_field,
+                "confidence": round(confidence, 4),
+                "metadata": merged,
+            }
+
+        if best_attempt_field:
+            raise ValueError(
+                "No high-confidence Crossref match was accepted. "
+                f"Best attempt used {best_attempt_field.upper()} with confidence "
+                f"{best_attempt_score:.2f}."
+            )
+        raise ValueError("No Crossref results were found for DOI/ISBN/ISSN/title lookups.")
 
     def delete_document(
         self,

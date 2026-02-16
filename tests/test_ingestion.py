@@ -6,7 +6,7 @@ import json
 from collections import defaultdict
 from dataclasses import dataclass
 from fnmatch import fnmatch
-from typing import Any
+from typing import Any, Mapping
 
 import pytest
 
@@ -550,12 +550,12 @@ def test_extract_metadata_limits_doi_extraction_to_first_page() -> None:
 
 
 def test_extract_metadata_can_parse_first_page_identifiers() -> None:
-    """Verify DOI/ISBN are extracted from first-page text only."""
+    """Verify DOI/ISBN/ISSN are extracted from first-page text only."""
     partitions = [
         {
             "text": (
                 "Different Page Title\nDifferent Author\nDOI: 10.1000/xyz123\n"
-                "ISBN 978-0-393-04002-9"
+                "ISBN 978-0-393-04002-9\nISSN 2049-3630"
             ),
             "metadata": {"page_number": 1},
         }
@@ -572,6 +572,208 @@ def test_extract_metadata_can_parse_first_page_identifiers() -> None:
     assert metadata["author"] == "PDF Embedded Author"
     assert metadata["doi"] == "10.1000/xyz123"
     assert metadata["isbn"] == "9780393040029"
+    assert metadata["issn"] == "2049-3630"
+
+
+def test_fetch_metadata_from_crossref_prefers_doi_and_updates_authors_and_entry_type(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ensure DOI lookup is preferred and updates document_type/authors fields."""
+    redis_client = FakeRedis()
+    repository = RedisDocumentRepository(redis_client, key_prefix="test")
+    bucket_name = "research-raw"
+    document_id = "doc-crossref-doi"
+    object_name = "paper.pdf"
+
+    repository.add_document(bucket_name, document_id)
+    repository.mark_object(
+        bucket_name=bucket_name,
+        object_name=object_name,
+        document_id=document_id,
+        etag="etag-1",
+    )
+    repository.set_metadata_for_location(
+        bucket_name=bucket_name,
+        object_name=object_name,
+        document_id=document_id,
+        metadata={"title": "Local Title", "doi": "10.5555/example-doi"},
+    )
+
+    service = IngestionService(
+        minio_client=FakeMinioClient(b"%PDF-1.7 fake"),
+        repository=repository,
+        partition_client=FakePartitionClient([]),
+        qdrant_indexer=RecordingQdrantIndexer(),  # type: ignore[arg-type]
+        chunk_size_chars=1200,
+        chunk_overlap_chars=150,
+    )
+    called_paths: list[tuple[str, dict[str, str]]] = []
+
+    def fake_crossref_get_json(*, path: str, params: Mapping[str, str] | None = None) -> Mapping[str, Any]:
+        called_paths.append((path, dict(params or {})))
+        return {
+            "message": {
+                "DOI": "10.5555/example-doi",
+                "title": ["Crossref Accepted Title"],
+                "type": "journal-article",
+                "author": [
+                    {"given": "Jane", "family": "Doe"},
+                    {"given": "John", "family": "Smith"},
+                ],
+                "issued": {"date-parts": [[2025, 4, 18]]},
+                "container-title": ["Journal of Causal Inference"],
+            }
+        }
+
+    monkeypatch.setattr(service, "_crossref_get_json", fake_crossref_get_json)
+
+    result = service.fetch_metadata_from_crossref(
+        bucket_name=bucket_name,
+        document_id=document_id,
+    )
+
+    assert result["lookup_field"] == "doi"
+    assert result["confidence"] == 1.0
+    assert called_paths == [("/works/10.5555%2Fexample-doi", {})]
+
+    _, metadata = repository.get_document_metadata(bucket_name, document_id)
+    assert metadata["title"] == "Crossref Accepted Title"
+    assert metadata["document_type"] == "article"
+    assert metadata["journal"] == "Journal of Causal Inference"
+    assert metadata["year"] == "2025"
+    assert metadata["month"] == "apr"
+    assert metadata["author"] == "Doe, J. & Smith, J."
+    assert json.loads(metadata["authors"]) == [
+        {"first_name": "Jane", "last_name": "Doe", "suffix": ""},
+        {"first_name": "John", "last_name": "Smith", "suffix": ""},
+    ]
+
+
+def test_fetch_metadata_from_crossref_prefers_isbn_before_issn_and_title(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify lookup order checks ISBN before ISSN/title when DOI is unavailable."""
+    redis_client = FakeRedis()
+    repository = RedisDocumentRepository(redis_client, key_prefix="test")
+    bucket_name = "research-raw"
+    document_id = "doc-crossref-isbn"
+    object_name = "book.pdf"
+
+    repository.add_document(bucket_name, document_id)
+    repository.mark_object(
+        bucket_name=bucket_name,
+        object_name=object_name,
+        document_id=document_id,
+        etag="etag-1",
+    )
+    repository.set_metadata_for_location(
+        bucket_name=bucket_name,
+        object_name=object_name,
+        document_id=document_id,
+        metadata={
+            "title": "Practical Causal Inference",
+            "isbn": "978-0-393-04002-9",
+            "issn": "2049-3630",
+        },
+    )
+
+    service = IngestionService(
+        minio_client=FakeMinioClient(b"%PDF-1.7 fake"),
+        repository=repository,
+        partition_client=FakePartitionClient([]),
+        qdrant_indexer=RecordingQdrantIndexer(),  # type: ignore[arg-type]
+        chunk_size_chars=1200,
+        chunk_overlap_chars=150,
+    )
+    called_queries: list[dict[str, str]] = []
+
+    def fake_crossref_get_json(*, path: str, params: Mapping[str, str] | None = None) -> Mapping[str, Any]:
+        del path
+        query_params = dict(params or {})
+        called_queries.append(query_params)
+        return {
+            "message": {
+                "items": [
+                    {
+                        "DOI": "10.1234/isbn-match",
+                        "title": ["Practical Causal Inference"],
+                        "type": "book",
+                        "ISBN": ["9780393040029"],
+                        "issued": {"date-parts": [[2024, 1, 5]]},
+                        "publisher": "Example Press",
+                    }
+                ]
+            }
+        }
+
+    monkeypatch.setattr(service, "_crossref_get_json", fake_crossref_get_json)
+
+    result = service.fetch_metadata_from_crossref(
+        bucket_name=bucket_name,
+        document_id=document_id,
+    )
+
+    assert result["lookup_field"] == "isbn"
+    assert len(called_queries) == 1
+    assert called_queries[0]["filter"] == "isbn:9780393040029"
+
+
+def test_fetch_metadata_from_crossref_rejects_low_confidence_title_match(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ensure low-confidence title matches are not accepted."""
+    redis_client = FakeRedis()
+    repository = RedisDocumentRepository(redis_client, key_prefix="test")
+    bucket_name = "research-raw"
+    document_id = "doc-crossref-title"
+    object_name = "note.pdf"
+
+    repository.add_document(bucket_name, document_id)
+    repository.mark_object(
+        bucket_name=bucket_name,
+        object_name=object_name,
+        document_id=document_id,
+        etag="etag-1",
+    )
+    repository.set_metadata_for_location(
+        bucket_name=bucket_name,
+        object_name=object_name,
+        document_id=document_id,
+        metadata={"title": "Causal Graphs in Medicine"},
+    )
+
+    service = IngestionService(
+        minio_client=FakeMinioClient(b"%PDF-1.7 fake"),
+        repository=repository,
+        partition_client=FakePartitionClient([]),
+        qdrant_indexer=RecordingQdrantIndexer(),  # type: ignore[arg-type]
+        chunk_size_chars=1200,
+        chunk_overlap_chars=150,
+    )
+
+    def fake_crossref_get_json(*, path: str, params: Mapping[str, str] | None = None) -> Mapping[str, Any]:
+        del path, params
+        return {
+            "message": {
+                "items": [
+                    {
+                        "DOI": "10.9999/unrelated",
+                        "title": ["Completely Different Topic"],
+                        "type": "journal-article",
+                    }
+                ]
+            }
+        }
+
+    monkeypatch.setattr(service, "_crossref_get_json", fake_crossref_get_json)
+
+    with pytest.raises(ValueError) as exc_info:
+        service.fetch_metadata_from_crossref(
+            bucket_name=bucket_name,
+            document_id=document_id,
+        )
+
+    assert "No high-confidence Crossref match was accepted" in str(exc_info.value)
 
 
 def test_partition_object_persists_partitions_and_metadata_without_chunking() -> None:
@@ -763,6 +965,23 @@ def test_repository_persists_isbn_metadata_field() -> None:
     metadata = repository.get_metadata_by_key(meta_key)
     assert metadata["title"] == "Book Title"
     assert metadata["isbn"] == "9780393040029"
+
+
+def test_repository_persists_issn_metadata_field() -> None:
+    """Ensure ISSN is stored and returned through metadata payload fields."""
+    redis_client = FakeRedis()
+    repository = RedisDocumentRepository(redis_client, key_prefix="test")
+
+    meta_key = repository.set_metadata_for_location(
+        bucket_name="research-raw",
+        object_name="journal.pdf",
+        document_id="doc-issn",
+        metadata={"title": "Journal Title", "issn": "2049-3630"},
+    )
+
+    metadata = repository.get_metadata_by_key(meta_key)
+    assert metadata["title"] == "Journal Title"
+    assert metadata["issn"] == "2049-3630"
 
 
 def test_repository_persists_structured_authors_metadata_field() -> None:

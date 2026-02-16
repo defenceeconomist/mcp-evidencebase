@@ -242,8 +242,26 @@
                       </div>
                       <div id="detail-form-column" class="col-12 col-xl-5 d-flex flex-column">
                         <div id="detail-form-card" class="card h-100 d-flex flex-column">
-                          <div class="card-header py-2 fw-semibold small text-body-secondary">
-                            Editable Fields
+                          <div
+                            class="card-header py-2 d-flex align-items-center justify-content-between gap-2 flex-wrap"
+                          >
+                            <span class="fw-semibold small text-body-secondary">Editable Fields</span>
+                            <div class="d-flex align-items-center gap-2">
+                              <button
+                                type="button"
+                                id="detail-fetch-meta-btn"
+                                class="btn btn-outline-primary btn-sm header-action-btn"
+                              >
+                                Fetch Meta
+                              </button>
+                              <button
+                                type="button"
+                                id="detail-clear-meta-btn"
+                                class="btn btn-outline-secondary btn-sm header-action-btn"
+                              >
+                                Clear Meta
+                              </button>
+                            </div>
                           </div>
                           <div class="card-body d-flex flex-column gap-2">
                             <p id="detail-selected-document" class="small text-body-secondary mb-1"></p>
@@ -416,6 +434,6 @@
       src="https://cdn.jsdelivr.net/npm/handsontable@14.6.1/dist/handsontable.full.min.js"
       crossorigin="anonymous"
     ></script>
-    <script src="./index.js?v=20260216e"></script>
+    <script src="./index.js?v=20260216f"></script>
   </body>
 </html>

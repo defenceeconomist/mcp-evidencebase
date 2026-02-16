@@ -399,6 +399,39 @@ def update_document_metadata(
     }
 
 
+@app.post("/collections/{bucket_name}/documents/{document_id}/metadata/fetch")
+def fetch_document_metadata_from_crossref(
+    bucket_name: str,
+    document_id: str,
+    service: Annotated[IngestionService, Depends(get_ingestion_service)],
+) -> dict[str, Any]:
+    """Fetch metadata from Crossref using DOI/ISBN/ISSN/title fallbacks.
+
+    Args:
+        bucket_name: Bucket path parameter.
+        document_id: Canonical document hash.
+        service: Ingestion service dependency.
+
+    Returns:
+        Match source, confidence, and merged metadata payload.
+    """
+    try:
+        result = service.fetch_metadata_from_crossref(
+            bucket_name=bucket_name.strip(),
+            document_id=document_id.strip(),
+        )
+    except Exception as exc:
+        _raise_document_http_error(exc)
+
+    return {
+        "bucket_name": bucket_name.strip(),
+        "document_id": document_id.strip(),
+        "lookup_field": result.get("lookup_field", ""),
+        "confidence": result.get("confidence", 0.0),
+        "metadata": result.get("metadata", {}),
+    }
+
+
 @app.delete("/collections/{bucket_name}/documents/{document_id}")
 def delete_document(
     bucket_name: str,
