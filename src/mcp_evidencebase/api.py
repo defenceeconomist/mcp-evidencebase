@@ -6,9 +6,10 @@ The module exposes endpoints used by the dashboard and command-line workflows.
 from __future__ import annotations
 
 import logging
+from pathlib import PurePosixPath
 from typing import Annotated, Any, NoReturn
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from minio.error import S3Error
 from pydantic import BaseModel, Field
 
@@ -276,6 +277,47 @@ def search_collection(
         "rrf_k": max(1, int(rrf_k)),
         "results": results,
     }
+
+
+@app.get("/collections/{bucket_name}/documents/resolve")
+def resolve_document(
+    bucket_name: str,
+    file_path: str,
+    service: Annotated[IngestionService, Depends(get_ingestion_service)],
+) -> Response:
+    """Return one stored object for the PDF.js resolver view.
+
+    Args:
+        bucket_name: Bucket path parameter.
+        file_path: Object path query parameter.
+        service: Ingestion service dependency.
+
+    Returns:
+        Raw document bytes with inline content disposition.
+    """
+    normalized_bucket_name = bucket_name.strip()
+    normalized_file_path = file_path.strip().lstrip("/")
+    if not normalized_file_path:
+        raise HTTPException(status_code=400, detail="file_path must not be empty.")
+
+    try:
+        payload, content_type = service.resolve_document_object(
+            bucket_name=normalized_bucket_name,
+            object_name=normalized_file_path,
+        )
+    except Exception as exc:
+        _raise_document_http_error(exc)
+
+    file_name = PurePosixPath(normalized_file_path).name or "document"
+    quoted_file_name = file_name.replace('"', "")
+    return Response(
+        content=payload,
+        media_type=content_type,
+        headers={
+            "Content-Disposition": f'inline; filename="{quoted_file_name}"',
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 @app.post("/collections/{bucket_name}/documents/upload")

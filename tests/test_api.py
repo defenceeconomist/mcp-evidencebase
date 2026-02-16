@@ -45,11 +45,13 @@ class FakeIngestionService:
     deleted: list[tuple[str, str, bool]] = field(default_factory=list)
     metadata_updates: list[tuple[str, str, dict[str, Any]]] = field(default_factory=list)
     metadata_fetches: list[tuple[str, str]] = field(default_factory=list)
+    resolved_documents: list[tuple[str, str]] = field(default_factory=list)
     search_calls: list[tuple[str, str, int, str, int]] = field(default_factory=list)
     upload_error: Exception | None = None
     delete_error: Exception | None = None
     metadata_error: Exception | None = None
     metadata_fetch_error: Exception | None = None
+    resolve_error: Exception | None = None
     search_error: Exception | None = None
     qdrant_create_result: bool = True
     qdrant_delete_result: bool = True
@@ -125,6 +127,17 @@ class FakeIngestionService:
             "confidence": 1.0,
             "metadata": {"title": "Fetched Title", "document_type": "article"},
         }
+
+    def resolve_document_object(
+        self,
+        *,
+        bucket_name: str,
+        object_name: str,
+    ) -> tuple[bytes, str]:
+        if self.resolve_error is not None:
+            raise self.resolve_error
+        self.resolved_documents.append((bucket_name, object_name))
+        return b"%PDF-1.4 fake", "application/pdf"
 
     def ensure_bucket_qdrant_collection(self, bucket_name: str) -> bool:
         if self.qdrant_create_error is not None:
@@ -366,6 +379,33 @@ def test_search_collection_rejects_invalid_mode(client: TestClient) -> None:
     assert response.status_code == 400
     assert "mode must be one of" in response.json()["detail"]
     assert service.search_calls == []
+
+
+def test_resolve_document_returns_pdf_payload(client: TestClient) -> None:
+    """Ensure resolver endpoint streams bytes with inline PDF headers."""
+    service = FakeIngestionService()
+    _override_ingestion_service(service)
+
+    response = client.get(
+        "/collections/research-raw/documents/resolve",
+        params={"file_path": "papers/paper.pdf"},
+    )
+
+    assert response.status_code == 200
+    assert response.content == b"%PDF-1.4 fake"
+    assert response.headers["content-type"] == "application/pdf"
+    assert response.headers["content-disposition"] == 'inline; filename="paper.pdf"'
+    assert service.resolved_documents == [("research-raw", "papers/paper.pdf")]
+
+
+def test_resolve_document_rejects_empty_file_path(client: TestClient) -> None:
+    """Verify resolver endpoint validates non-empty file_path query values."""
+    response = client.get(
+        "/collections/research-raw/documents/resolve",
+        params={"file_path": "   "},
+    )
+    assert response.status_code == 400
+    assert response.json() == {"detail": "file_path must not be empty."}
 
 
 def test_upload_document_queues_processing_task(

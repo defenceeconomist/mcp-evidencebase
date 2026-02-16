@@ -3241,6 +3241,35 @@ class IngestionService:
             metadata=normalized,
         )
 
+    def resolve_document_object(
+        self,
+        *,
+        bucket_name: str,
+        object_name: str,
+    ) -> tuple[bytes, str]:
+        """Read one object from MinIO for resolver delivery.
+
+        Args:
+            bucket_name: Source bucket name.
+            object_name: Object path within the bucket.
+
+        Returns:
+            Tuple of object bytes and detected content type.
+        """
+        normalized_bucket_name = bucket_name.strip()
+        normalized_object_name = object_name.strip().lstrip("/")
+        if not normalized_bucket_name:
+            raise ValueError("bucket_name must not be empty.")
+        if not normalized_object_name:
+            raise ValueError("file_path must not be empty.")
+
+        stat_info = self._minio_client.stat_object(normalized_bucket_name, normalized_object_name)
+        content_type = str(getattr(stat_info, "content_type", "") or "").strip()
+        if not content_type:
+            content_type = infer_content_type(normalized_object_name)
+        payload = self._read_object_bytes(normalized_bucket_name, normalized_object_name)
+        return payload, content_type
+
     def _crossref_get_json(
         self,
         *,

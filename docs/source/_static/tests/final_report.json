@@ -1,30 +1,471 @@
 {
   "filters": {
-    "untracked": 1,
-    "total": 1,
-    "passed": 1,
+    "untracked": 22,
+    "total": 22,
+    "passed": 22,
     "marker_counts": {
-      "area_api": 1
+      "area_api": 22
     }
   },
   "results": [
     {
-      "test": "test_fetch_document_metadata_from_crossref_returns_payload",
-      "nodeid": "tests/test_api.py::test_fetch_document_metadata_from_crossref_returns_payload",
+      "test": "test_healthz_returns_ok",
+      "nodeid": "tests/test_api.py::test_healthz_returns_ok",
       "status": "passed",
-      "duration": 0.001711583000542305,
+      "duration": 0.0016287079997709952,
       "trace": null,
       "error": null,
       "markers": [
         "area_api"
       ],
       "file": "tests/test_api.py",
-      "line": 504,
+      "line": 205,
+      "stdout": "",
+      "stderr": "INFO - HTTP Request: GET http://testserver/healthz \"HTTP/1.1 200 OK\"\n",
+      "timestamp": "2026-02-16T20:02:01.327951Z",
+      "screenshot": "screenshots",
+      "logs": "HTTP Request: GET http://testserver/healthz \"HTTP/1.1 200 OK\"",
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_get_buckets_returns_bucket_names",
+      "nodeid": "tests/test_api.py::test_get_buckets_returns_bucket_names",
+      "status": "passed",
+      "duration": 0.0012207079998916015,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_api"
+      ],
+      "file": "tests/test_api.py",
+      "line": 212,
+      "stdout": "",
+      "stderr": "INFO - HTTP Request: GET http://testserver/buckets \"HTTP/1.1 200 OK\"\n",
+      "timestamp": "2026-02-16T20:02:01.334771Z",
+      "screenshot": "screenshots",
+      "logs": "HTTP Request: GET http://testserver/buckets \"HTTP/1.1 200 OK\"",
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_get_buckets_maps_s3_errors_to_bad_request",
+      "nodeid": "tests/test_api.py::test_get_buckets_maps_s3_errors_to_bad_request",
+      "status": "passed",
+      "duration": 0.0006560000001627486,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_api"
+      ],
+      "file": "tests/test_api.py",
+      "line": 222,
+      "stdout": "",
+      "stderr": "INFO - HTTP Request: GET http://testserver/buckets \"HTTP/1.1 400 Bad Request\"\n",
+      "timestamp": "2026-02-16T20:02:01.336539Z",
+      "screenshot": "screenshots",
+      "logs": "HTTP Request: GET http://testserver/buckets \"HTTP/1.1 400 Bad Request\"",
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_create_bucket_returns_created_result",
+      "nodeid": "tests/test_api.py::test_create_bucket_returns_created_result",
+      "status": "passed",
+      "duration": 0.000937916000111727,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_api"
+      ],
+      "file": "tests/test_api.py",
+      "line": 232,
+      "stdout": "",
+      "stderr": "INFO - HTTP Request: POST http://testserver/buckets \"HTTP/1.1 200 OK\"\n",
+      "timestamp": "2026-02-16T20:02:01.338428Z",
+      "screenshot": "screenshots",
+      "logs": "HTTP Request: POST http://testserver/buckets \"HTTP/1.1 200 OK\"",
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_create_bucket_maps_value_error_to_bad_request",
+      "nodeid": "tests/test_api.py::test_create_bucket_maps_value_error_to_bad_request",
+      "status": "passed",
+      "duration": 0.0007110419992386596,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_api"
+      ],
+      "file": "tests/test_api.py",
+      "line": 247,
+      "stdout": "",
+      "stderr": "INFO - HTTP Request: POST http://testserver/buckets \"HTTP/1.1 400 Bad Request\"\n",
+      "timestamp": "2026-02-16T20:02:01.340070Z",
+      "screenshot": "screenshots",
+      "logs": "HTTP Request: POST http://testserver/buckets \"HTTP/1.1 400 Bad Request\"",
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_delete_bucket_returns_removed_result",
+      "nodeid": "tests/test_api.py::test_delete_bucket_returns_removed_result",
+      "status": "passed",
+      "duration": 0.0008253750002040761,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_api"
+      ],
+      "file": "tests/test_api.py",
+      "line": 259,
+      "stdout": "",
+      "stderr": "INFO - HTTP Request: DELETE http://testserver/buckets/research-raw \"HTTP/1.1 200 OK\"\n",
+      "timestamp": "2026-02-16T20:02:01.341848Z",
+      "screenshot": "screenshots",
+      "logs": "HTTP Request: DELETE http://testserver/buckets/research-raw \"HTTP/1.1 200 OK\"",
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_delete_bucket_maps_s3_errors_to_bad_request",
+      "nodeid": "tests/test_api.py::test_delete_bucket_maps_s3_errors_to_bad_request",
+      "status": "passed",
+      "duration": 0.0006553330003953306,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_api"
+      ],
+      "file": "tests/test_api.py",
+      "line": 274,
+      "stdout": "",
+      "stderr": "INFO - HTTP Request: DELETE http://testserver/buckets/research-raw \"HTTP/1.1 400 Bad Request\"\n",
+      "timestamp": "2026-02-16T20:02:01.343411Z",
+      "screenshot": "screenshots",
+      "logs": "HTTP Request: DELETE http://testserver/buckets/research-raw \"HTTP/1.1 400 Bad Request\"",
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_create_bucket_returns_bad_gateway_when_qdrant_sync_fails",
+      "nodeid": "tests/test_api.py::test_create_bucket_returns_bad_gateway_when_qdrant_sync_fails",
+      "status": "passed",
+      "duration": 0.0006427090011129621,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_api"
+      ],
+      "file": "tests/test_api.py",
+      "line": 284,
+      "stdout": "",
+      "stderr": "INFO - HTTP Request: POST http://testserver/buckets \"HTTP/1.1 502 Bad Gateway\"\n",
+      "timestamp": "2026-02-16T20:02:01.344975Z",
+      "screenshot": "screenshots",
+      "logs": "HTTP Request: POST http://testserver/buckets \"HTTP/1.1 502 Bad Gateway\"",
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_delete_bucket_returns_bad_gateway_when_qdrant_sync_fails",
+      "nodeid": "tests/test_api.py::test_delete_bucket_returns_bad_gateway_when_qdrant_sync_fails",
+      "status": "passed",
+      "duration": 0.0006419159999495605,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_api"
+      ],
+      "file": "tests/test_api.py",
+      "line": 297,
+      "stdout": "",
+      "stderr": "INFO - HTTP Request: DELETE http://testserver/buckets/research-raw \"HTTP/1.1 502 Bad Gateway\"\n",
+      "timestamp": "2026-02-16T20:02:01.346493Z",
+      "screenshot": "screenshots",
+      "logs": "HTTP Request: DELETE http://testserver/buckets/research-raw \"HTTP/1.1 502 Bad Gateway\"",
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_get_documents_returns_documents",
+      "nodeid": "tests/test_api.py::test_get_documents_returns_documents",
+      "status": "passed",
+      "duration": 0.000870750000103726,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_api"
+      ],
+      "file": "tests/test_api.py",
+      "line": 310,
+      "stdout": "",
+      "stderr": "INFO - HTTP Request: GET http://testserver/collections/research-raw/documents \"HTTP/1.1 200 OK\"\n",
+      "timestamp": "2026-02-16T20:02:01.348251Z",
+      "screenshot": "screenshots",
+      "logs": "HTTP Request: GET http://testserver/collections/research-raw/documents \"HTTP/1.1 200 OK\"",
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_search_collection_returns_results",
+      "nodeid": "tests/test_api.py::test_search_collection_returns_results",
+      "status": "passed",
+      "duration": 0.0010014580002462026,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_api"
+      ],
+      "file": "tests/test_api.py",
+      "line": 334,
+      "stdout": "",
+      "stderr": "INFO - HTTP Request: GET http://testserver/collections/research-raw/search?query=causal+inference&limit=5&mode=hybrid&rrf_k=80 \"HTTP/1.1 200 OK\"\n",
+      "timestamp": "2026-02-16T20:02:01.350097Z",
+      "screenshot": "screenshots",
+      "logs": "HTTP Request: GET http://testserver/collections/research-raw/search?query=causal+inference&limit=5&mode=hybrid&rrf_k=80 \"HTTP/1.1 200 OK\"",
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_search_collection_rejects_invalid_mode",
+      "nodeid": "tests/test_api.py::test_search_collection_rejects_invalid_mode",
+      "status": "passed",
+      "duration": 0.0006062499996914994,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_api"
+      ],
+      "file": "tests/test_api.py",
+      "line": 368,
+      "stdout": "",
+      "stderr": "INFO - HTTP Request: GET http://testserver/collections/research-raw/search?query=causal+inference&mode=invalid \"HTTP/1.1 400 Bad Request\"\n",
+      "timestamp": "2026-02-16T20:02:01.351566Z",
+      "screenshot": "screenshots",
+      "logs": "HTTP Request: GET http://testserver/collections/research-raw/search?query=causal+inference&mode=invalid \"HTTP/1.1 400 Bad Request\"",
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_resolve_document_returns_pdf_payload",
+      "nodeid": "tests/test_api.py::test_resolve_document_returns_pdf_payload",
+      "status": "passed",
+      "duration": 0.0007649580002180301,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_api"
+      ],
+      "file": "tests/test_api.py",
+      "line": 383,
+      "stdout": "",
+      "stderr": "INFO - HTTP Request: GET http://testserver/collections/research-raw/documents/resolve?file_path=papers%2Fpaper.pdf \"HTTP/1.1 200 OK\"\n",
+      "timestamp": "2026-02-16T20:02:01.353188Z",
+      "screenshot": "screenshots",
+      "logs": "HTTP Request: GET http://testserver/collections/research-raw/documents/resolve?file_path=papers%2Fpaper.pdf \"HTTP/1.1 200 OK\"",
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_resolve_document_rejects_empty_file_path",
+      "nodeid": "tests/test_api.py::test_resolve_document_rejects_empty_file_path",
+      "status": "passed",
+      "duration": 0.0005590830005530734,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_api"
+      ],
+      "file": "tests/test_api.py",
+      "line": 400,
+      "stdout": "",
+      "stderr": "INFO - HTTP Request: GET http://testserver/collections/research-raw/documents/resolve?file_path=+++ \"HTTP/1.1 400 Bad Request\"\n",
+      "timestamp": "2026-02-16T20:02:01.354607Z",
+      "screenshot": "screenshots",
+      "logs": "HTTP Request: GET http://testserver/collections/research-raw/documents/resolve?file_path=+++ \"HTTP/1.1 400 Bad Request\"",
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_upload_document_queues_processing_task",
+      "nodeid": "tests/test_api.py::test_upload_document_queues_processing_task",
+      "status": "passed",
+      "duration": 0.000662333999571274,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_api"
+      ],
+      "file": "tests/test_api.py",
+      "line": 410,
+      "stdout": "",
+      "stderr": "INFO - HTTP Request: POST http://testserver/collections/research-raw/documents/upload?file_name=paper.pdf \"HTTP/1.1 200 OK\"\n",
+      "timestamp": "2026-02-16T20:02:01.356147Z",
+      "screenshot": "screenshots",
+      "logs": "HTTP Request: POST http://testserver/collections/research-raw/documents/upload?file_name=paper.pdf \"HTTP/1.1 200 OK\"",
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_trigger_bucket_scan_queues_task",
+      "nodeid": "tests/test_api.py::test_trigger_bucket_scan_queues_task",
+      "status": "passed",
+      "duration": 0.0006722079997416586,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_api"
+      ],
+      "file": "tests/test_api.py",
+      "line": 434,
+      "stdout": "",
+      "stderr": "INFO - HTTP Request: POST http://testserver/collections/research-raw/scan \"HTTP/1.1 200 OK\"\n",
+      "timestamp": "2026-02-16T20:02:01.357684Z",
+      "screenshot": "screenshots",
+      "logs": "HTTP Request: POST http://testserver/collections/research-raw/scan \"HTTP/1.1 200 OK\"",
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_upload_document_returns_queued_false_when_broker_is_unavailable",
+      "nodeid": "tests/test_api.py::test_upload_document_returns_queued_false_when_broker_is_unavailable",
+      "status": "passed",
+      "duration": 0.0009195000002364395,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_api"
+      ],
+      "file": "tests/test_api.py",
+      "line": 454,
+      "stdout": "",
+      "stderr": "ERROR - Failed to enqueue partition_minio_object task.\nTraceback (most recent call last):\n  File \"/Users/lukeheley/Developer/mcp-evidencebase/src/mcp_evidencebase/api.py\", line 362, in upload_document\n    task = partition_minio_object.delay(normalized_bucket_name, object_name, None)\n  File \"/Users/lukeheley/Developer/mcp-evidencebase/tests/test_api.py\", line 192, in delay\n    raise RuntimeError(self.message)\nRuntimeError: retry limit exceeded while trying to reconnect\nINFO - HTTP Request: POST http://testserver/collections/research-raw/documents/upload?file_name=paper.pdf \"HTTP/1.1 200 OK\"\n",
+      "timestamp": "2026-02-16T20:02:01.359496Z",
+      "screenshot": "screenshots",
+      "logs": "Failed to enqueue partition_minio_object task.\nHTTP Request: POST http://testserver/collections/research-raw/documents/upload?file_name=paper.pdf \"HTTP/1.1 200 OK\"",
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_trigger_bucket_scan_returns_queued_false_when_broker_is_unavailable",
+      "nodeid": "tests/test_api.py::test_trigger_bucket_scan_returns_queued_false_when_broker_is_unavailable",
+      "status": "passed",
+      "duration": 0.0006379580008797348,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_api"
+      ],
+      "file": "tests/test_api.py",
+      "line": 479,
+      "stdout": "",
+      "stderr": "ERROR - Failed to enqueue scan_minio_objects task.\nTraceback (most recent call last):\n  File \"/Users/lukeheley/Developer/mcp-evidencebase/src/mcp_evidencebase/api.py\", line 392, in trigger_bucket_scan\n    task = scan_minio_objects.delay(normalized_bucket_name)\n  File \"/Users/lukeheley/Developer/mcp-evidencebase/tests/test_api.py\", line 192, in delay\n    raise RuntimeError(self.message)\nRuntimeError: retry limit exceeded while trying to reconnect\nINFO - HTTP Request: POST http://testserver/collections/research-raw/scan \"HTTP/1.1 200 OK\"\n",
+      "timestamp": "2026-02-16T20:02:01.361025Z",
+      "screenshot": "screenshots",
+      "logs": "Failed to enqueue scan_minio_objects task.\nHTTP Request: POST http://testserver/collections/research-raw/scan \"HTTP/1.1 200 OK\"",
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_update_document_metadata_returns_payload",
+      "nodeid": "tests/test_api.py::test_update_document_metadata_returns_payload",
+      "status": "passed",
+      "duration": 0.0007653339998796582,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_api"
+      ],
+      "file": "tests/test_api.py",
+      "line": 498,
+      "stdout": "",
+      "stderr": "INFO - HTTP Request: PUT http://testserver/collections/research-raw/documents/doc-1/metadata \"HTTP/1.1 200 OK\"\n",
+      "timestamp": "2026-02-16T20:02:01.362720Z",
+      "screenshot": "screenshots",
+      "logs": "HTTP Request: PUT http://testserver/collections/research-raw/documents/doc-1/metadata \"HTTP/1.1 200 OK\"",
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_update_document_metadata_accepts_structured_authors",
+      "nodeid": "tests/test_api.py::test_update_document_metadata_accepts_structured_authors",
+      "status": "passed",
+      "duration": 0.000674459000947536,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_api"
+      ],
+      "file": "tests/test_api.py",
+      "line": 519,
+      "stdout": "",
+      "stderr": "INFO - HTTP Request: PUT http://testserver/collections/research-raw/documents/doc-1/metadata \"HTTP/1.1 200 OK\"\n",
+      "timestamp": "2026-02-16T20:02:01.364245Z",
+      "screenshot": "screenshots",
+      "logs": "HTTP Request: PUT http://testserver/collections/research-raw/documents/doc-1/metadata \"HTTP/1.1 200 OK\"",
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_fetch_document_metadata_from_crossref_returns_payload",
+      "nodeid": "tests/test_api.py::test_fetch_document_metadata_from_crossref_returns_payload",
+      "status": "passed",
+      "duration": 0.0007433330010826467,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_api"
+      ],
+      "file": "tests/test_api.py",
+      "line": 544,
       "stdout": "",
       "stderr": "INFO - HTTP Request: POST http://testserver/collections/research-raw/documents/doc-1/metadata/fetch \"HTTP/1.1 200 OK\"\n",
-      "timestamp": "2026-02-16T18:22:11.359624Z",
+      "timestamp": "2026-02-16T20:02:01.365847Z",
       "screenshot": "screenshots",
       "logs": "HTTP Request: POST http://testserver/collections/research-raw/documents/doc-1/metadata/fetch \"HTTP/1.1 200 OK\"",
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_delete_document_keeps_partitions",
+      "nodeid": "tests/test_api.py::test_delete_document_keeps_partitions",
+      "status": "passed",
+      "duration": 0.0006990830006543547,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_api"
+      ],
+      "file": "tests/test_api.py",
+      "line": 562,
+      "stdout": "",
+      "stderr": "INFO - HTTP Request: DELETE http://testserver/collections/research-raw/documents/doc-1 \"HTTP/1.1 200 OK\"\n",
+      "timestamp": "2026-02-16T20:02:01.367395Z",
+      "screenshot": "screenshots",
+      "logs": "HTTP Request: DELETE http://testserver/collections/research-raw/documents/doc-1 \"HTTP/1.1 200 OK\"",
       "worker": "main",
       "links": [],
       "flaky": false

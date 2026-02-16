@@ -399,6 +399,59 @@
     return splitParts[splitParts.length - 1] || normalized;
   };
 
+  const parseMinioLocation = (value) => {
+    const normalizedLocation = normalizeText(value).replace(/^\/+/, "");
+    if (!normalizedLocation || !normalizedLocation.includes("/")) {
+      return null;
+    }
+    const splitIndex = normalizedLocation.indexOf("/");
+    const bucketName = normalizeText(normalizedLocation.slice(0, splitIndex));
+    const filePath = normalizeText(normalizedLocation.slice(splitIndex + 1));
+    if (!bucketName || !filePath) {
+      return null;
+    }
+    return { bucketName, filePath };
+  };
+
+  const buildResolverHref = ({ bucketName, filePath, page }) => {
+    const normalizedBucketName = normalizeText(bucketName);
+    const normalizedFilePath = normalizeText(filePath).replace(/^\/+/, "");
+    if (!normalizedBucketName || !normalizedFilePath) {
+      return "";
+    }
+    const params = new URLSearchParams({
+      bucket: normalizedBucketName,
+      file_path: normalizedFilePath,
+    });
+    const resolvedPage = Number.parseInt(page, 10);
+    if (Number.isFinite(resolvedPage) && resolvedPage > 0) {
+      params.set("page", String(resolvedPage));
+    }
+    return `${origin}/resolver.html?${params.toString()}`;
+  };
+
+  const buildResolverHrefForSelectedDocument = (record) => {
+    if (!record || typeof record !== "object") {
+      return "";
+    }
+    return buildResolverHref({
+      bucketName: selectedBucketName,
+      filePath: record.file_path,
+    });
+  };
+
+  const buildResolverHrefForSearchResult = (result) => {
+    if (!result || typeof result !== "object") {
+      return "";
+    }
+    const resolvedFromLocation = parseMinioLocation(result.minio_location);
+    return buildResolverHref({
+      bucketName: resolvedFromLocation?.bucketName || selectedBucketName,
+      filePath: resolvedFromLocation?.filePath || result.file_path,
+      page: result.page_start,
+    });
+  };
+
   const knownAuthorSuffixes = new Set([
     "jr",
     "jr.",
@@ -1133,7 +1186,19 @@
 
       const location = document.createElement("div");
       location.className = "semantic-result-location text-body-secondary";
-      location.textContent = formatSearchLocation(result);
+      const locationText = formatSearchLocation(result);
+      const locationResolverHref = buildResolverHrefForSearchResult(result);
+      if (locationResolverHref) {
+        const locationLink = document.createElement("a");
+        locationLink.href = locationResolverHref;
+        locationLink.target = "_blank";
+        locationLink.rel = "noopener noreferrer";
+        locationLink.className = "link-secondary text-decoration-underline";
+        locationLink.textContent = locationText;
+        location.appendChild(locationLink);
+      } else {
+        location.textContent = locationText;
+      }
 
       header.appendChild(title);
       header.appendChild(authorYear);
@@ -2194,7 +2259,24 @@
       return;
     }
 
-    detailSelectedDocument.textContent = `Selected: ${filenameFromPath(selectedDocument.file_path)}`;
+    detailSelectedDocument.textContent = "";
+    const selectedPrefix = document.createElement("span");
+    selectedPrefix.textContent = "Selected: ";
+    detailSelectedDocument.appendChild(selectedPrefix);
+    const selectedFileName = filenameFromPath(selectedDocument.file_path);
+    const selectedResolverHref = buildResolverHrefForSelectedDocument(selectedDocument);
+    if (selectedResolverHref) {
+      const selectedLink = document.createElement("a");
+      selectedLink.href = selectedResolverHref;
+      selectedLink.target = "_blank";
+      selectedLink.rel = "noopener noreferrer";
+      selectedLink.className = "link-secondary text-decoration-underline";
+      selectedLink.textContent = selectedFileName;
+      selectedLink.title = normalizeText(selectedDocument.file_path);
+      detailSelectedDocument.appendChild(selectedLink);
+    } else {
+      detailSelectedDocument.append(selectedFileName);
+    }
 
     detailFieldsForm.appendChild(
       createFieldRow("Document Type", selectedDocument.document_type, {

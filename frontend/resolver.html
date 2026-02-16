@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PDF Resolver</title>
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootswatch@5.3.3/dist/flatly/bootstrap.min.css"
+      rel="stylesheet"
+      crossorigin="anonymous"
+    />
+    <link href="./resolver.css?v=20260216a" rel="stylesheet" />
+  </head>
+  <body>
+    <div class="resolver-shell">
+      <header class="resolver-toolbar">
+        <div class="resolver-meta">
+          <h1 class="resolver-title">PDF Resolver</h1>
+          <p id="resolver-source" class="resolver-source mb-0 text-body-secondary"></p>
+        </div>
+        <div class="resolver-controls d-flex align-items-center gap-2 flex-wrap">
+          <button id="resolver-prev" type="button" class="btn btn-outline-secondary btn-sm">Prev</button>
+          <div class="input-group input-group-sm resolver-page-input-group">
+            <span class="input-group-text">Page</span>
+            <input
+              id="resolver-page-input"
+              type="number"
+              class="form-control"
+              min="1"
+              value="1"
+              aria-label="Page number"
+            />
+            <span id="resolver-page-total" class="input-group-text">/ 1</span>
+          </div>
+          <button id="resolver-next" type="button" class="btn btn-outline-secondary btn-sm">Next</button>
+          <a
+            id="resolver-open-raw"
+            href="#"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="btn btn-outline-primary btn-sm"
+          >
+            Open Raw PDF
+          </a>
+        </div>
+      </header>
+      <main id="resolver-canvas-shell" class="resolver-canvas-shell">
+        <canvas id="resolver-canvas"></canvas>
+      </main>
+      <footer class="resolver-footer">
+        <small id="resolver-status" class="text-body-secondary">Loading…</small>
+      </footer>
+    </div>
+
+    <script
+      src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"
+      crossorigin="anonymous"
+      referrerpolicy="no-referrer"
+    ></script>
+    <script src="./resolver.js?v=20260216a"></script>
+  </body>
+</html>
