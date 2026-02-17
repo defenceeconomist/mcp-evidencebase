@@ -9,7 +9,7 @@
       rel="stylesheet"
       crossorigin="anonymous"
     />
-    <link href="./resolver.css?v=20260216a" rel="stylesheet" />
+    <link href="./resolver.css?v=20260217e" rel="stylesheet" />
   </head>
   <body>
     <div class="resolver-shell">
@@ -45,7 +45,11 @@
         </div>
       </header>
       <main id="resolver-canvas-shell" class="resolver-canvas-shell">
-        <canvas id="resolver-canvas"></canvas>
+        <aside id="resolver-highlight" class="resolver-highlight d-none">
+          <strong class="resolver-highlight-label">Selected Chunk</strong>
+          <p id="resolver-highlight-text" class="resolver-highlight-text mb-0"></p>
+        </aside>
+        <div id="resolver-pages" class="resolver-pages"></div>
       </main>
       <footer class="resolver-footer">
         <small id="resolver-status" class="text-body-secondary">Loading…</small>
@@ -57,6 +61,6 @@
       crossorigin="anonymous"
       referrerpolicy="no-referrer"
     ></script>
-    <script src="./resolver.js?v=20260216a"></script>
+    <script src="./resolver.js?v=20260217f"></script>
   </body>
 </html>

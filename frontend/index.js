@@ -413,7 +413,7 @@
     return { bucketName, filePath };
   };
 
-  const buildResolverHref = ({ bucketName, filePath, page }) => {
+  const buildResolverHref = ({ bucketName, filePath, page, highlightText }) => {
     const normalizedBucketName = normalizeText(bucketName);
     const normalizedFilePath = normalizeText(filePath).replace(/^\/+/, "");
     if (!normalizedBucketName || !normalizedFilePath) {
@@ -426,6 +426,15 @@
     const resolvedPage = Number.parseInt(page, 10);
     if (Number.isFinite(resolvedPage) && resolvedPage > 0) {
       params.set("page", String(resolvedPage));
+    }
+    const normalizedHighlight = normalizeText(highlightText).replace(/\s+/g, " ");
+    if (normalizedHighlight) {
+      const maxHighlightLength = 420;
+      const truncatedHighlight =
+        normalizedHighlight.length > maxHighlightLength
+          ? `${normalizedHighlight.slice(0, maxHighlightLength - 1).trim()}…`
+          : normalizedHighlight;
+      params.set("highlight", truncatedHighlight);
     }
     return `${origin}/resolver.html?${params.toString()}`;
   };
@@ -449,6 +458,7 @@
       bucketName: resolvedFromLocation?.bucketName || selectedBucketName,
       filePath: resolvedFromLocation?.filePath || result.file_path,
       page: result.page_start,
+      highlightText: result.text,
     });
   };
 
