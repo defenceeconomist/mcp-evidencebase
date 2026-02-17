@@ -2067,8 +2067,9 @@
         if (col !== 0) {
           return;
         }
-        if (!TH.querySelector("input.bulk-select-all-checkbox")) {
-          TH.innerHTML = "";
+        const headerLabelHost = TH.querySelector(".colHeader") || TH;
+        if (!headerLabelHost.querySelector("input.bulk-select-all-checkbox")) {
+          headerLabelHost.textContent = "";
           const wrapper = document.createElement("div");
           wrapper.className = "d-flex justify-content-start align-items-center";
 
@@ -2100,7 +2101,7 @@
           label.appendChild(checkbox);
           label.appendChild(text);
           wrapper.appendChild(label);
-          TH.appendChild(wrapper);
+          headerLabelHost.appendChild(wrapper);
         }
         window.requestAnimationFrame(syncBulkSelectAllHeaderCheckbox);
       },
