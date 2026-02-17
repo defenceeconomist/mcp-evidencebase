@@ -1,5 +1,5 @@
 (function () {
-  window.__EVIDENCEBASE_UI_BUILD__ = "2026-02-17-bulk-meta-progress-a";
+  window.__EVIDENCEBASE_UI_BUILD__ = "2026-02-17-folder-upload-a";
   const origin = window.location.origin;
   const apiBasePath = origin + "/api";
   const bucketList = document.getElementById("bucket-list");
@@ -13,6 +13,7 @@
   const mainPanel = document.getElementById("main-panel");
   const collectionToggles = document.querySelectorAll('[data-action="toggle-collections"]');
   const uploadPdfButton = document.getElementById("upload-pdf-btn");
+  const uploadPdfFolderButton = document.getElementById("upload-pdf-folder-btn");
   const fetchMetaButton = document.getElementById("fetch-meta-btn");
   const removeSelectedDocumentsButton = document.getElementById("remove-selected-docs-btn");
   const bulkFetchProgress = document.getElementById("bulk-fetch-progress");
@@ -433,6 +434,50 @@
       return "";
     }
     return String(value).trim();
+  };
+
+  const normalizeObjectPath = (value) => {
+    return normalizeText(value)
+      .replace(/\\/g, "/")
+      .replace(/^\/+/, "")
+      .replace(/\/+$/, "")
+      .replace(/\/{2,}/g, "/");
+  };
+
+  const isPdfFile = (file) => {
+    if (!file || typeof file !== "object") {
+      return false;
+    }
+    return normalizeText(file.name).toLowerCase().endsWith(".pdf");
+  };
+
+  const getFolderPrefixFromSelectedFiles = (files) => {
+    if (!Array.isArray(files)) {
+      return "";
+    }
+    for (const file of files) {
+      const normalizedRelativePath = normalizeObjectPath(file?.webkitRelativePath || "");
+      if (!normalizedRelativePath || !normalizedRelativePath.includes("/")) {
+        continue;
+      }
+      const parts = normalizedRelativePath.split("/").filter(Boolean);
+      if (parts.length > 1) {
+        return parts[0];
+      }
+    }
+    return "";
+  };
+
+  const getRelativePathWithinSelectedFolder = (file) => {
+    const normalizedRelativePath = normalizeObjectPath(file?.webkitRelativePath || "");
+    if (!normalizedRelativePath || !normalizedRelativePath.includes("/")) {
+      return normalizeObjectPath(file?.name || "");
+    }
+    const parts = normalizedRelativePath.split("/").filter(Boolean);
+    if (parts.length <= 1) {
+      return normalizeObjectPath(file?.name || "");
+    }
+    return normalizeObjectPath(parts.slice(1).join("/"));
   };
 
   const normalizeDocumentType = (value) => {
@@ -2859,19 +2904,46 @@
     }
   };
 
-  const uploadDocumentFile = async (file) => {
+  const uploadDocumentFile = async (
+    file,
+    { objectName = "", refreshDocumentsAfterUpload = true, suppressErrorAlert = false } = {}
+  ) => {
     if (!selectedBucketName) {
-      window.alert("Select a collection first.");
-      return;
+      if (!suppressErrorAlert) {
+        window.alert("Select a collection first.");
+      }
+      return {
+        ok: false,
+        objectName: "",
+        error: new Error("Select a collection first."),
+      };
     }
     if (!file) {
-      return;
+      return {
+        ok: false,
+        objectName: "",
+        error: new Error("No file was selected."),
+      };
+    }
+
+    const normalizedObjectName = normalizeObjectPath(objectName || file.name);
+    if (!normalizedObjectName) {
+      const fileName = normalizeText(file.name) || "file";
+      const error = new Error(`Invalid upload path for '${fileName}'.`);
+      if (!suppressErrorAlert) {
+        window.alert(error.message);
+      }
+      return {
+        ok: false,
+        objectName: normalizedObjectName,
+        error,
+      };
     }
 
     try {
       await apiRequest(
         `/collections/${encodeURIComponent(selectedBucketName)}/documents/upload?file_name=${encodeURIComponent(
-          file.name
+          normalizedObjectName
         )}`,
         {
           method: "POST",
@@ -2881,10 +2953,133 @@
           },
         }
       );
-      await refreshDocuments({ silent: true, preserveSelection: true });
+      if (refreshDocumentsAfterUpload) {
+        await refreshDocuments({ silent: true, preserveSelection: true });
+      }
+      return {
+        ok: true,
+        objectName: normalizedObjectName,
+        error: null,
+      };
     } catch (error) {
-      window.alert(`Could not upload file: ${error.message}`);
+      if (!suppressErrorAlert) {
+        const fileName = filenameFromPath(normalizedObjectName);
+        window.alert(`Could not upload file '${fileName}': ${error.message}`);
+      }
+      return {
+        ok: false,
+        objectName: normalizedObjectName,
+        error,
+      };
     }
+  };
+
+  const uploadPdfFolder = async (selectedFiles) => {
+    if (!selectedBucketName) {
+      window.alert("Select a collection first.");
+      return;
+    }
+    if (!Array.isArray(selectedFiles) || selectedFiles.length === 0) {
+      return;
+    }
+
+    const pdfFiles = selectedFiles.filter((file) => isPdfFile(file));
+    if (pdfFiles.length === 0) {
+      window.alert("The selected folder does not contain any PDF files.");
+      return;
+    }
+
+    const suggestedFolderPrefix = getFolderPrefixFromSelectedFiles(pdfFiles);
+    if (!suggestedFolderPrefix) {
+      window.alert("Could not resolve a folder name from the selected files.");
+      return;
+    }
+    const requestedFolderPrefix = window.prompt(
+      "Enter the folder title/path prefix for uploaded PDFs:",
+      suggestedFolderPrefix
+    );
+    if (requestedFolderPrefix === null) {
+      return;
+    }
+    const folderPrefix = normalizeObjectPath(requestedFolderPrefix || suggestedFolderPrefix);
+    if (!folderPrefix) {
+      window.alert("Folder title/path prefix cannot be empty.");
+      return;
+    }
+
+    const originalUploadPdfDisabled = uploadPdfButton ? uploadPdfButton.disabled : false;
+    const originalUploadFolderDisabled = uploadPdfFolderButton ? uploadPdfFolderButton.disabled : false;
+    const originalUploadFolderLabel = uploadPdfFolderButton
+      ? normalizeText(uploadPdfFolderButton.textContent) || "Upload PDF Folder"
+      : "Upload PDF Folder";
+
+    const failures = [];
+    let uploadedCount = 0;
+    if (uploadPdfButton) {
+      uploadPdfButton.disabled = true;
+    }
+    if (uploadPdfFolderButton) {
+      uploadPdfFolderButton.disabled = true;
+    }
+
+    try {
+      for (let index = 0; index < pdfFiles.length; index += 1) {
+        const file = pdfFiles[index];
+        if (uploadPdfFolderButton) {
+          uploadPdfFolderButton.textContent = `Uploading ${index + 1}/${pdfFiles.length}`;
+        }
+
+        const relativePath = getRelativePathWithinSelectedFolder(file);
+        const objectName = normalizeObjectPath(`${folderPrefix}/${relativePath}`);
+        if (!objectName) {
+          failures.push(`${normalizeText(file.name) || `file-${index + 1}`}: invalid target object path`);
+          continue;
+        }
+
+        const result = await uploadDocumentFile(file, {
+          objectName,
+          refreshDocumentsAfterUpload: false,
+          suppressErrorAlert: true,
+        });
+        if (result.ok) {
+          uploadedCount += 1;
+          continue;
+        }
+        failures.push(
+          `${normalizeText(result.objectName) || normalizeText(file.name) || `file-${index + 1}`}: ${
+            result.error?.message || "unknown upload error"
+          }`
+        );
+      }
+      await refreshDocuments({ silent: true, preserveSelection: true });
+    } finally {
+      if (uploadPdfButton) {
+        uploadPdfButton.disabled = originalUploadPdfDisabled;
+      }
+      if (uploadPdfFolderButton) {
+        uploadPdfFolderButton.disabled = originalUploadFolderDisabled;
+        uploadPdfFolderButton.textContent = originalUploadFolderLabel;
+      }
+    }
+
+    const baseLocation = `${selectedBucketName}/${folderPrefix}`;
+    if (failures.length > 0) {
+      const previewFailures = failures.slice(0, 8).map((failure) => `- ${failure}`);
+      if (failures.length > 8) {
+        previewFailures.push(`- ...and ${failures.length - 8} more`);
+      }
+      window.alert(
+        `Uploaded ${uploadedCount} of ${pdfFiles.length} PDFs to '${baseLocation}'.\n` +
+          "Celery tasks were queued for successful uploads.\n\n" +
+          `Failures:\n${previewFailures.join("\n")}`
+      );
+      return;
+    }
+
+    window.alert(
+      `Uploaded ${uploadedCount} PDF${uploadedCount === 1 ? "" : "s"} to '${baseLocation}'.\n` +
+        "Celery tasks were queued for processing."
+    );
   };
 
   const fetchDocumentMetadataFromCrossref = async (record) => {
@@ -3331,6 +3526,25 @@
       const nextFile = picker.files && picker.files[0] ? picker.files[0] : null;
       if (nextFile) {
         void uploadDocumentFile(nextFile);
+      }
+    });
+    picker.click();
+  });
+  uploadPdfFolderButton?.addEventListener("click", () => {
+    if (!selectedBucketName) {
+      window.alert("Select a collection first.");
+      return;
+    }
+    const picker = document.createElement("input");
+    picker.type = "file";
+    picker.accept = ".pdf,application/pdf";
+    picker.multiple = true;
+    picker.setAttribute("webkitdirectory", "");
+    picker.setAttribute("directory", "");
+    picker.addEventListener("change", () => {
+      const selectedFiles = picker.files ? Array.from(picker.files) : [];
+      if (selectedFiles.length > 0) {
+        void uploadPdfFolder(selectedFiles);
       }
     });
     picker.click();
