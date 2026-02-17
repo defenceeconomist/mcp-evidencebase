@@ -994,6 +994,46 @@ def test_repository_persists_issn_metadata_field() -> None:
     assert metadata["issn"] == "2049-3630"
 
 
+def test_repository_defaults_citation_key_from_author_year_and_title() -> None:
+    """Ensure missing citation keys default to ``firstAuthorLastName + year + firstTitleWord``."""
+    redis_client = FakeRedis()
+    repository = RedisDocumentRepository(redis_client, key_prefix="test")
+
+    meta_key = repository.set_metadata_for_location(
+        bucket_name="research-raw",
+        object_name="paper.pdf",
+        document_id="doc-citekey",
+        metadata={
+            "author": "Doe, Jane and Smith, John",
+            "title": "Causal Inference in Practice",
+            "year": "2024",
+        },
+    )
+
+    metadata = repository.get_metadata_by_key(meta_key)
+    assert metadata["citation_key"] == "doe2024causal"
+
+
+def test_repository_defaults_citation_key_from_structured_authors() -> None:
+    """Ensure structured authors are preferred when deriving the citation key."""
+    redis_client = FakeRedis()
+    repository = RedisDocumentRepository(redis_client, key_prefix="test")
+
+    meta_key = repository.set_metadata_for_location(
+        bucket_name="research-raw",
+        object_name="paper.pdf",
+        document_id="doc-citekey-structured",
+        metadata={
+            "authors": [{"first_name": "Jane", "last_name": "van Rossum", "suffix": ""}],
+            "title": "{The} Causal Frontier",
+            "year": "2024a",
+        },
+    )
+
+    metadata = repository.get_metadata_by_key(meta_key)
+    assert metadata["citation_key"] == "vanrossum2024the"
+
+
 def test_repository_persists_structured_authors_metadata_field() -> None:
     """Ensure structured author entries are serialized and returned from metadata payload."""
     redis_client = FakeRedis()

@@ -855,8 +855,70 @@
     syncRecordCoreFields(record);
   };
 
-  const buildFallbackCitationKey = (filename, index) => {
-    const withoutExtension = filenameFromPath(filename).replace(/\.[^/.]+$/, "");
+  const normalizeCitationToken = (value) => {
+    return normalizeText(value).toLowerCase().replace(/[^a-z0-9]+/g, "");
+  };
+
+  const extractCitationYearToken = (value) => {
+    const normalizedValue = normalizeText(value);
+    if (!normalizedValue) {
+      return "";
+    }
+    const yearMatch = normalizedValue.match(/(?:19|20)\d{2}/);
+    if (yearMatch) {
+      return yearMatch[0];
+    }
+    const fallbackYearMatch = normalizedValue.match(/\d{4}/);
+    return fallbackYearMatch ? fallbackYearMatch[0] : "";
+  };
+
+  const extractCitationFirstTitleWord = (value) => {
+    const normalizedValue = stripOuterBraces(value);
+    if (!normalizedValue) {
+      return "";
+    }
+    const titleWordMatch = normalizedValue.match(/[A-Za-z0-9]+/);
+    return titleWordMatch ? titleWordMatch[0] : "";
+  };
+
+  const extractCitationFirstAuthorLastName = (authorEntries, authorText) => {
+    const normalizedEntries = normalizeAuthorEntries(authorEntries);
+    if (normalizedEntries.length > 0) {
+      const firstAuthor = normalizedEntries[0];
+      return normalizeText(firstAuthor.last_name) || normalizeText(firstAuthor.first_name);
+    }
+
+    const normalizedAuthorText = normalizeText(authorText);
+    if (!normalizedAuthorText) {
+      return "";
+    }
+    const firstAuthorSegment = normalizedAuthorText.split(/\s+and\s+|\s*&\s*|\s*;\s*/i)[0];
+    const parsedAuthor = parseAuthorFromText(firstAuthorSegment);
+    if (!parsedAuthor) {
+      return "";
+    }
+    return normalizeText(parsedAuthor.last_name) || normalizeText(parsedAuthor.first_name);
+  };
+
+  const buildFallbackCitationKey = ({
+    filePath,
+    index,
+    authorEntries,
+    authorText,
+    title,
+    year,
+  }) => {
+    const authorToken = normalizeCitationToken(
+      extractCitationFirstAuthorLastName(authorEntries, authorText)
+    );
+    const yearToken = extractCitationYearToken(year);
+    const titleToken = normalizeCitationToken(extractCitationFirstTitleWord(title));
+    const candidate = `${authorToken}${yearToken}${titleToken}`;
+    if (candidate) {
+      return candidate;
+    }
+
+    const withoutExtension = filenameFromPath(filePath).replace(/\.[^/.]+$/, "");
     const slug = withoutExtension
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
@@ -876,6 +938,14 @@
 
     const filename = filenameFromPath(filePath);
     const sourceBibtexFields = normalizeBibtexFields(rawDocument);
+    const normalizedAuthorEntries = normalizeAuthorEntriesFromDocument(rawDocument, sourceBibtexFields);
+    const formattedAuthorDisplay = formatAuthorsHarvard(normalizedAuthorEntries);
+    const citationFallbackAuthor = normalizeText(rawDocument.author) || sourceBibtexFields.author;
+    const citationFallbackYear = normalizeText(rawDocument.year) || sourceBibtexFields.year;
+    const citationFallbackTitle =
+      normalizeText(rawDocument.title) ||
+      sourceBibtexFields.title ||
+      filenameFromPath(filePath).replace(/\.[^/.]+$/, "");
     const normalizedCitationKey =
       normalizeText(rawDocument.citation_key) ||
       normalizeText(rawDocument.citationKey) ||
@@ -883,9 +953,14 @@
       normalizeText(rawDocument.key) ||
       normalizeText(sourceBibtexFields.citation_key) ||
       normalizeText(sourceBibtexFields.citekey) ||
-      buildFallbackCitationKey(filePath, index);
-    const normalizedAuthorEntries = normalizeAuthorEntriesFromDocument(rawDocument, sourceBibtexFields);
-    const formattedAuthorDisplay = formatAuthorsHarvard(normalizedAuthorEntries);
+      buildFallbackCitationKey({
+        filePath,
+        index,
+        authorEntries: normalizedAuthorEntries,
+        authorText: citationFallbackAuthor,
+        title: citationFallbackTitle,
+        year: citationFallbackYear,
+      });
 
     const processingStateSource = normalizeText(rawDocument.processing_state).toLowerCase();
     const normalizedProcessingState =

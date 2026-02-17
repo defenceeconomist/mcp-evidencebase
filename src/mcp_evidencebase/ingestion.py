@@ -155,6 +155,103 @@ def slugify(value: str) -> str:
     return slug or "document"
 
 
+def _citation_token(value: str) -> str:
+    """Normalize one citation-key token to lowercase alphanumeric text."""
+    return re.sub(r"[^a-zA-Z0-9]+", "", str(value)).lower()
+
+
+def _strip_outer_braces(value: str) -> str:
+    """Remove balanced outer braces often used by BibTeX title/author fields."""
+    normalized = str(value).strip()
+    while normalized.startswith("{") and normalized.endswith("}") and len(normalized) >= 2:
+        normalized = normalized[1:-1].strip()
+    return normalized
+
+
+def _extract_first_author_last_name_from_text(value: str) -> str:
+    """Extract the first author last name from BibTeX-style free-text author values."""
+    normalized = _strip_outer_braces(value)
+    if not normalized:
+        return ""
+
+    first_author = re.split(
+        r"\s+and\s+|\s*&\s*|\s*;\s*",
+        normalized,
+        maxsplit=1,
+        flags=re.IGNORECASE,
+    )[0]
+    first_author = _strip_outer_braces(first_author)
+    if not first_author:
+        return ""
+
+    if "," in first_author:
+        return _strip_outer_braces(first_author.split(",", 1)[0])
+
+    tokens = [_strip_outer_braces(token) for token in first_author.split() if token.strip()]
+    if not tokens:
+        return ""
+    return tokens[-1]
+
+
+def _extract_first_author_last_name(metadata: Mapping[str, Any]) -> str:
+    """Extract the first author family name from structured or text metadata."""
+    author_entries = _normalize_author_entries(metadata.get(AUTHORS_METADATA_FIELD, ""))
+    if author_entries:
+        first_entry = author_entries[0]
+        last_name = str(first_entry.get("last_name") or "").strip()
+        if last_name:
+            return last_name
+        return str(first_entry.get("first_name") or "").strip()
+
+    return _extract_first_author_last_name_from_text(str(metadata.get("author", "")))
+
+
+def _extract_year_token(value: str) -> str:
+    """Extract a four-digit year token for citation-key generation."""
+    normalized = str(value).strip()
+    if not normalized:
+        return ""
+
+    matched_year = re.search(r"(?:19|20)\d{2}", normalized)
+    if matched_year:
+        return matched_year.group(0)
+
+    fallback_year = re.search(r"\d{4}", normalized)
+    if fallback_year:
+        return fallback_year.group(0)
+    return ""
+
+
+def _extract_first_title_word(value: str) -> str:
+    """Extract the first alphanumeric title word for citation-key generation."""
+    normalized = _strip_outer_braces(value)
+    if not normalized:
+        return ""
+    matched_word = re.search(r"[A-Za-z0-9]+", normalized)
+    if matched_word:
+        return matched_word.group(0)
+    return ""
+
+
+def build_default_citation_key(
+    *,
+    metadata: Mapping[str, Any],
+    file_path: str,
+    document_id: str,
+) -> str:
+    """Build default citation key as ``firstAuthorLastName + year + firstTitleWord``."""
+    author_token = _citation_token(_extract_first_author_last_name(metadata))
+    year_token = _extract_year_token(str(metadata.get("year", "")))
+    title_token = _citation_token(_extract_first_title_word(str(metadata.get("title", ""))))
+
+    candidate = f"{author_token}{year_token}{title_token}"
+    if candidate:
+        return candidate
+
+    file_stem = PurePosixPath(file_path).stem
+    return slugify(file_stem) or document_id[:12]
+
+
 def infer_content_type(object_name: str) -> str:
     """Infer content type from object name; fallback to binary stream."""
     guessed_type, _ = mimetypes.guess_type(object_name)
@@ -284,14 +381,17 @@ def build_default_metadata(file_path: str, document_id: str) -> dict[str, str]:
     """Construct default BibTeX metadata values for a document."""
     file_name = PurePosixPath(file_path).name
     file_stem = PurePosixPath(file_name).stem
-    citation_key = slugify(file_stem) or document_id[:12]
     title = re.sub(r"[-_]+", " ", file_stem).strip() or file_name or document_id[:12]
 
     metadata = {field_name: "" for field_name in BIBTEX_FIELDS}
     metadata["title"] = title
     metadata["document_type"] = "misc"
-    metadata["citation_key"] = citation_key
     metadata[AUTHORS_METADATA_FIELD] = ""
+    metadata["citation_key"] = build_default_citation_key(
+        metadata=metadata,
+        file_path=file_path,
+        document_id=document_id,
+    )
     return metadata
 
 
@@ -1751,8 +1851,10 @@ class RedisDocumentRepository:
         """Store metadata for one source location and return its metadata key."""
         normalized = normalize_metadata(metadata)
         if not normalized.get("citation_key"):
-            normalized["citation_key"] = (
-                slugify(PurePosixPath(object_name).stem) or document_id[:12]
+            normalized["citation_key"] = build_default_citation_key(
+                metadata=normalized,
+                file_path=object_name,
+                document_id=document_id,
             )
 
         meta_key = self._location_reference(bucket_name, object_name)
@@ -1828,6 +1930,13 @@ class RedisDocumentRepository:
         merged["document_type"] = merged.get("document_type", "") or "misc"
 
         object_names = self.get_document_object_names(bucket_name, document_id)
+        file_path = object_names[0] if object_names else self.get_state(document_id).get("file_path", "")
+        if not merged.get("citation_key"):
+            merged["citation_key"] = build_default_citation_key(
+                metadata=merged,
+                file_path=file_path or document_id,
+                document_id=document_id,
+            )
         if not object_names:
             self.set_state(document_id, {"meta_key": ""})
             return merged
