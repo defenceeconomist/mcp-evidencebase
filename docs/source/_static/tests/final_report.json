@@ -1,30 +1,114 @@
 {
   "filters": {
-    "untracked": 1,
-    "total": 1,
-    "passed": 1,
+    "untracked": 5,
+    "total": 5,
+    "passed": 5,
     "marker_counts": {
-      "area_api": 1
+      "area_ingestion": 5
     }
   },
   "results": [
     {
-      "test": "test_fetch_document_metadata_from_crossref_returns_payload",
-      "nodeid": "tests/test_api.py::test_fetch_document_metadata_from_crossref_returns_payload",
+      "test": "test_fetch_metadata_from_crossref_prefers_doi_and_updates_authors_and_entry_type",
+      "nodeid": "tests/test_ingestion.py::test_fetch_metadata_from_crossref_prefers_doi_and_updates_authors_and_entry_type",
       "status": "passed",
-      "duration": 0.0019094169983873144,
+      "duration": 0.0011558340047486126,
       "trace": null,
       "error": null,
       "markers": [
-        "area_api"
+        "area_ingestion"
       ],
-      "file": "tests/test_api.py",
-      "line": 544,
+      "file": "tests/test_ingestion.py",
+      "line": 584,
       "stdout": "",
-      "stderr": "INFO - HTTP Request: POST http://testserver/collections/research-raw/documents/doc-1/metadata/fetch \"HTTP/1.1 200 OK\"\n",
-      "timestamp": "2026-02-17T11:23:38.575620Z",
+      "stderr": "",
+      "timestamp": "2026-02-17T13:36:05.639138Z",
       "screenshot": "screenshots",
-      "logs": "HTTP Request: POST http://testserver/collections/research-raw/documents/doc-1/metadata/fetch \"HTTP/1.1 200 OK\"",
+      "logs": [],
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_fetch_metadata_from_crossref_rejects_low_confidence_title_match",
+      "nodeid": "tests/test_ingestion.py::test_fetch_metadata_from_crossref_rejects_low_confidence_title_match",
+      "status": "passed",
+      "duration": 0.0002465410070726648,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_ingestion"
+      ],
+      "file": "tests/test_ingestion.py",
+      "line": 727,
+      "stdout": "",
+      "stderr": "",
+      "timestamp": "2026-02-17T13:36:05.639754Z",
+      "screenshot": "screenshots",
+      "logs": [],
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_fetch_metadata_from_crossref_parses_name_only_author_entries",
+      "nodeid": "tests/test_ingestion.py::test_fetch_metadata_from_crossref_parses_name_only_author_entries",
+      "status": "passed",
+      "duration": 0.0002303749934071675,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_ingestion"
+      ],
+      "file": "tests/test_ingestion.py",
+      "line": 785,
+      "stdout": "",
+      "stderr": "",
+      "timestamp": "2026-02-17T13:36:05.640243Z",
+      "screenshot": "screenshots",
+      "logs": [],
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_fetch_metadata_from_crossref_falls_back_to_editors_when_author_missing",
+      "nodeid": "tests/test_ingestion.py::test_fetch_metadata_from_crossref_falls_back_to_editors_when_author_missing",
+      "status": "passed",
+      "duration": 0.0001613750064279884,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_ingestion"
+      ],
+      "file": "tests/test_ingestion.py",
+      "line": 849,
+      "stdout": "",
+      "stderr": "",
+      "timestamp": "2026-02-17T13:36:05.640641Z",
+      "screenshot": "screenshots",
+      "logs": [],
+      "worker": "main",
+      "links": [],
+      "flaky": false
+    },
+    {
+      "test": "test_fetch_metadata_from_crossref_tries_next_candidate_when_first_has_no_updates",
+      "nodeid": "tests/test_ingestion.py::test_fetch_metadata_from_crossref_tries_next_candidate_when_first_has_no_updates",
+      "status": "passed",
+      "duration": 0.000231999991228804,
+      "trace": null,
+      "error": null,
+      "markers": [
+        "area_ingestion"
+      ],
+      "file": "tests/test_ingestion.py",
+      "line": 915,
+      "stdout": "",
+      "stderr": "",
+      "timestamp": "2026-02-17T13:36:05.641104Z",
+      "screenshot": "screenshots",
+      "logs": [],
       "worker": "main",
       "links": [],
       "flaky": false

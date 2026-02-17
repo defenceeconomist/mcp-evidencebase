@@ -438,7 +438,7 @@
     <div class="report-metadata" style="background: #f2f4f7;">
     <h2 onclick="this.nextElementSibling.classList.toggle('hidden')" style="cursor: pointer; font-size: 12px; ">
         Execution Metadata (click to toggle)
-         <button class="inline-copy-btn" onclick="event.stopPropagation(); copyFromBase64('eydyZXBvcnRfdGl0bGUnOiAndGVzdHMnLCAnZW52aXJvbm1lbnQnOiAnUGFzcyAtLXJwLWVudiB0byBwb3B1bGF0ZSBlbnZpcm9ubWVudCcsICdicmFuY2gnOiAnUGFzcyAtLWdpdC1icmFuY2ggdG8gcG9wdWxhdGUgZ2l0IG1ldGFkYXRhJywgJ2NvbW1pdCc6ICdQYXNzIC0tZ2l0LWNvbW1pdCB0byBwb3B1bGF0ZSBnaXQgbWV0YWRhdGEnLCAncHl0aG9uX3ZlcnNpb24nOiAnMy4xNC4yJywgJ2dlbmVyYXRlZF9hdCc6ICcyMDI2LTAyLTE3VDExOjIzOjM4LjEwNTIzNCd9', this)" title="Copy metadata">
+         <button class="inline-copy-btn" onclick="event.stopPropagation(); copyFromBase64('eydyZXBvcnRfdGl0bGUnOiAndGVzdHMnLCAnZW52aXJvbm1lbnQnOiAnUGFzcyAtLXJwLWVudiB0byBwb3B1bGF0ZSBlbnZpcm9ubWVudCcsICdicmFuY2gnOiAnUGFzcyAtLWdpdC1icmFuY2ggdG8gcG9wdWxhdGUgZ2l0IG1ldGFkYXRhJywgJ2NvbW1pdCc6ICdQYXNzIC0tZ2l0LWNvbW1pdCB0byBwb3B1bGF0ZSBnaXQgbWV0YWRhdGEnLCAncHl0aG9uX3ZlcnNpb24nOiAnMy4xNC4yJywgJ2dlbmVyYXRlZF9hdCc6ICcyMDI2LTAyLTE3VDEzOjM2OjA1LjUwNDQ2Myd9', this)" title="Copy metadata">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                         <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
@@ -451,7 +451,7 @@
         <tr><th>Environment</th><td>Pass --rp-env to populate environment</td></tr>
         <tr><th>Branch</th><td>Pass --git-branch to populate git metadata</td></tr>
         <tr><th>Commit</th><td>Pass --git-commit to populate git metadata</td></tr>
-        <tr><th>Generated At</th><td>2026-02-17T11:23:38.105234</td></tr>
+        <tr><th>Generated At</th><td>2026-02-17T13:36:05.504463</td></tr>
         <tr><th>Python version</th><td>3.14.2</td></tr>
     </table>
 </div>
@@ -475,7 +475,7 @@
       </label>
       <label style="margin-left: 1rem;">
         <input type="checkbox" id="untrackedOnlyCheckbox" />
-        Show untracked (<span>1</span>)
+        Show untracked (<span>5</span>)
       </label>
       <span onclick="toggleUntrackedInfo()" style="
   display: inline-flex;
@@ -532,26 +532,26 @@
 
     <div id="markersFilter" class="marker-filter" style="margin-bottom: 1rem;">
       <strong>Filter by Markers:</strong><br/>
-    <label><input type="checkbox" value="area_api" /> area_api (1)</label> 
+    <label><input type="checkbox" value="area_ingestion" /> area_ingestion (5)</label> 
             <div style="padding: 1rem; background: #e6f4ea; 
             border: 1px solid #2f7a33; 
             border-radius: 5px; margin-bottom: 1rem;">
               <strong>Bingo!</strong> All your tests passed!
-              The slowest test was <strong>test_fetch_document_metadata_from_crossref_returns_payload</strong> at 0.00s.
+              The slowest test was <strong>test_fetch_metadata_from_crossref_prefers_doi_and_updates_authors_and_entry_type</strong> at 0.00s.
             </div>
             <div id="tests-container">
     
-<div class="test test-card" data-name="test_fetch_document_metadata_from_crossref_returns_payload" data-link="" data-markers="area_api">
+<div class="test test-card" data-name="test_fetch_metadata_from_crossref_prefers_doi_and_updates_authors_and_entry_type" data-link="" data-markers="area_ingestion">
   <div class="header passed" onclick="toggleDetails(this)">
     <div class="header-section test-info">
       <span class="toggle"></span>
-      <strong>test_fetch_document_metadata_from_crossref_returns_payload</strong>
+      <strong>test_fetch_metadata_from_crossref_prefers_doi_and_updates_authors_and_entry_type</strong>
       <span>— PASSED</span>
     </div>
     <div class="header-section meta">
       <span class="nodeid-badge" style="display: flex; align-items: center; gap: 6px;">
-        <code style="font-size: 0.6em; color: #555;">tests/test_api.py::test_fetch_document_metadata_from_crossref_returns_payload</code>
-          <button class="inline-copy-btn" onclick="event.stopPropagation(); copyFromBase64('dGVzdHMvdGVzdF9hcGkucHk6OnRlc3RfZmV0Y2hfZG9jdW1lbnRfbWV0YWRhdGFfZnJvbV9jcm9zc3JlZl9yZXR1cm5zX3BheWxvYWQ=', this)" title="Copy nodeid">
+        <code style="font-size: 0.6em; color: #555;">tests/test_ingestion.py::test_fetch_metadata_from_crossref_prefers_doi_and_updates_authors_and_entry_type</code>
+          <button class="inline-copy-btn" onclick="event.stopPropagation(); copyFromBase64('dGVzdHMvdGVzdF9pbmdlc3Rpb24ucHk6OnRlc3RfZmV0Y2hfbWV0YWRhdGFfZnJvbV9jcm9zc3JlZl9wcmVmZXJzX2RvaV9hbmRfdXBkYXRlc19hdXRob3JzX2FuZF9lbnRyeV90eXBl', this)" title="Copy nodeid">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                         <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
@@ -576,26 +576,183 @@
         
         
         
-                <div><strong>STDERR:</strong> <button class="inline-copy-btn" onclick="event.stopPropagation(); copyFromBase64('SU5GTyAtIEhUVFAgUmVxdWVzdDogUE9TVCBodHRwOi8vdGVzdHNlcnZlci9jb2xsZWN0aW9ucy9yZXNlYXJjaC1yYXcvZG9jdW1lbnRzL2RvYy0xL21ldGFkYXRhL2ZldGNoICJIVFRQLzEuMSAyMDAgT0siCg==', this)" title="Copy stderr">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                    </svg>
-                </button>
-            
-                <pre>INFO - HTTP Request: POST http://testserver/collections/research-raw/documents/doc-1/metadata/fetch "HTTP/1.1 200 OK"
-</pre></div>
-                
         
-                    <div><strong>Logs:</strong> <button class="inline-copy-btn" onclick="event.stopPropagation(); copyFromBase64('SFRUUCBSZXF1ZXN0OiBQT1NUIGh0dHA6Ly90ZXN0c2VydmVyL2NvbGxlY3Rpb25zL3Jlc2VhcmNoLXJhdy9kb2N1bWVudHMvZG9jLTEvbWV0YWRhdGEvZmV0Y2ggIkhUVFAvMS4xIDIwMCBPSyI=', this)" title="Copy logs">
+      </div>
+      
+    </div>
+  </div>
+</div>
+
+    
+    
+<div class="test test-card" data-name="test_fetch_metadata_from_crossref_rejects_low_confidence_title_match" data-link="" data-markers="area_ingestion">
+  <div class="header passed" onclick="toggleDetails(this)">
+    <div class="header-section test-info">
+      <span class="toggle"></span>
+      <strong>test_fetch_metadata_from_crossref_rejects_low_confidence_title_match</strong>
+      <span>— PASSED</span>
+    </div>
+    <div class="header-section meta">
+      <span class="nodeid-badge" style="display: flex; align-items: center; gap: 6px;">
+        <code style="font-size: 0.6em; color: #555;">tests/test_ingestion.py::test_fetch_metadata_from_crossref_rejects_low_confidence_title_match</code>
+          <button class="inline-copy-btn" onclick="event.stopPropagation(); copyFromBase64('dGVzdHMvdGVzdF9pbmdlc3Rpb24ucHk6OnRlc3RfZmV0Y2hfbWV0YWRhdGFfZnJvbV9jcm9zc3JlZl9yZWplY3RzX2xvd19jb25maWRlbmNlX3RpdGxlX21hdGNo', this)" title="Copy nodeid">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                         <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
                     </svg>
                 </button>
             
-                    <pre>HTTP Request: POST http://testserver/collections/research-raw/documents/doc-1/metadata/fetch "HTTP/1.1 200 OK"</pre></div>
-                    
+      </span>
+      <span class="worker-id" style="background: #ddd; border-radius: 3px; padding: 2px 5px; font-size: 0.85em; font-weight: bold;">main</span>
+    </div>
+
+    <div class="header-section badges-and-timing">
+      <span style="display:inline-block; min-width:40px;"></span>
+      <span style="display:inline-block; min-width:45px;"></span>
+      <span class="timestamp">⏱ 0.00s</span>
+    </div>
+  </div>
+
+  <div class="details">
+    <div class="details-content">
+      <div class="details-text">
+         
+        
+        
+        
+        
+      </div>
+      
+    </div>
+  </div>
+</div>
+
+    
+    
+<div class="test test-card" data-name="test_fetch_metadata_from_crossref_parses_name_only_author_entries" data-link="" data-markers="area_ingestion">
+  <div class="header passed" onclick="toggleDetails(this)">
+    <div class="header-section test-info">
+      <span class="toggle"></span>
+      <strong>test_fetch_metadata_from_crossref_parses_name_only_author_entries</strong>
+      <span>— PASSED</span>
+    </div>
+    <div class="header-section meta">
+      <span class="nodeid-badge" style="display: flex; align-items: center; gap: 6px;">
+        <code style="font-size: 0.6em; color: #555;">tests/test_ingestion.py::test_fetch_metadata_from_crossref_parses_name_only_author_entries</code>
+          <button class="inline-copy-btn" onclick="event.stopPropagation(); copyFromBase64('dGVzdHMvdGVzdF9pbmdlc3Rpb24ucHk6OnRlc3RfZmV0Y2hfbWV0YWRhdGFfZnJvbV9jcm9zc3JlZl9wYXJzZXNfbmFtZV9vbmx5X2F1dGhvcl9lbnRyaWVz', this)" title="Copy nodeid">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                    </svg>
+                </button>
+            
+      </span>
+      <span class="worker-id" style="background: #ddd; border-radius: 3px; padding: 2px 5px; font-size: 0.85em; font-weight: bold;">main</span>
+    </div>
+
+    <div class="header-section badges-and-timing">
+      <span style="display:inline-block; min-width:40px;"></span>
+      <span style="display:inline-block; min-width:45px;"></span>
+      <span class="timestamp">⏱ 0.00s</span>
+    </div>
+  </div>
+
+  <div class="details">
+    <div class="details-content">
+      <div class="details-text">
+         
+        
+        
+        
+        
+      </div>
+      
+    </div>
+  </div>
+</div>
+
+    
+    
+<div class="test test-card" data-name="test_fetch_metadata_from_crossref_falls_back_to_editors_when_author_missing" data-link="" data-markers="area_ingestion">
+  <div class="header passed" onclick="toggleDetails(this)">
+    <div class="header-section test-info">
+      <span class="toggle"></span>
+      <strong>test_fetch_metadata_from_crossref_falls_back_to_editors_when_author_missing</strong>
+      <span>— PASSED</span>
+    </div>
+    <div class="header-section meta">
+      <span class="nodeid-badge" style="display: flex; align-items: center; gap: 6px;">
+        <code style="font-size: 0.6em; color: #555;">tests/test_ingestion.py::test_fetch_metadata_from_crossref_falls_back_to_editors_when_author_missing</code>
+          <button class="inline-copy-btn" onclick="event.stopPropagation(); copyFromBase64('dGVzdHMvdGVzdF9pbmdlc3Rpb24ucHk6OnRlc3RfZmV0Y2hfbWV0YWRhdGFfZnJvbV9jcm9zc3JlZl9mYWxsc19iYWNrX3RvX2VkaXRvcnNfd2hlbl9hdXRob3JfbWlzc2luZw==', this)" title="Copy nodeid">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                    </svg>
+                </button>
+            
+      </span>
+      <span class="worker-id" style="background: #ddd; border-radius: 3px; padding: 2px 5px; font-size: 0.85em; font-weight: bold;">main</span>
+    </div>
+
+    <div class="header-section badges-and-timing">
+      <span style="display:inline-block; min-width:40px;"></span>
+      <span style="display:inline-block; min-width:45px;"></span>
+      <span class="timestamp">⏱ 0.00s</span>
+    </div>
+  </div>
+
+  <div class="details">
+    <div class="details-content">
+      <div class="details-text">
+         
+        
+        
+        
+        
+      </div>
+      
+    </div>
+  </div>
+</div>
+
+    
+    
+<div class="test test-card" data-name="test_fetch_metadata_from_crossref_tries_next_candidate_when_first_has_no_updates" data-link="" data-markers="area_ingestion">
+  <div class="header passed" onclick="toggleDetails(this)">
+    <div class="header-section test-info">
+      <span class="toggle"></span>
+      <strong>test_fetch_metadata_from_crossref_tries_next_candidate_when_first_has_no_updates</strong>
+      <span>— PASSED</span>
+    </div>
+    <div class="header-section meta">
+      <span class="nodeid-badge" style="display: flex; align-items: center; gap: 6px;">
+        <code style="font-size: 0.6em; color: #555;">tests/test_ingestion.py::test_fetch_metadata_from_crossref_tries_next_candidate_when_first_has_no_updates</code>
+          <button class="inline-copy-btn" onclick="event.stopPropagation(); copyFromBase64('dGVzdHMvdGVzdF9pbmdlc3Rpb24ucHk6OnRlc3RfZmV0Y2hfbWV0YWRhdGFfZnJvbV9jcm9zc3JlZl90cmllc19uZXh0X2NhbmRpZGF0ZV93aGVuX2ZpcnN0X2hhc19ub191cGRhdGVz', this)" title="Copy nodeid">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                    </svg>
+                </button>
+            
+      </span>
+      <span class="worker-id" style="background: #ddd; border-radius: 3px; padding: 2px 5px; font-size: 0.85em; font-weight: bold;">main</span>
+    </div>
+
+    <div class="header-section badges-and-timing">
+      <span style="display:inline-block; min-width:40px;"></span>
+      <span style="display:inline-block; min-width:45px;"></span>
+      <span class="timestamp">⏱ 0.00s</span>
+    </div>
+  </div>
+
+  <div class="details">
+    <div class="details-content">
+      <div class="details-text">
+         
+        
+        
+        
+        
       </div>
       
     </div>

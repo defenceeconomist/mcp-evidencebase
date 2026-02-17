@@ -1,5 +1,5 @@
 (function () {
-  window.__EVIDENCEBASE_UI_BUILD__ = "2026-02-17-folder-upload-a";
+  window.__EVIDENCEBASE_UI_BUILD__ = "2026-02-17-detail-harvard-author-a";
   const origin = window.location.origin;
   const apiBasePath = origin + "/api";
   const bucketList = document.getElementById("bucket-list");
@@ -705,11 +705,51 @@
     if (!normalizedValue) {
       return [];
     }
-    const splitPattern = /\s+and\s+|\s+(?:&|;)\s+/i;
+    const splitPattern = /\s+(?:and|&)\s+|\s*;\s*|\s*\n+\s*/i;
     return normalizedValue
       .split(splitPattern)
       .map((authorText) => parseAuthorFromText(authorText))
       .filter((authorEntry) => Boolean(authorEntry));
+  };
+
+  const resolveRecordAuthorEntries = (record) => {
+    if (!record || typeof record !== "object") {
+      return [];
+    }
+
+    const normalizedEntries = normalizeAuthorEntries(record.authors);
+    if (normalizedEntries.length > 0) {
+      return normalizedEntries;
+    }
+
+    const authorCandidates = [
+      record.bibtex_fields && typeof record.bibtex_fields === "object"
+        ? record.bibtex_fields.author
+        : "",
+      record.author,
+    ];
+
+    for (const candidate of authorCandidates) {
+      const structuredEntries = parseStructuredAuthors(candidate);
+      if (structuredEntries.length > 0) {
+        return structuredEntries;
+      }
+      const parsedFromText = parseAuthorsFromText(candidate);
+      if (parsedFromText.length > 0) {
+        return parsedFromText;
+      }
+    }
+
+    return [];
+  };
+
+  const getRecordAuthorDisplayHarvard = (record) => {
+    const normalizedEntries = resolveRecordAuthorEntries(record);
+    const harvardDisplay = formatAuthorsHarvard(normalizedEntries);
+    if (harvardDisplay) {
+      return harvardDisplay;
+    }
+    return normalizeText(record?.author);
   };
 
   const getAuthorInitials = (firstName) => {
@@ -946,7 +986,11 @@
       record.bibtex_fields = {};
     }
     if (fieldName === "author" && !preserveStructuredAuthors) {
-      record.authors = parseAuthorsFromText(normalizedValue);
+      const structuredEntries = parseStructuredAuthors(normalizedValue);
+      record.authors =
+        structuredEntries.length > 0
+          ? structuredEntries
+          : parseAuthorsFromText(normalizedValue);
     }
     record[fieldName] = normalizedValue;
     record.bibtex_fields[fieldName] = normalizedValue;
@@ -2184,20 +2228,22 @@
           const normalizedValue = normalizeText(newValue);
           if (property === "document_type") {
             const nextType = normalizeDocumentType(normalizedValue);
+            selectedDocumentId = record.document_id;
             record.document_type = nextType;
             if (nextType !== newValue) {
               documentTable.setDataAtRowProp(visualRow, "document_type", nextType, "normalize");
             }
             scheduleDocumentMetadataSave(record);
-            shouldRefreshDetailForm = shouldRefreshDetailForm || record.document_id === selectedDocumentId;
+            shouldRefreshDetailForm = true;
             shouldRefreshDetailTable = true;
             return;
           }
 
           if (property === "citation_key") {
+            selectedDocumentId = record.document_id;
             record.citation_key = normalizedValue;
             scheduleDocumentMetadataSave(record);
-            shouldRefreshDetailForm = shouldRefreshDetailForm || record.document_id === selectedDocumentId;
+            shouldRefreshDetailForm = true;
             return;
           }
 
@@ -2208,9 +2254,10 @@
           }
 
           if (bibtexFields.includes(property)) {
+            selectedDocumentId = record.document_id;
             setBibtexFieldValue(record, property, normalizedValue);
             scheduleDocumentMetadataSave(record);
-            shouldRefreshDetailForm = shouldRefreshDetailForm || record.document_id === selectedDocumentId;
+            shouldRefreshDetailForm = true;
             shouldRefreshDetailTable = true;
             return;
           }
@@ -2440,7 +2487,7 @@
       yearCell.textContent = documentRecord.year || "n/a";
 
       const authorCell = document.createElement("td");
-      authorCell.textContent = documentRecord.author || "n/a";
+      authorCell.textContent = getRecordAuthorDisplayHarvard(documentRecord) || "n/a";
 
       const publicationCell = document.createElement("td");
       publicationCell.textContent = documentRecord.publication || "n/a";
@@ -2593,7 +2640,7 @@
     addAuthorButton.type = "button";
     addAuthorButton.className = "btn btn-outline-secondary btn-sm align-self-start mt-2";
     addAuthorButton.textContent = "Add Author";
-    let authorEntries = [...normalizeAuthorEntries(record.authors)];
+    let authorEntries = [...resolveRecordAuthorEntries(record)];
 
     const renderAuthorRows = () => {
       listWrap.innerHTML = "";

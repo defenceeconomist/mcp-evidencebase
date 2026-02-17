@@ -1347,29 +1347,63 @@ def _crossref_extract_year_month(item: Mapping[str, Any]) -> tuple[str, str]:
     return year, month
 
 
-def _crossref_extract_author_entries(item: Mapping[str, Any]) -> list[dict[str, str]]:
-    """Extract normalized author entries from a Crossref work item."""
-    raw_authors = item.get("author")
-    if not isinstance(raw_authors, list):
+def _crossref_parse_person_name(value: Any) -> tuple[str, str]:
+    """Parse a free-text person name into ``(first_name, last_name)``."""
+    normalized_value = str(value or "").strip()
+    if not normalized_value:
+        return "", ""
+
+    if "," in normalized_value:
+        comma_parts = [part.strip() for part in normalized_value.split(",") if part.strip()]
+        if len(comma_parts) >= 2:
+            return comma_parts[1], comma_parts[0]
+        return "", comma_parts[0]
+
+    tokens = [token.strip() for token in normalized_value.split() if token.strip()]
+    if not tokens:
+        return "", ""
+    if len(tokens) == 1:
+        return "", tokens[0]
+    return " ".join(tokens[:-1]), tokens[-1]
+
+
+def _crossref_extract_contributor_entries(
+    item: Mapping[str, Any],
+    field_name: str,
+) -> list[dict[str, str]]:
+    """Extract normalized person entries from one Crossref contributor field."""
+    raw_people = item.get(field_name)
+    if not isinstance(raw_people, list):
         return []
 
-    normalized_authors: list[dict[str, str]] = []
-    for raw_author in raw_authors:
-        if not isinstance(raw_author, Mapping):
+    normalized_people: list[dict[str, str]] = []
+    for raw_person in raw_people:
+        if not isinstance(raw_person, Mapping):
             continue
-        first_name = str(raw_author.get("given") or "").strip()
-        last_name = str(raw_author.get("family") or "").strip()
-        suffix = str(raw_author.get("suffix") or "").strip()
+        first_name = str(raw_person.get("given") or "").strip()
+        last_name = str(raw_person.get("family") or "").strip()
+        suffix = str(raw_person.get("suffix") or "").strip()
+        if not first_name and not last_name:
+            parsed_first_name, parsed_last_name = _crossref_parse_person_name(
+                raw_person.get("name") or raw_person.get("literal") or ""
+            )
+            first_name = parsed_first_name
+            last_name = parsed_last_name
         if not first_name and not last_name and not suffix:
             continue
-        normalized_authors.append(
+        normalized_people.append(
             {
                 "first_name": first_name,
                 "last_name": last_name,
                 "suffix": suffix,
             }
         )
-    return normalized_authors
+    return normalized_people
+
+
+def _crossref_extract_author_entries(item: Mapping[str, Any]) -> list[dict[str, str]]:
+    """Extract normalized author entries from a Crossref work item."""
+    return _crossref_extract_contributor_entries(item, "author")
 
 
 def _author_initials(first_name: str) -> str:
@@ -1506,6 +1540,38 @@ def _crossref_score_item(
     return 0.0
 
 
+def _crossref_enrichment_score(item: Mapping[str, Any]) -> int:
+    """Return a coarse metadata richness score for tie-breaking candidate selection."""
+    score = 0
+    if _crossref_extract_item_title(item):
+        score += 1
+    if _normalize_doi_lookup_value(str(item.get("DOI") or "")):
+        score += 2
+    if _crossref_extract_author_entries(item):
+        score += 4
+    if _crossref_extract_contributor_entries(item, "editor"):
+        score += 2
+    year, _ = _crossref_extract_year_month(item)
+    if year:
+        score += 1
+    if _crossref_first_text(item.get("container-title")):
+        score += 1
+    return score
+
+
+def _metadata_update_changes(existing: Mapping[str, Any], update: Mapping[str, Any]) -> bool:
+    """Return whether applying ``update`` would change any normalized metadata field."""
+    existing_normalized = normalize_metadata(existing)
+    update_normalized = normalize_metadata(update)
+
+    for field_name in METADATA_FIELDS:
+        if field_name not in update_normalized:
+            continue
+        if update_normalized.get(field_name, "") != existing_normalized.get(field_name, ""):
+            return True
+    return False
+
+
 def _crossref_map_item_to_metadata(
     item: Mapping[str, Any],
 ) -> dict[str, Any]:
@@ -1573,9 +1639,15 @@ def _crossref_map_item_to_metadata(
         metadata["month"] = month
 
     authors = _crossref_extract_author_entries(item)
+    editors = _crossref_extract_contributor_entries(item, "editor")
+    if editors:
+        metadata["editor"] = _format_authors_harvard(editors)
     if authors:
         metadata[AUTHORS_METADATA_FIELD] = authors
         metadata["author"] = _format_authors_harvard(authors)
+    elif editors:
+        # Some Crossref records provide contributor names under editor only.
+        metadata["author"] = _format_authors_harvard(editors)
 
     return metadata
 
@@ -3521,6 +3593,42 @@ class IngestionService:
 
         return best_item, best_score
 
+    def _crossref_rank_items(
+        self,
+        *,
+        items: list[Mapping[str, Any]],
+        lookup_field: str,
+        expected_doi: str,
+        expected_isbn: str,
+        expected_issn: str,
+        expected_title: str,
+        expected_year: str,
+    ) -> list[tuple[Mapping[str, Any], float]]:
+        """Return scored candidates ordered by confidence then metadata richness."""
+        scored: list[tuple[Mapping[str, Any], float]] = []
+        for item in items:
+            confidence = _crossref_score_item(
+                item,
+                lookup_field=lookup_field,
+                expected_doi=expected_doi,
+                expected_isbn=expected_isbn,
+                expected_issn=expected_issn,
+                expected_title=expected_title,
+                expected_year=expected_year,
+            )
+            if confidence <= 0:
+                continue
+            scored.append((item, confidence))
+
+        scored.sort(
+            key=lambda candidate: (
+                candidate[1],
+                _crossref_enrichment_score(candidate[0]),
+            ),
+            reverse=True,
+        )
+        return scored
+
     def fetch_metadata_from_crossref(
         self,
         *,
@@ -3591,40 +3699,66 @@ class IngestionService:
                     expected_title=expected_title,
                     expected_year=expected_year,
                 )
-            else:
-                items = self._crossref_extract_items(payload)
-                candidate_item, confidence = self._crossref_select_best_item(
-                    items=items,
-                    lookup_field=lookup_field,
-                    expected_doi=expected_doi,
-                    expected_isbn=expected_isbn,
-                    expected_issn=expected_issn,
-                    expected_title=expected_title,
-                    expected_year=expected_year,
-                )
-                if not candidate_item:
+                if confidence > best_attempt_score:
+                    best_attempt_score = confidence
+                    best_attempt_field = lookup_field
+
+                if confidence < CROSSREF_CONFIDENCE_THRESHOLD:
                     continue
 
-            if confidence > best_attempt_score:
-                best_attempt_score = confidence
-                best_attempt_field = lookup_field
+                fetched_metadata = _crossref_map_item_to_metadata(
+                    candidate_item,
+                )
+                if not _metadata_update_changes(existing_metadata, fetched_metadata):
+                    continue
+                merged = self.update_metadata(
+                    bucket_name=bucket_name,
+                    document_id=document_id,
+                    metadata=fetched_metadata,
+                )
+                return {
+                    "lookup_field": lookup_field,
+                    "confidence": round(confidence, 4),
+                    "metadata": merged,
+                }
 
-            if confidence < CROSSREF_CONFIDENCE_THRESHOLD:
+            items = self._crossref_extract_items(payload)
+            ranked_candidates = self._crossref_rank_items(
+                items=items,
+                lookup_field=lookup_field,
+                expected_doi=expected_doi,
+                expected_isbn=expected_isbn,
+                expected_issn=expected_issn,
+                expected_title=expected_title,
+                expected_year=expected_year,
+            )
+            if not ranked_candidates:
                 continue
 
-            fetched_metadata = _crossref_map_item_to_metadata(
-                candidate_item,
-            )
-            merged = self.update_metadata(
-                bucket_name=bucket_name,
-                document_id=document_id,
-                metadata=fetched_metadata,
-            )
-            return {
-                "lookup_field": lookup_field,
-                "confidence": round(confidence, 4),
-                "metadata": merged,
-            }
+            for candidate_item, confidence in ranked_candidates:
+                if confidence > best_attempt_score:
+                    best_attempt_score = confidence
+                    best_attempt_field = lookup_field
+
+                if confidence < CROSSREF_CONFIDENCE_THRESHOLD:
+                    break
+
+                fetched_metadata = _crossref_map_item_to_metadata(
+                    candidate_item,
+                )
+                if not _metadata_update_changes(existing_metadata, fetched_metadata):
+                    continue
+
+                merged = self.update_metadata(
+                    bucket_name=bucket_name,
+                    document_id=document_id,
+                    metadata=fetched_metadata,
+                )
+                return {
+                    "lookup_field": lookup_field,
+                    "confidence": round(confidence, 4),
+                    "metadata": merged,
+                }
 
         if best_attempt_field:
             raise ValueError(

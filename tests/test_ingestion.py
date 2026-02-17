@@ -783,6 +783,205 @@ def test_fetch_metadata_from_crossref_rejects_low_confidence_title_match(
     assert "No high-confidence Crossref match was accepted" in str(exc_info.value)
 
 
+def test_fetch_metadata_from_crossref_parses_name_only_author_entries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ensure title lookups accept Crossref author entries that only expose ``name``."""
+    redis_client = FakeRedis()
+    repository = RedisDocumentRepository(redis_client, key_prefix="test")
+    bucket_name = "research-raw"
+    document_id = "doc-crossref-name-only-author"
+    object_name = "chapter.pdf"
+
+    repository.add_document(bucket_name, document_id)
+    repository.mark_object(
+        bucket_name=bucket_name,
+        object_name=object_name,
+        document_id=document_id,
+        etag="etag-1",
+    )
+    repository.set_metadata_for_location(
+        bucket_name=bucket_name,
+        object_name=object_name,
+        document_id=document_id,
+        metadata={"title": "Mandatory defense offsets-conceptual foundations"},
+    )
+
+    service = IngestionService(
+        minio_client=FakeMinioClient(b"%PDF-1.7 fake"),
+        repository=repository,
+        partition_client=FakePartitionClient([]),
+        qdrant_indexer=RecordingQdrantIndexer(),  # type: ignore[arg-type]
+        chunk_size_chars=1200,
+        chunk_overlap_chars=150,
+    )
+
+    def fake_crossref_get_json(*, path: str, params: Mapping[str, str] | None = None) -> Mapping[str, Any]:
+        del path, params
+        return {
+            "message": {
+                "items": [
+                    {
+                        "DOI": "10.4324/9780203392300-12",
+                        "title": ["Mandatory defense offsets-conceptual foundations"],
+                        "type": "book-chapter",
+                        "author": [{"name": "Ron Matthews"}],
+                        "container-title": ["Arms Trade and Economic Development"],
+                    }
+                ]
+            }
+        }
+
+    monkeypatch.setattr(service, "_crossref_get_json", fake_crossref_get_json)
+
+    result = service.fetch_metadata_from_crossref(
+        bucket_name=bucket_name,
+        document_id=document_id,
+    )
+
+    assert result["lookup_field"] == "title"
+    _, metadata = repository.get_document_metadata(bucket_name, document_id)
+    assert metadata["author"] == "Matthews, R."
+    assert json.loads(metadata["authors"]) == [
+        {"first_name": "Ron", "last_name": "Matthews", "suffix": ""}
+    ]
+
+
+def test_fetch_metadata_from_crossref_falls_back_to_editors_when_author_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ensure editor-only Crossref records still populate displayable creator fields."""
+    redis_client = FakeRedis()
+    repository = RedisDocumentRepository(redis_client, key_prefix="test")
+    bucket_name = "research-raw"
+    document_id = "doc-crossref-editor-only"
+    object_name = "volume.pdf"
+
+    repository.add_document(bucket_name, document_id)
+    repository.mark_object(
+        bucket_name=bucket_name,
+        object_name=object_name,
+        document_id=document_id,
+        etag="etag-1",
+    )
+    repository.set_metadata_for_location(
+        bucket_name=bucket_name,
+        object_name=object_name,
+        document_id=document_id,
+        metadata={"title": "Offsets and Industrial Cooperation"},
+    )
+
+    service = IngestionService(
+        minio_client=FakeMinioClient(b"%PDF-1.7 fake"),
+        repository=repository,
+        partition_client=FakePartitionClient([]),
+        qdrant_indexer=RecordingQdrantIndexer(),  # type: ignore[arg-type]
+        chunk_size_chars=1200,
+        chunk_overlap_chars=150,
+    )
+
+    def fake_crossref_get_json(*, path: str, params: Mapping[str, str] | None = None) -> Mapping[str, Any]:
+        del path, params
+        return {
+            "message": {
+                "items": [
+                    {
+                        "DOI": "10.5555/editor-only",
+                        "title": ["Offsets and Industrial Cooperation"],
+                        "type": "edited-book",
+                        "editor": [
+                            {"given": "Ron", "family": "Matthews"},
+                            {"given": "Keith", "family": "Hartley"},
+                        ],
+                        "publisher": "Routledge",
+                    }
+                ]
+            }
+        }
+
+    monkeypatch.setattr(service, "_crossref_get_json", fake_crossref_get_json)
+
+    result = service.fetch_metadata_from_crossref(
+        bucket_name=bucket_name,
+        document_id=document_id,
+    )
+
+    assert result["lookup_field"] == "title"
+    _, metadata = repository.get_document_metadata(bucket_name, document_id)
+    assert metadata["author"] == "Matthews, R. & Hartley, K."
+    assert metadata["editor"] == "Matthews, R. & Hartley, K."
+    assert metadata["authors"] == ""
+
+
+def test_fetch_metadata_from_crossref_tries_next_candidate_when_first_has_no_updates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ensure title lookups continue when the top-scoring candidate adds no new fields."""
+    redis_client = FakeRedis()
+    repository = RedisDocumentRepository(redis_client, key_prefix="test")
+    bucket_name = "research-raw"
+    document_id = "doc-crossref-title-next-candidate"
+    object_name = "offsets.pdf"
+
+    repository.add_document(bucket_name, document_id)
+    repository.mark_object(
+        bucket_name=bucket_name,
+        object_name=object_name,
+        document_id=document_id,
+        etag="etag-1",
+    )
+    repository.set_metadata_for_location(
+        bucket_name=bucket_name,
+        object_name=object_name,
+        document_id=document_id,
+        metadata={"title": "Using procurement offsets as an economic development strategy"},
+    )
+
+    service = IngestionService(
+        minio_client=FakeMinioClient(b"%PDF-1.7 fake"),
+        repository=repository,
+        partition_client=FakePartitionClient([]),
+        qdrant_indexer=RecordingQdrantIndexer(),  # type: ignore[arg-type]
+        chunk_size_chars=1200,
+        chunk_overlap_chars=150,
+    )
+
+    def fake_crossref_get_json(*, path: str, params: Mapping[str, str] | None = None) -> Mapping[str, Any]:
+        del path, params
+        return {
+            "message": {
+                "items": [
+                    {
+                        "DOI": "10.9999/no-op",
+                        "title": ["Using procurement offsets as an economic development strategy"],
+                        "type": "book-chapter",
+                    },
+                    {
+                        "DOI": "10.4324/9780203392300-9",
+                        "title": ["Using procurement offsets as an economic development strategy"],
+                        "type": "book-chapter",
+                        "author": [{"given": "Travis", "family": "Taylor"}],
+                        "container-title": ["Arms Trade and Economic Development"],
+                    },
+                ]
+            }
+        }
+
+    monkeypatch.setattr(service, "_crossref_get_json", fake_crossref_get_json)
+
+    result = service.fetch_metadata_from_crossref(
+        bucket_name=bucket_name,
+        document_id=document_id,
+    )
+
+    assert result["lookup_field"] == "title"
+    _, metadata = repository.get_document_metadata(bucket_name, document_id)
+    assert metadata["author"] == "Taylor, T."
+    assert json.loads(metadata["authors"]) == [
+        {"first_name": "Travis", "last_name": "Taylor", "suffix": ""}
+    ]
+
+
 def test_crossref_request_kind_detects_single_and_list_requests() -> None:
     """Ensure Crossref request paths are classified correctly."""
     assert IngestionService._crossref_request_kind("/works/10.5555%2Fexample-doi") == "single"
