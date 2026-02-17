@@ -58,6 +58,8 @@ curl -sS -X POST \
 This stores the object in MinIO and queues a Celery task for:
 - Unstructured partition extraction (raw partition JSON persisted in Redis)
 - metadata extraction (PDF metadata + first-page DOI/ISBN/ISSN heuristics)
+- optional Crossref metadata enrichment (`update_meta=True` on upload- and scan-triggered tasks)
+  with existing Crossref rate limits preserved
 - chunking with overlap (`CHUNK_SIZE_CHARS`, `CHUNK_OVERLAP_CHARS`) using internal chunk logic
 - Qdrant upsert (chunk text + `page_numbers` + `bounding_boxes`)
 
@@ -145,13 +147,14 @@ curl -sS -X DELETE "$BASE_URL/buckets/$BUCKET"
 Tasks are defined in `src/mcp_evidencebase/tasks.py`:
 
 - `mcp_evidencebase.ping`: simple worker health task.
-- `mcp_evidencebase.scan_minio_objects(bucket_name=None)`: scans MinIO and enqueues
-  `partition_minio_object` for objects that are new or have changed ETag.
-- `mcp_evidencebase.partition_minio_object(bucket_name, object_name, etag=None)`: performs
-  partition + metadata extraction and then enqueues `chunk_minio_object`.
+- `mcp_evidencebase.scan_minio_objects(bucket_name=None, update_meta=True)`: scans MinIO and
+  enqueues `partition_minio_object` for objects that are new or have changed ETag.
+- `mcp_evidencebase.partition_minio_object(bucket_name, object_name, etag=None, update_meta=False)`:
+  performs partition + metadata extraction, optional Crossref metadata update, then enqueues
+  `chunk_minio_object`.
 - `mcp_evidencebase.chunk_minio_object(partition_payload)`: performs chunking + Qdrant upsert.
-- `mcp_evidencebase.process_minio_object(bucket_name, object_name, etag=None)`: backward-compatible
-  wrapper that runs both stages inline.
+- `mcp_evidencebase.process_minio_object(bucket_name, object_name, etag=None, update_meta=False)`:
+  backward-compatible wrapper that runs both stages inline.
 
 Current workflow shape:
 

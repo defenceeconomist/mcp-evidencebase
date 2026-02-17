@@ -429,7 +429,7 @@ def test_upload_document_queues_processing_task(
     assert response.json()["task_id"] == "task-upload-1"
     assert response.json()["queue_error"] == ""
     assert service.uploaded == [("research-raw", "paper.pdf", b"pdf-bytes")]
-    assert fake_task.calls == [("research-raw", "paper.pdf", None)]
+    assert fake_task.calls == [("research-raw", "paper.pdf", None, True)]
 
 
 def test_trigger_bucket_scan_queues_task(

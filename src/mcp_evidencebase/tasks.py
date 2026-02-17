@@ -11,10 +11,35 @@ Task summary:
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
+from typing import Any
 
 from mcp_evidencebase.celery_app import app
 from mcp_evidencebase.ingestion import build_ingestion_service
+
+logger = logging.getLogger(__name__)
+
+
+def _update_metadata_from_crossref(
+    *,
+    service: Any,
+    bucket_name: str,
+    document_id: str,
+) -> None:
+    """Attempt Crossref metadata enrichment without failing ingestion tasks."""
+    try:
+        service.fetch_metadata_from_crossref(
+            bucket_name=bucket_name,
+            document_id=document_id,
+        )
+    except Exception as exc:
+        logger.info(
+            "Crossref metadata update skipped for %s/%s: %s",
+            bucket_name,
+            document_id,
+            exc,
+        )
 
 
 @app.task(name="mcp_evidencebase.ping")
@@ -24,11 +49,15 @@ def ping() -> str:
 
 
 @app.task(name="mcp_evidencebase.scan_minio_objects")
-def scan_minio_objects(bucket_name: str | None = None) -> dict[str, int]:
+def scan_minio_objects(
+    bucket_name: str | None = None,
+    update_meta: bool = True,
+) -> dict[str, int]:
     """Scan MinIO buckets and enqueue processing for new or changed objects.
 
     Args:
         bucket_name: Optional bucket to scan. When omitted, all buckets are scanned.
+        update_meta: Forward metadata update behavior to partition tasks.
 
     Returns:
         Scan summary with number of buckets scanned and objects queued.
@@ -47,7 +76,12 @@ def scan_minio_objects(bucket_name: str | None = None) -> dict[str, int]:
                 etag=etag,
             ):
                 continue
-            partition_minio_object.delay(current_bucket_name, object_name, etag)
+            partition_minio_object.delay(
+                current_bucket_name,
+                object_name,
+                etag,
+                update_meta,
+            )
             queued += 1
 
     return {"scanned": scanned, "queued": queued}
@@ -64,6 +98,7 @@ def partition_minio_object(
     bucket_name: str,
     object_name: str,
     etag: str | None = None,
+    update_meta: bool = False,
 ) -> dict[str, str]:
     """Run partitioning and metadata extraction, then enqueue chunk/index stage.
 
@@ -71,6 +106,7 @@ def partition_minio_object(
         bucket_name: Source MinIO bucket.
         object_name: Source object path.
         etag: Optional object etag from scanner context.
+        update_meta: When ``True``, attempt Crossref metadata enrichment.
 
     Returns:
         Mapping containing stage payload with deterministic IDs and keys.
@@ -81,6 +117,12 @@ def partition_minio_object(
         object_name=object_name,
         etag=etag,
     )
+    if update_meta:
+        _update_metadata_from_crossref(
+            service=service,
+            bucket_name=bucket_name,
+            document_id=stage_payload["document_id"],
+        )
     chunk_minio_object.delay(stage_payload)
     return stage_payload
 
@@ -127,6 +169,7 @@ def process_minio_object(
     bucket_name: str,
     object_name: str,
     etag: str | None = None,
+    update_meta: bool = False,
 ) -> dict[str, str]:
     """Backward-compatible wrapper that runs both ingestion stages inline."""
     service = build_ingestion_service()
@@ -135,6 +178,12 @@ def process_minio_object(
         object_name=object_name,
         etag=etag,
     )
+    if update_meta:
+        _update_metadata_from_crossref(
+            service=service,
+            bucket_name=bucket_name,
+            document_id=stage_payload["document_id"],
+        )
     service.chunk_object(
         bucket_name=bucket_name,
         object_name=object_name,

@@ -359,7 +359,12 @@ async def upload_document(
     task_id: str | None = None
     queue_error = ""
     try:
-        task = partition_minio_object.delay(normalized_bucket_name, object_name, None)
+        task = partition_minio_object.delay(
+            normalized_bucket_name,
+            object_name,
+            None,
+            True,
+        )
         task_id = task.id
     except Exception as exc:
         queued = False

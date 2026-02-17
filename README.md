@@ -219,6 +219,9 @@ curl -sS -X POST \
   --data-binary "@paper.pdf"
 ```
 
+This upload path enqueues `partition_minio_object(..., update_meta=True)`, so metadata
+enrichment from Crossref is attempted before chunking when a high-confidence match is found.
+
 Trigger on-demand scan:
 
 ```bash
@@ -274,7 +277,11 @@ Stage details:
 3. Extract metadata:
    - title/author from embedded PDF metadata (when available),
    - DOI/ISBN/ISSN from first-page partition text.
-4. Chunk partitions with structure-aware deterministic chunking (`chunk_unstructured_elements`):
+4. Optionally enrich metadata from Crossref when `update_meta=True` is provided to the task
+   (upload and scan task paths enable this by default). Crossref requests use the existing shared
+   limiter:
+   public pool concurrency `1`, global `5 req/s`, single-record `5 req/s`, list-query `1 req/s`.
+5. Chunk partitions with structure-aware deterministic chunking (`chunk_unstructured_elements`):
    - title-aware: `Title` elements create hard section boundaries and update `section_title`,
    - element-first: full elements are appended in order and joined with `\n\n` (semantic boundaries kept),
    - table-safe: `Table` elements are emitted as standalone `type="table"` chunks,
@@ -289,10 +296,10 @@ Stage details:
      - each chunk keeps `orig_elements` trace records (`element_id`, `type/category`, `page_number`,
        `coordinates`, `text_len`),
      - compatibility fields `chunk_index`, `page_numbers`, and `bounding_boxes` are retained.
-5. Embed chunks and upsert vectors into bucket-specific Qdrant collection:
+6. Embed chunks and upsert vectors into bucket-specific Qdrant collection:
    - dense semantic vector (`FASTEMBED_MODEL`),
    - sparse keyword vector (`FASTEMBED_KEYWORD_MODEL`, default `Qdrant/bm25`).
-6. Hybrid search fuses semantic and keyword ranks using weighted reciprocal rank fusion.
+7. Hybrid search fuses semantic and keyword ranks using weighted reciprocal rank fusion.
 
 Chunking is internal to `IngestionService` and does not call Unstructured APIs. This allows
 future chunking strategy changes without changing the partition stage.
@@ -302,13 +309,13 @@ future chunking strategy changes without changing the partition stage.
 Defined in `src/mcp_evidencebase/tasks.py`:
 
 - `mcp_evidencebase.ping`: worker health probe (`pong`).
-- `mcp_evidencebase.scan_minio_objects(bucket_name=None)`: scan one/all buckets and enqueue
-  `partition_minio_object` for changed objects.
-- `mcp_evidencebase.partition_minio_object(bucket_name, object_name, etag=None)`: partition +
-  metadata stage, then enqueues `chunk_minio_object`.
+- `mcp_evidencebase.scan_minio_objects(bucket_name=None, update_meta=True)`: scan one/all buckets
+  and enqueue `partition_minio_object` for changed objects.
+- `mcp_evidencebase.partition_minio_object(bucket_name, object_name, etag=None, update_meta=False)`:
+  partition + metadata stage, optional Crossref metadata update, then enqueues `chunk_minio_object`.
 - `mcp_evidencebase.chunk_minio_object(partition_payload)`: chunk + vector upsert stage.
-- `mcp_evidencebase.process_minio_object(bucket_name, object_name, etag=None)`: backward-compatible
-  wrapper that runs both stages inline.
+- `mcp_evidencebase.process_minio_object(bucket_name, object_name, etag=None, update_meta=False)`:
+  backward-compatible wrapper that runs both stages inline.
 
 Beat schedule is configured in `src/mcp_evidencebase/celery_app.py`. To execute scheduled scans,
 run a beat process (or worker with beat enabled). The current API endpoint
