@@ -130,6 +130,13 @@
   padding: 0.1rem 0.35rem;
 }
 
+#document-hot-container .handsontable td a,
+#document-hot-container .handsontable td a:visited,
+#document-hot-container .handsontable td a:hover,
+#document-hot-container .handsontable td a:active {
+  color: inherit !important;
+}
+
 #document-hot-container {
   width: 100%;
   height: 100%;
@@ -197,6 +204,18 @@
 .header-action-btn {
   font-size: 0.75rem;
   line-height: 1.2;
+}
+
+.bulk-fetch-progress {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.bulk-fetch-progress .progress {
+  flex: 1 1 auto;
+  min-width: 10rem;
+  height: 0.9rem;
 }
 
 .table-view-toggle {

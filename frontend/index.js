@@ -1,4 +1,5 @@
 (function () {
+  window.__EVIDENCEBASE_UI_BUILD__ = "2026-02-17-bulk-meta-progress-a";
   const origin = window.location.origin;
   const apiBasePath = origin + "/api";
   const bucketList = document.getElementById("bucket-list");
@@ -13,6 +14,10 @@
   const collectionToggles = document.querySelectorAll('[data-action="toggle-collections"]');
   const uploadPdfButton = document.getElementById("upload-pdf-btn");
   const fetchMetaButton = document.getElementById("fetch-meta-btn");
+  const removeSelectedDocumentsButton = document.getElementById("remove-selected-docs-btn");
+  const bulkFetchProgress = document.getElementById("bulk-fetch-progress");
+  const bulkFetchProgressBar = document.getElementById("bulk-fetch-progress-bar");
+  const bulkFetchProgressText = document.getElementById("bulk-fetch-progress-text");
   const removeDocumentButton = document.getElementById("remove-doc-btn");
   const documentCardHeader = document.getElementById("document-card-header");
   const detailViewContainer = document.getElementById("detail-view-container");
@@ -256,6 +261,8 @@
     month: "Month",
     year: "Year",
   };
+  const crossrefLookupSeedFields = ["doi", "issn", "isbn", "title"];
+  const minimalMetadataIdentityFields = ["doi", "issn", "isbn", "title", "author"];
   const statusBadgeMeta = {
     required: { label: "Required", className: "bibtex-status-required" },
     recommended: { label: "Recommended", className: "bibtex-status-recommended" },
@@ -270,6 +277,51 @@
       .split("_")
       .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
       .join(" ");
+  };
+
+  const getRecordBibtexFieldValue = (record, fieldName) => {
+    if (!record || typeof record !== "object") {
+      return "";
+    }
+    const hasBibtexField =
+      record.bibtex_fields &&
+      typeof record.bibtex_fields === "object" &&
+      Object.prototype.hasOwnProperty.call(record.bibtex_fields, fieldName);
+    return normalizeText(hasBibtexField ? record.bibtex_fields[fieldName] : record[fieldName]);
+  };
+
+  const hasMissingRequiredBibtexFields = (record) => {
+    const rules = bibtexTypeRules[normalizeDocumentType(record?.document_type)] || {
+      required: [],
+      recommended: [],
+    };
+    return (rules.required || []).some((fieldName) => !getRecordBibtexFieldValue(record, fieldName));
+  };
+
+  const hasOnlyLookupIdentityFields = (record) => {
+    const nonEmptyBibtexFieldNames = bibtexFields.filter((fieldName) => getRecordBibtexFieldValue(record, fieldName));
+    if (nonEmptyBibtexFieldNames.length === 0) {
+      return false;
+    }
+    return nonEmptyBibtexFieldNames.every((fieldName) => minimalMetadataIdentityFields.includes(fieldName));
+  };
+
+  const hasCrossrefLookupSeed = (record) => {
+    return crossrefLookupSeedFields.some((fieldName) => getRecordBibtexFieldValue(record, fieldName));
+  };
+
+  const shouldLookupMissingMetadataForRecord = (record) => {
+    const missingRequiredFields = hasMissingRequiredBibtexFields(record);
+    const hasOnlyIdentityFields = hasOnlyLookupIdentityFields(record);
+    const hasLookupSeed = hasCrossrefLookupSeed(record);
+    const matchedCriteria = missingRequiredFields || hasOnlyIdentityFields;
+    return {
+      matchedCriteria,
+      shouldLookup: matchedCriteria && hasLookupSeed,
+      missingRequiredFields,
+      hasOnlyIdentityFields,
+      hasLookupSeed,
+    };
   };
 
   const getBibtexFieldStatus = (documentType, fieldName) => {
@@ -331,6 +383,7 @@
   let documentRefreshTimerId = null;
   const metadataSaveTimers = new Map();
   const metadataSaveDelayMs = 650;
+  let bulkFetchMetaInProgress = false;
   let semanticSearchResults = [];
   const isMobileViewport = () => window.matchMedia("(max-width: 991.98px)").matches;
 
@@ -927,6 +980,25 @@
     return slug || `document-${index + 1}`;
   };
 
+  const buildDefaultCitationKeyForRecord = (record) => {
+    if (!record || typeof record !== "object") {
+      return "";
+    }
+    const authorEntries = normalizeAuthorEntries(record.authors);
+    const authorText = getRecordBibtexFieldValue(record, "author") || normalizeText(record.author);
+    const yearText = getRecordBibtexFieldValue(record, "year") || normalizeText(record.year);
+    const titleText =
+      getRecordBibtexFieldValue(record, "title") ||
+      normalizeText(record.title) ||
+      filenameFromPath(record.file_path || "");
+    const authorToken = normalizeCitationToken(
+      extractCitationFirstAuthorLastName(authorEntries, authorText)
+    );
+    const yearToken = extractCitationYearToken(yearText);
+    const titleToken = normalizeCitationToken(extractCitationFirstTitleWord(titleText));
+    return `${authorToken}${yearToken}${titleToken}`;
+  };
+
   const normalizeDocumentRecord = (rawDocument, index) => {
     const filePath =
       normalizeText(rawDocument.file_path) ||
@@ -987,6 +1059,7 @@
 
     const record = {
       document_id: normalizeText(rawDocument.id) || `${filename}-${index}`,
+      bulk_selected: false,
       file_path: filePath,
       citation_key: normalizedCitationKey,
       document_type: normalizeDocumentType(
@@ -1124,6 +1197,60 @@
     return payload;
   };
 
+  const metadataDiffFields = ["document_type", "citation_key", "authors", ...bibtexFields];
+
+  const getMetadataFieldLabel = (fieldName) => {
+    if (fieldName === "document_type") {
+      return "Document Type";
+    }
+    if (fieldName === "citation_key") {
+      return "Citation Key";
+    }
+    if (fieldName === "authors") {
+      return "Authors";
+    }
+    return getBibtexFieldLabel(fieldName);
+  };
+
+  const toMetadataComparableValue = (value) => {
+    if (value === null || value === undefined) {
+      return "";
+    }
+    if (typeof value === "object") {
+      try {
+        return JSON.stringify(value);
+      } catch (error) {
+        return String(value);
+      }
+    }
+    return normalizeText(value);
+  };
+
+  const buildMetadataSnapshotFromRecord = (record) => {
+    const payload = buildMetadataUpdatePayload(record);
+    const snapshot = {};
+    metadataDiffFields.forEach((fieldName) => {
+      snapshot[fieldName] = toMetadataComparableValue(payload[fieldName]);
+    });
+    return snapshot;
+  };
+
+  const buildMetadataSnapshotFromPayload = (metadataPayload) => {
+    const source =
+      metadataPayload && typeof metadataPayload === "object" ? metadataPayload : {};
+    const snapshot = {};
+    metadataDiffFields.forEach((fieldName) => {
+      snapshot[fieldName] = toMetadataComparableValue(source[fieldName]);
+    });
+    return snapshot;
+  };
+
+  const getChangedMetadataFieldNames = (beforeSnapshot, afterSnapshot) => {
+    return metadataDiffFields.filter((fieldName) => {
+      return toMetadataComparableValue(beforeSnapshot?.[fieldName]) !== toMetadataComparableValue(afterSnapshot?.[fieldName]);
+    });
+  };
+
   const persistDocumentMetadata = async (record, { silent = true } = {}) => {
     if (
       !record ||
@@ -1153,6 +1280,19 @@
       }
       return false;
     }
+  };
+
+  const persistDefaultCitationKeyForRecord = async (record, { silent = true } = {}) => {
+    if (!record || typeof record !== "object") {
+      return false;
+    }
+    const nextCitationKey = buildDefaultCitationKeyForRecord(record);
+    const currentCitationKey = normalizeText(record.citation_key);
+    if (!nextCitationKey || nextCitationKey === currentCitationKey) {
+      return false;
+    }
+    record.citation_key = nextCitationKey;
+    return persistDocumentMetadata(record, { silent });
   };
 
   const clearPendingMetadataSaveTimers = () => {
@@ -1186,6 +1326,19 @@
       void persistDocumentMetadata(record, { silent: true });
     }, Math.max(0, delayMs));
     metadataSaveTimers.set(documentId, { timerId, record });
+  };
+
+  const flushPendingMetadataSaveForRecord = async (record) => {
+    if (!record || typeof record !== "object" || !record.document_id) {
+      return true;
+    }
+    const pendingTimer = metadataSaveTimers.get(record.document_id);
+    if (!pendingTimer) {
+      return true;
+    }
+    window.clearTimeout(pendingTimer.timerId);
+    metadataSaveTimers.delete(record.document_id);
+    return persistDocumentMetadata(pendingTimer.record, { silent: true });
   };
 
   const setSemanticSearchStatus = (message) => {
@@ -1812,6 +1965,47 @@
     return td;
   };
 
+  const getBulkSelectAllHeaderCheckboxes = () => {
+    if (!documentHotContainer) {
+      return [];
+    }
+    return Array.from(documentHotContainer.querySelectorAll("input.bulk-select-all-checkbox"));
+  };
+
+  const setBulkSelectAllHeaderCheckboxState = ({
+    checked = false,
+    indeterminate = false,
+    disabled = false,
+  } = {}) => {
+    const headerCheckboxes = getBulkSelectAllHeaderCheckboxes();
+    if (headerCheckboxes.length <= 0) {
+      return;
+    }
+    headerCheckboxes.forEach((checkbox) => {
+      checkbox.disabled = disabled;
+      checkbox.checked = checked;
+      checkbox.indeterminate = indeterminate;
+    });
+  };
+
+  const syncBulkSelectAllHeaderCheckbox = () => {
+    const sourceData =
+      documentTable && typeof documentTable.getSourceData === "function"
+        ? documentTable.getSourceData()
+        : [];
+    const totalRows = Array.isArray(sourceData) ? sourceData.length : 0;
+    const selectedRows =
+      totalRows > 0
+        ? sourceData.filter((record) => record && typeof record === "object" && Boolean(record.bulk_selected))
+            .length
+        : 0;
+    setBulkSelectAllHeaderCheckboxState({
+      disabled: totalRows <= 0,
+      checked: totalRows > 0 && selectedRows === totalRows,
+      indeterminate: selectedRows > 0 && selectedRows < totalRows,
+    });
+  };
+
   const initializeDocumentTable = () => {
     if (!documentHotContainer || documentTable) {
       return;
@@ -1824,7 +2018,7 @@
     }
 
     const bulkColumns = [
-      { data: "document_id", type: "text", readOnly: true, width: 240 },
+      { data: "bulk_selected", type: "checkbox", width: 118, className: "htCenter htMiddle" },
       { data: "file_path", type: "text", readOnly: true, width: 320 },
       {
         data: "document_type",
@@ -1847,15 +2041,13 @@
                 ? 260
                 : 140,
       })),
-      { data: "parse_status", readOnly: true, renderer: parseActionsRenderer, width: 170 },
     ];
     const bulkHeaders = [
-      "Document ID",
+      "",
       "File Path",
       "Document Type",
       "Citation Key",
       ...bulkBibtexFieldOrder.map((fieldName) => getBibtexFieldLabel(fieldName)),
-      "",
     ];
 
     documentTable = new Handsontable(documentHotContainer, {
@@ -1865,12 +2057,53 @@
       rowHeaders: true,
       width: "100%",
       stretchH: "none",
-      columnSorting: false,
-      dropdownMenu: true,
+      columnSorting: true,
+      dropdownMenu: ["filter_by_condition", "filter_by_value", "filter_action_bar"],
       filters: true,
       manualColumnResize: true,
-      contextMenu: true,
+      contextMenu: ["filter_by_condition", "filter_by_value", "filter_action_bar"],
       licenseKey: "non-commercial-and-evaluation",
+      afterGetColHeader(col, TH) {
+        if (col !== 0) {
+          return;
+        }
+        if (!TH.querySelector("input.bulk-select-all-checkbox")) {
+          TH.innerHTML = "";
+          const wrapper = document.createElement("div");
+          wrapper.className = "d-flex justify-content-start align-items-center";
+
+          const label = document.createElement("label");
+          label.className = "d-inline-flex align-items-center gap-1 m-0";
+          const stopHeaderInteraction = (event) => {
+            event.stopPropagation();
+          };
+          wrapper.addEventListener("mousedown", stopHeaderInteraction);
+          wrapper.addEventListener("click", stopHeaderInteraction);
+          label.addEventListener("mousedown", stopHeaderInteraction);
+          label.addEventListener("click", stopHeaderInteraction);
+
+          const checkbox = document.createElement("input");
+          checkbox.type = "checkbox";
+          checkbox.className = "form-check-input m-0 bulk-select-all-checkbox";
+          checkbox.setAttribute("aria-label", "Select all records");
+          checkbox.addEventListener("mousedown", (event) => {
+            event.stopPropagation();
+          });
+          checkbox.addEventListener("click", (event) => {
+            event.stopPropagation();
+          });
+
+          const text = document.createElement("span");
+          text.className = "small text-body-secondary";
+          text.textContent = "Select all";
+
+          label.appendChild(checkbox);
+          label.appendChild(text);
+          wrapper.appendChild(label);
+          TH.appendChild(wrapper);
+        }
+        window.requestAnimationFrame(syncBulkSelectAllHeaderCheckbox);
+      },
       afterOnCellMouseDown(event, coords) {
         if (coords.row < 0) {
           return;
@@ -1890,6 +2123,7 @@
 
         let shouldRefreshDetailTable = false;
         let shouldRefreshDetailForm = false;
+        let shouldSyncBulkSelectionHeader = false;
         changes.forEach(([visualRow, property, oldValue, newValue]) => {
           if (oldValue === newValue) {
             return;
@@ -1921,6 +2155,12 @@
             return;
           }
 
+          if (property === "bulk_selected") {
+            record.bulk_selected = Boolean(newValue);
+            shouldSyncBulkSelectionHeader = true;
+            return;
+          }
+
           if (bibtexFields.includes(property)) {
             setBibtexFieldValue(record, property, normalizedValue);
             scheduleDocumentMetadataSave(record);
@@ -1937,6 +2177,10 @@
         }
         if (shouldRefreshDetailForm) {
           renderDetailFields();
+        }
+        if (shouldSyncBulkSelectionHeader) {
+          syncBulkSelectAllHeaderCheckbox();
+          updateRemoveDocumentButtonState();
         }
       },
     });
@@ -2056,12 +2300,60 @@
     documentMetaCount.textContent = `${visibleCount} documents`;
   };
 
+  const getBulkSelectedDocuments = () => {
+    if (!Array.isArray(documents) || documents.length <= 0) {
+      return [];
+    }
+    return documents.filter((documentRecord) => Boolean(documentRecord?.bulk_selected));
+  };
+
+  const setBulkFetchProgress = (completedCount, totalCount) => {
+    if (!bulkFetchProgress || !bulkFetchProgressBar || !bulkFetchProgressText) {
+      return;
+    }
+    const normalizedTotalCount = Number.isFinite(totalCount) ? Math.max(0, totalCount) : 0;
+    const safeTotalCount = normalizedTotalCount > 0 ? normalizedTotalCount : 1;
+    const normalizedCompletedCount = Number.isFinite(completedCount)
+      ? Math.max(0, Math.min(completedCount, safeTotalCount))
+      : 0;
+    const progressPercent = Math.round((normalizedCompletedCount / safeTotalCount) * 100);
+
+    bulkFetchProgress.classList.remove("d-none");
+    bulkFetchProgressBar.style.width = `${progressPercent}%`;
+    bulkFetchProgressBar.textContent = `${progressPercent}%`;
+    bulkFetchProgressBar.setAttribute("aria-valuenow", String(progressPercent));
+    bulkFetchProgressText.textContent =
+      normalizedTotalCount > 0
+        ? `${normalizedCompletedCount} of ${normalizedTotalCount} processed`
+        : "0 of 0 processed";
+  };
+
+  const resetBulkFetchProgress = () => {
+    if (!bulkFetchProgress || !bulkFetchProgressBar || !bulkFetchProgressText) {
+      return;
+    }
+    bulkFetchProgress.classList.add("d-none");
+    bulkFetchProgressBar.style.width = "0%";
+    bulkFetchProgressBar.textContent = "0%";
+    bulkFetchProgressBar.setAttribute("aria-valuenow", "0");
+    bulkFetchProgressText.textContent = "";
+  };
+
   const updateRemoveDocumentButtonState = () => {
     const hasActionTarget =
       Boolean(getSelectedDocument()) || (Array.isArray(visibleDocuments) && visibleDocuments.length > 0);
     const actionsDisabled = !selectedBucketName || !hasActionTarget;
+    const bulkSelectedCount = getBulkSelectedDocuments().length;
+    const bulkFetchDisabled = bulkFetchMetaInProgress || !selectedBucketName || bulkSelectedCount <= 0;
+    const bulkRemoveSelectedDisabled = !selectedBucketName || bulkSelectedCount <= 0;
     if (removeDocumentButton) {
       removeDocumentButton.disabled = actionsDisabled;
+    }
+    if (fetchMetaButton) {
+      fetchMetaButton.disabled = bulkFetchDisabled;
+    }
+    if (removeSelectedDocumentsButton) {
+      removeSelectedDocumentsButton.disabled = bulkRemoveSelectedDisabled;
     }
     if (detailFetchMetaButton) {
       detailFetchMetaButton.disabled = actionsDisabled;
@@ -2419,6 +2711,7 @@
     }
 
     documentTable.loadData(visibleDocuments);
+    window.requestAnimationFrame(syncBulkSelectAllHeaderCheckbox);
   };
 
   const renderDocumentTable = () => {
@@ -2593,6 +2886,202 @@
     }
   };
 
+  const fetchDocumentMetadataFromCrossref = async (record) => {
+    if (!record || typeof record !== "object" || !record.document_id || !selectedBucketName) {
+      return {
+        ok: false,
+        errorMessage: "Missing record, document ID, or selected collection.",
+      };
+    }
+
+    try {
+      const payload = await apiRequest(
+        `/collections/${encodeURIComponent(selectedBucketName)}/documents/${encodeURIComponent(
+          record.document_id
+        )}/metadata/fetch`,
+        {
+          method: "POST",
+        }
+      );
+      return {
+        ok: true,
+        payload,
+      };
+    } catch (error) {
+      const message = normalizeText(error?.message);
+      if (message.includes("404")) {
+        return {
+          ok: false,
+          errorMessage:
+            "Could not fetch metadata from Crossref: API metadata fetch endpoint is unavailable (404). Rebuild/restart the API container.",
+        };
+      }
+      return {
+        ok: false,
+        errorMessage: `Could not fetch metadata from Crossref: ${message || "Unknown error"}`,
+      };
+    }
+  };
+
+  const getBulkOverwriteDecision = (record, currentDecisionMode, reasonText = "") => {
+    if (currentDecisionMode === "yes_to_all") {
+      return { shouldFetch: true, nextDecisionMode: currentDecisionMode };
+    }
+    if (currentDecisionMode === "no_to_all") {
+      return { shouldFetch: false, nextDecisionMode: currentDecisionMode };
+    }
+
+    const fileName = filenameFromPath(record?.file_path);
+    while (true) {
+      const response = window.prompt(
+        `Fetch missing metadata for '${fileName}'?\nReason: ${reasonText || "Matched missing metadata criteria."}\nThis may overwrite existing metadata.\nType one: yes, yes to all, no, no to all.\n(Cancel = no to all)`,
+        "yes"
+      );
+      if (response === null) {
+        return { shouldFetch: false, nextDecisionMode: "no_to_all" };
+      }
+      const normalizedResponse = normalizeText(response).toLowerCase();
+      if (normalizedResponse === "yes" || normalizedResponse === "y") {
+        return { shouldFetch: true, nextDecisionMode: "ask_each" };
+      }
+      if (
+        normalizedResponse === "yes to all" ||
+        normalizedResponse === "yes-all" ||
+        normalizedResponse === "yes all" ||
+        normalizedResponse === "yes_to_all"
+      ) {
+        return { shouldFetch: true, nextDecisionMode: "yes_to_all" };
+      }
+      if (normalizedResponse === "no" || normalizedResponse === "n") {
+        return { shouldFetch: false, nextDecisionMode: "ask_each" };
+      }
+      if (
+        normalizedResponse === "no to all" ||
+        normalizedResponse === "no-all" ||
+        normalizedResponse === "no all" ||
+        normalizedResponse === "no_to_all"
+      ) {
+        return { shouldFetch: false, nextDecisionMode: "no_to_all" };
+      }
+      window.alert("Please type: yes, yes to all, no, or no to all.");
+    }
+  };
+
+  const fetchMissingMetadataForAllRecords = async () => {
+    if (!selectedBucketName) {
+      window.alert("Select a collection first.");
+      return;
+    }
+    if (bulkFetchMetaInProgress) {
+      return;
+    }
+    const selectedRecords = getBulkSelectedDocuments();
+    if (selectedRecords.length <= 0) {
+      window.alert("Select at least one record in Bulk Edit.");
+      return;
+    }
+    const selectedCount = selectedRecords.length;
+    if (
+      !window.confirm(
+        `Fetch missing metadata for ${selectedCount} selected record${selectedCount === 1 ? "" : "s"}?` +
+          "\nThis uses the existing Crossref DOI-first lookup logic and may overwrite metadata fields."
+      )
+    ) {
+      return;
+    }
+
+    bulkFetchMetaInProgress = true;
+    updateRemoveDocumentButtonState();
+    let fetchedCount = 0;
+    let updatedCount = 0;
+    let unchangedCount = 0;
+    let citationKeyUpdatedCount = 0;
+    let failedCount = 0;
+    let processedCount = 0;
+    const failureMessages = [];
+    const fetchedDocumentIds = new Set();
+
+    setBulkFetchProgress(0, selectedCount);
+    try {
+      for (const record of selectedRecords) {
+        try {
+          const fileName = filenameFromPath(record?.file_path);
+          const pendingSaveSuccessful = await flushPendingMetadataSaveForRecord(record);
+          if (!pendingSaveSuccessful) {
+            failedCount += 1;
+            failureMessages.push(`${fileName}: could not save pending metadata edits.`);
+            continue;
+          }
+
+          const beforeSnapshot = buildMetadataSnapshotFromRecord(record);
+          const fetchResult = await fetchDocumentMetadataFromCrossref(record);
+          if (fetchResult.ok) {
+            fetchedCount += 1;
+            fetchedDocumentIds.add(record.document_id);
+            const payload = fetchResult.payload || {};
+            const afterSnapshot = buildMetadataSnapshotFromPayload(payload.metadata);
+            const changedFields = getChangedMetadataFieldNames(beforeSnapshot, afterSnapshot);
+            if (changedFields.length > 0) {
+              updatedCount += 1;
+            } else {
+              unchangedCount += 1;
+            }
+            continue;
+          }
+          failedCount += 1;
+          failureMessages.push(`${fileName}: ${fetchResult.errorMessage}`);
+        } finally {
+          processedCount += 1;
+          setBulkFetchProgress(processedCount, selectedCount);
+        }
+      }
+
+      if (fetchedCount > 0) {
+        await refreshDocuments({ silent: true, preserveSelection: true });
+        for (const documentId of fetchedDocumentIds) {
+          const refreshedRecord = documents.find((documentRecord) => documentRecord.document_id === documentId);
+          if (!refreshedRecord) {
+            continue;
+          }
+          const citationKeyUpdated = await persistDefaultCitationKeyForRecord(refreshedRecord, {
+            silent: true,
+          });
+          if (citationKeyUpdated) {
+            citationKeyUpdatedCount += 1;
+          }
+        }
+        if (citationKeyUpdatedCount > 0) {
+          await refreshDocuments({ silent: true, preserveSelection: true });
+        }
+      }
+    } finally {
+      bulkFetchMetaInProgress = false;
+      resetBulkFetchProgress();
+      updateRemoveDocumentButtonState();
+    }
+
+    const summaryLines = [
+      "Missing metadata fetch finished.",
+      `Selected records: ${selectedCount}`,
+      `Fetched successfully: ${fetchedCount}`,
+      `Updated records: ${updatedCount}`,
+      `Citation keys updated: ${citationKeyUpdatedCount}`,
+      `Fetched with no field changes: ${unchangedCount}`,
+      `Failed: ${failedCount}`,
+    ];
+    if (failureMessages.length > 0) {
+      summaryLines.push("");
+      summaryLines.push("Failures:");
+      failureMessages.slice(0, 5).forEach((failureMessage) => {
+        summaryLines.push(`- ${failureMessage}`);
+      });
+      if (failureMessages.length > 5) {
+        summaryLines.push(`- ...and ${failureMessages.length - 5} more`);
+      }
+    }
+    window.alert(summaryLines.join("\n"));
+  };
+
   const fetchSelectedDocumentMetadata = async () => {
     if (!selectedBucketName) {
       window.alert("Select a collection first.");
@@ -2603,47 +3092,67 @@
       window.alert("Select a document first.");
       return;
     }
-
-    const pendingTimer = metadataSaveTimers.get(selectedDocument.document_id);
-    if (pendingTimer) {
-      window.clearTimeout(pendingTimer.timerId);
-      metadataSaveTimers.delete(selectedDocument.document_id);
-      const pendingSaveSuccessful = await persistDocumentMetadata(pendingTimer.record, {
-        silent: true,
-      });
-      if (!pendingSaveSuccessful) {
-        return;
-      }
+    if (
+      !window.confirm(
+        `Fetch metadata for '${filenameFromPath(selectedDocument.file_path)}'?\nThis may overwrite existing metadata fields.`
+      )
+    ) {
+      return;
     }
 
-    try {
-      const payload = await apiRequest(
-        `/collections/${encodeURIComponent(selectedBucketName)}/documents/${encodeURIComponent(
-          selectedDocument.document_id
-        )}/metadata/fetch`,
-        {
-          method: "POST",
-        }
-      );
-      await refreshDocuments({ silent: true, preserveSelection: true });
-      const lookupField = normalizeText(payload.lookup_field).toUpperCase();
-      const confidence = Number.parseFloat(normalizeText(payload.confidence));
-      const confidenceSuffix = Number.isFinite(confidence) ? ` (${confidence.toFixed(2)})` : "";
-      if (lookupField) {
-        window.alert(`Crossref metadata fetched via ${lookupField}${confidenceSuffix}.`);
-      } else {
-        window.alert("Crossref metadata fetched.");
+    const pendingSaveSuccessful = await flushPendingMetadataSaveForRecord(selectedDocument);
+    if (!pendingSaveSuccessful) {
+      return;
+    }
+
+    const selectedDocumentIdForFetch = selectedDocument.document_id;
+    const beforeSnapshot = buildMetadataSnapshotFromRecord(selectedDocument);
+    const fetchResult = await fetchDocumentMetadataFromCrossref(selectedDocument);
+    if (!fetchResult.ok) {
+      window.alert(fetchResult.errorMessage);
+      return;
+    }
+    const payload = fetchResult.payload || {};
+    const afterSnapshot = buildMetadataSnapshotFromPayload(payload.metadata);
+    const changedFields = getChangedMetadataFieldNames(beforeSnapshot, afterSnapshot);
+    const changedFieldLabels = changedFields.map((fieldName) => getMetadataFieldLabel(fieldName));
+    await refreshDocuments({ silent: true, preserveSelection: true });
+    let citationKeyUpdated = false;
+    const refreshedDocument = documents.find(
+      (documentRecord) => documentRecord.document_id === selectedDocumentIdForFetch
+    );
+    if (refreshedDocument) {
+      citationKeyUpdated = await persistDefaultCitationKeyForRecord(refreshedDocument, {
+        silent: true,
+      });
+      if (citationKeyUpdated) {
+        await refreshDocuments({ silent: true, preserveSelection: true });
       }
-    } catch (error) {
-      const message = normalizeText(error.message);
-      if (message.includes("404")) {
+    }
+    const lookupField = normalizeText(payload.lookup_field).toUpperCase();
+    const confidence = Number.parseFloat(normalizeText(payload.confidence));
+    const confidenceSuffix = Number.isFinite(confidence) ? ` (${confidence.toFixed(2)})` : "";
+    const citationKeySuffix = citationKeyUpdated
+      ? " Citation key updated to author+year+title-word format."
+      : "";
+    if (lookupField) {
+      if (changedFieldLabels.length > 0) {
         window.alert(
-          "Could not fetch metadata from Crossref: API metadata fetch endpoint is unavailable (404). " +
-            "Rebuild/restart the API container."
+          `Crossref metadata fetched via ${lookupField}${confidenceSuffix}. Updated fields: ${changedFieldLabels.join(", ")}.${citationKeySuffix}`
         );
-        return;
+      } else {
+        window.alert(
+          `Crossref metadata fetched via ${lookupField}${confidenceSuffix}. No metadata fields changed.${citationKeySuffix}`
+        );
       }
-      window.alert(`Could not fetch metadata from Crossref: ${message || "Unknown error"}`);
+    } else {
+      if (changedFieldLabels.length > 0) {
+        window.alert(
+          `Crossref metadata fetched. Updated fields: ${changedFieldLabels.join(", ")}.${citationKeySuffix}`
+        );
+      } else {
+        window.alert(`Crossref metadata fetched. No metadata fields changed.${citationKeySuffix}`);
+      }
     }
   };
 
@@ -2728,6 +3237,68 @@
     }
   };
 
+  const removeBulkSelectedDocuments = async () => {
+    if (!selectedBucketName) {
+      window.alert("Select a collection first.");
+      return;
+    }
+
+    const selectedRecords = getBulkSelectedDocuments();
+    if (selectedRecords.length <= 0) {
+      window.alert("Select at least one file in Bulk Edit.");
+      return;
+    }
+
+    const selectedCount = selectedRecords.length;
+    const fileLabel = selectedCount === 1 ? "file" : "files";
+    if (!window.confirm(`Remove ${selectedCount} selected ${fileLabel}?`)) {
+      return;
+    }
+
+    let removedCount = 0;
+    const failureMessages = [];
+    for (const record of selectedRecords) {
+      if (!record || !record.document_id) {
+        continue;
+      }
+      const pendingTimer = metadataSaveTimers.get(record.document_id);
+      if (pendingTimer) {
+        window.clearTimeout(pendingTimer.timerId);
+        metadataSaveTimers.delete(record.document_id);
+      }
+      try {
+        await apiRequest(
+          `/collections/${encodeURIComponent(selectedBucketName)}/documents/${encodeURIComponent(
+            record.document_id
+          )}`,
+          { method: "DELETE" }
+        );
+        removedCount += 1;
+      } catch (error) {
+        failureMessages.push(`${filenameFromPath(record.file_path)}: ${error.message}`);
+      }
+    }
+
+    if (removedCount > 0) {
+      selectedDocumentId = null;
+      await refreshDocuments({ silent: true, preserveSelection: false });
+    } else {
+      updateRemoveDocumentButtonState();
+    }
+
+    if (failureMessages.length > 0) {
+      const failureLines = failureMessages.slice(0, 5).map((message) => `- ${message}`);
+      if (failureMessages.length > 5) {
+        failureLines.push(`- ...and ${failureMessages.length - 5} more`);
+      }
+      window.alert(
+        `Removed ${removedCount} of ${selectedCount} selected ${fileLabel}.\n\nFailures:\n${failureLines.join("\n")}`
+      );
+      return;
+    }
+    window.alert(`Removed ${removedCount} selected ${fileLabel}.`);
+  };
+
   document.querySelectorAll("[data-path]").forEach((anchor) => {
     const path = anchor.getAttribute("data-path") || "";
     anchor.href = origin + path;
@@ -2764,13 +3335,16 @@
     picker.click();
   });
   fetchMetaButton?.addEventListener("click", () => {
-    void fetchSelectedDocumentMetadata();
+    void fetchMissingMetadataForAllRecords();
   });
   detailFetchMetaButton?.addEventListener("click", () => {
     void fetchSelectedDocumentMetadata();
   });
   detailClearMetaButton?.addEventListener("click", () => {
     void clearSelectedDocumentMetadata();
+  });
+  removeSelectedDocumentsButton?.addEventListener("click", () => {
+    void removeBulkSelectedDocuments();
   });
   removeDocumentButton?.addEventListener("click", () => {
     void removeSelectedDocument();
@@ -2889,6 +3463,36 @@
       return;
     }
     openDocJsonModal(targetDocument, payloadType);
+  });
+  documentHotContainer?.addEventListener("change", (event) => {
+    const selectAllCheckbox = event.target.closest("input.bulk-select-all-checkbox");
+    if (!selectAllCheckbox || !documentTable || !documentHotContainer.contains(selectAllCheckbox)) {
+      return;
+    }
+    event.stopPropagation();
+
+    const nextChecked = Boolean(selectAllCheckbox.checked);
+    setBulkSelectAllHeaderCheckboxState({
+      disabled: false,
+      checked: nextChecked,
+      indeterminate: false,
+    });
+    const changes = [];
+    const rowCount = documentTable.countRows();
+    for (let visualRow = 0; visualRow < rowCount; visualRow += 1) {
+      const physicalRow = documentTable.toPhysicalRow(visualRow);
+      const record = documentTable.getSourceDataAtRow(physicalRow);
+      if (!record || Boolean(record.bulk_selected) === nextChecked) {
+        continue;
+      }
+      changes.push([visualRow, "bulk_selected", nextChecked]);
+    }
+
+    if (changes.length > 0) {
+      documentTable.setDataAtRowProp(changes, "bulk-select-all");
+      return;
+    }
+    syncBulkSelectAllHeaderCheckbox();
   });
 
   window.addEventListener("resize", () => {

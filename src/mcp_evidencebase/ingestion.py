@@ -8,6 +8,8 @@ import json
 import mimetypes
 import os
 import re
+import threading
+import time
 import uuid
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
@@ -71,6 +73,10 @@ CROSSREF_API_BASE_URL = "https://api.crossref.org"
 CROSSREF_CONFIDENCE_THRESHOLD = 0.92
 CROSSREF_MAX_RESULTS = 8
 CROSSREF_TIMEOUT_SECONDS = 12.0
+CROSSREF_PUBLIC_POOL_MAX_REQUESTS_PER_SECOND = 5.0
+CROSSREF_PUBLIC_POOL_MAX_CONCURRENT_REQUESTS = 1
+CROSSREF_SINGLE_RECORD_MAX_REQUESTS_PER_SECOND = 5.0
+CROSSREF_LIST_QUERY_MAX_REQUESTS_PER_SECOND = 1.0
 MONTH_ABBREVIATIONS: tuple[str, ...] = (
     "",
     "jan",
@@ -2828,6 +2834,11 @@ class IngestionService:
     rerun chunking independently from partition extraction.
     """
 
+    _crossref_rate_lock = threading.Lock()
+    _crossref_next_allowed_global_ts = 0.0
+    _crossref_next_allowed_single_ts = 0.0
+    _crossref_next_allowed_list_ts = 0.0
+
     def __init__(
         self,
         *,
@@ -3397,15 +3408,19 @@ class IngestionService:
             read=CROSSREF_TIMEOUT_SECONDS,
             write=CROSSREF_TIMEOUT_SECONDS,
         )
+        request_kind = self._crossref_request_kind(path)
         with httpx.Client(timeout=request_timeout, follow_redirects=True) as client:
-            response = client.get(
-                f"{CROSSREF_API_BASE_URL}{path}",
-                params=dict(params or {}),
-                headers={
-                    "Accept": "application/json",
-                    "User-Agent": "mcp-evidencebase/0.1 (+https://evidencebase.heley.uk)",
-                },
-            )
+            # Crossref "public" pool guidance: 1 concurrent request.
+            with self.__class__._crossref_rate_lock:
+                self.__class__._crossref_enforce_rate_limit_locked(request_kind)
+                response = client.get(
+                    f"{CROSSREF_API_BASE_URL}{path}",
+                    params=dict(params or {}),
+                    headers={
+                        "Accept": "application/json",
+                        "User-Agent": "mcp-evidencebase/0.1 (+https://evidencebase.heley.uk)",
+                    },
+                )
 
         if response.status_code == 404:
             return {}
@@ -3414,6 +3429,47 @@ class IngestionService:
         if isinstance(payload, Mapping):
             return payload
         return {}
+
+    @staticmethod
+    def _crossref_request_kind(path: str) -> str:
+        """Classify Crossref request shape as ``single`` or ``list``."""
+        normalized_path = str(path).strip()
+        if normalized_path.startswith("/works/") and len(normalized_path) > len("/works/"):
+            return "single"
+        return "list"
+
+    @classmethod
+    def _crossref_enforce_rate_limit_locked(cls, request_kind: str) -> None:
+        """Delay request start to respect Crossref public and query-type limits."""
+        if CROSSREF_PUBLIC_POOL_MAX_CONCURRENT_REQUESTS != 1:
+            raise ValueError("CROSSREF_PUBLIC_POOL_MAX_CONCURRENT_REQUESTS must be 1.")
+
+        global_min_interval = 1.0 / CROSSREF_PUBLIC_POOL_MAX_REQUESTS_PER_SECOND
+        if request_kind == "single":
+            request_min_interval = 1.0 / CROSSREF_SINGLE_RECORD_MAX_REQUESTS_PER_SECOND
+            next_allowed_for_kind = cls._crossref_next_allowed_single_ts
+        else:
+            request_min_interval = 1.0 / CROSSREF_LIST_QUERY_MAX_REQUESTS_PER_SECOND
+            next_allowed_for_kind = cls._crossref_next_allowed_list_ts
+
+        now = time.monotonic()
+        next_allowed_start = max(cls._crossref_next_allowed_global_ts, next_allowed_for_kind)
+        sleep_seconds = next_allowed_start - now
+        if sleep_seconds > 0:
+            time.sleep(sleep_seconds)
+            now = time.monotonic()
+
+        cls._crossref_next_allowed_global_ts = (
+            max(cls._crossref_next_allowed_global_ts, now) + global_min_interval
+        )
+        if request_kind == "single":
+            cls._crossref_next_allowed_single_ts = (
+                max(cls._crossref_next_allowed_single_ts, now) + request_min_interval
+            )
+            return
+        cls._crossref_next_allowed_list_ts = (
+            max(cls._crossref_next_allowed_list_ts, now) + request_min_interval
+        )
 
     @staticmethod
     def _crossref_extract_single_item(payload: Mapping[str, Any]) -> Mapping[str, Any] | None:

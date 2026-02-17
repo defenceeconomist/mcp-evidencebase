@@ -10,6 +10,7 @@ from typing import Any, Mapping
 
 import pytest
 
+import mcp_evidencebase.ingestion as ingestion_module
 from mcp_evidencebase.ingestion import (
     IngestionService,
     QdrantIndexer,
@@ -780,6 +781,54 @@ def test_fetch_metadata_from_crossref_rejects_low_confidence_title_match(
         )
 
     assert "No high-confidence Crossref match was accepted" in str(exc_info.value)
+
+
+def test_crossref_request_kind_detects_single_and_list_requests() -> None:
+    """Ensure Crossref request paths are classified correctly."""
+    assert IngestionService._crossref_request_kind("/works/10.5555%2Fexample-doi") == "single"
+    assert IngestionService._crossref_request_kind("/works") == "list"
+
+
+def test_crossref_rate_limit_enforces_list_and_single_intervals(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify list requests wait ~1s and single-record requests wait ~0.2s."""
+    now = {"value": 100.0}
+    sleep_calls: list[float] = []
+
+    def fake_monotonic() -> float:
+        return float(now["value"])
+
+    def fake_sleep(seconds: float) -> None:
+        sleep_calls.append(seconds)
+        now["value"] = float(now["value"]) + seconds
+
+    monkeypatch.setattr(ingestion_module.time, "monotonic", fake_monotonic)
+    monkeypatch.setattr(ingestion_module.time, "sleep", fake_sleep)
+
+    IngestionService._crossref_next_allowed_global_ts = 0.0
+    IngestionService._crossref_next_allowed_single_ts = 0.0
+    IngestionService._crossref_next_allowed_list_ts = 0.0
+
+    with IngestionService._crossref_rate_lock:
+        IngestionService._crossref_enforce_rate_limit_locked("list")
+    with IngestionService._crossref_rate_lock:
+        IngestionService._crossref_enforce_rate_limit_locked("list")
+
+    assert sleep_calls == [pytest.approx(1.0, abs=1e-6)]
+
+    sleep_calls.clear()
+    IngestionService._crossref_next_allowed_global_ts = 0.0
+    IngestionService._crossref_next_allowed_single_ts = 0.0
+    IngestionService._crossref_next_allowed_list_ts = 0.0
+    now["value"] = 250.0
+
+    with IngestionService._crossref_rate_lock:
+        IngestionService._crossref_enforce_rate_limit_locked("single")
+    with IngestionService._crossref_rate_lock:
+        IngestionService._crossref_enforce_rate_limit_locked("single")
+
+    assert sleep_calls == [pytest.approx(0.2, abs=1e-6)]
 
 
 def test_partition_object_persists_partitions_and_metadata_without_chunking() -> None:
