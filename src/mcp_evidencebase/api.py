@@ -7,10 +7,13 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 import logging
+import os
 from pathlib import PurePosixPath
+import secrets
 from typing import Annotated, Any, NoReturn
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, HTTPException, Header, Request, Response
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from minio.error import S3Error
 from pydantic import BaseModel, Field
 
@@ -21,6 +24,7 @@ from mcp_evidencebase.tasks import partition_minio_object, scan_minio_objects
 
 app = FastAPI(title="mcp-evidencebase API", version="0.1.0")
 logger = logging.getLogger(__name__)
+gpt_basic_auth = HTTPBasic(auto_error=False)
 
 
 class BucketCreateRequest(BaseModel):
@@ -93,6 +97,57 @@ def _raise_document_http_error(exc: Exception) -> NoReturn:
     raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+def _unauthorized_basic_auth_error() -> HTTPException:
+    """Create a standard Basic Auth challenge response."""
+    return HTTPException(
+        status_code=401,
+        detail="Invalid API credentials.",
+        headers={"WWW-Authenticate": 'Basic realm="gpt-actions"'},
+    )
+
+
+def _matches_api_key(candidate: str | None, expected_api_key: str) -> bool:
+    """Return true when a candidate token matches the configured API key."""
+    if not candidate:
+        return False
+    normalized_candidate = candidate.strip()
+    if not normalized_candidate:
+        return False
+    return secrets.compare_digest(normalized_candidate, expected_api_key)
+
+
+def require_gpt_basic_auth(
+    request: Request,
+    credentials: Annotated[HTTPBasicCredentials | None, Depends(gpt_basic_auth)],
+    x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
+) -> str:
+    """Validate API key auth for GPT action endpoints."""
+    expected_api_key = os.getenv("GPT_ACTIONS_API_KEY", "").strip()
+    if not expected_api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="GPT API key is not configured on the server.",
+        )
+
+    if credentials is not None:
+        # Keep Basic-compatible behavior for manual/legacy clients.
+        if _matches_api_key(credentials.username, expected_api_key) or _matches_api_key(
+            credentials.password, expected_api_key
+        ):
+            return credentials.username
+
+    if _matches_api_key(x_api_key, expected_api_key):
+        return "x-api-key"
+
+    authorization = request.headers.get("authorization", "")
+    if authorization.lower().startswith("bearer "):
+        bearer_token = authorization[7:]
+        if _matches_api_key(bearer_token, expected_api_key):
+            return "bearer"
+
+    raise _unauthorized_basic_auth_error()
+
+
 @app.get("/healthz")
 def healthz() -> dict[str, str]:
     """Return API readiness status.
@@ -104,8 +159,12 @@ def healthz() -> dict[str, str]:
 
 
 @app.get("/gpt/ping")
-def gpt_ping(message: str = "ping") -> dict[str, str]:
-    """Return a small unauthenticated ping response for GPT Actions."""
+def gpt_ping(
+    message: str = "ping",
+    authenticated_user: Annotated[str, Depends(require_gpt_basic_auth)] = "",
+) -> dict[str, str]:
+    """Return a Basic-auth protected ping response for GPT Actions."""
+    del authenticated_user
     normalized_message = message.strip() or "ping"
     return {
         "status": "ok",
@@ -123,16 +182,27 @@ def gpt_openapi() -> dict[str, Any]:
         "info": {
             "title": "Evidence Base GPT Ping API",
             "version": "1.0.0",
-            "description": "Minimal unauthenticated API for ChatGPT custom GPT actions.",
+            "description": "Minimal API-key-over-Basic API for ChatGPT custom GPT actions.",
         },
         "servers": [{"url": "https://open.heley.uk/api"}],
+        "components": {
+            "schemas": {},
+            "securitySchemes": {
+                "BearerAuth": {
+                    "type": "http",
+                    "scheme": "bearer",
+                    "bearerFormat": "API Key",
+                    "description": "ChatGPT Actions: Authentication type API key, Auth Type Bearer.",
+                }
+            }
+        },
         "paths": {
             "/gpt/ping": {
                 "get": {
                     "operationId": "ping",
                     "summary": "Ping endpoint",
                     "description": "Returns a pong response to confirm API connectivity.",
-                    "security": [],
+                    "security": [{"BearerAuth": []}],
                     "parameters": [
                         {
                             "name": "message",

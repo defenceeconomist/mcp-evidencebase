@@ -145,6 +145,7 @@ services:
       CHUNK_SIZE_CHARS: ${CHUNK_SIZE_CHARS:-1200}
       CHUNK_OVERLAP_CHARS: ${CHUNK_OVERLAP_CHARS:-150}
       MINIO_SCAN_INTERVAL_SECONDS: ${MINIO_SCAN_INTERVAL_SECONDS:-15}
+      GPT_ACTIONS_API_KEY: ${GPT_ACTIONS_API_KEY:-}
     volumes:
       - model-cache:/model-cache
     depends_on:

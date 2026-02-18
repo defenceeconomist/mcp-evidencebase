@@ -286,7 +286,7 @@ Delete bucket:
 curl -sS -X DELETE "$BASE_URL/buckets/research-raw"
 ```
 
-### Custom GPT Ping Action (No Auth)
+### Custom GPT Ping Action (API Key + Bearer)
 
 Use this when creating an Action in the ChatGPT UI.
 
@@ -294,15 +294,22 @@ Use this when creating an Action in the ChatGPT UI.
    ```bash
    docker compose --profile cloudflare up -d cloudflared
    ```
-2. Verify ping from the `open.heley.uk` hostname:
+2. Set API key in `.env`:
    ```bash
-   curl -sS "https://open.heley.uk/api/gpt/ping?message=hello"
+   GPT_ACTIONS_API_KEY=<your-api-key>
    ```
-3. In ChatGPT -> Custom GPT -> Actions:
-   - Authentication: `None`
+3. Verify ping from the `open.heley.uk` hostname:
+   ```bash
+   curl -sS -H "Authorization: Bearer <your-api-key>" \
+     "https://open.heley.uk/api/gpt/ping?message=hello"
+   ```
+4. In ChatGPT -> Custom GPT -> Actions:
+   - Authentication type: `API key`
+   - Auth Type: `Bearer`
+   - API key value: same value as `GPT_ACTIONS_API_KEY`
    - OpenAPI schema URL: `https://open.heley.uk/api/gpt/openapi.json`
 
-The ping action exposed to ChatGPT is `GET /api/gpt/ping` and does not require authentication.
+The ping action exposed to ChatGPT is `GET /api/gpt/ping` and requires API key over Bearer auth.
 
 ### Ingestion Pipeline: Partitioning And Chunking
 
@@ -413,6 +420,7 @@ CHUNK_OVERLAP_CHARS=150
 MINIO_SCAN_INTERVAL_SECONDS=15
 # Required for named Cloudflare Tunnel profile.
 CLOUDFLARE_TUNNEL_TOKEN=<your-cloudflare-tunnel-token>
+GPT_ACTIONS_API_KEY=<your-api-key>
 ```
 
 ### Data Model Snapshot (Redis + Qdrant)

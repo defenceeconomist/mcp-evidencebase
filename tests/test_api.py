@@ -210,9 +210,41 @@ def test_healthz_returns_ok(client: TestClient) -> None:
     assert response.json() == {"status": "ok"}
 
 
-def test_gpt_ping_returns_pong(client: TestClient) -> None:
-    """Assert GPT ping endpoint is unauthenticated and returns pong payload."""
-    response = client.get("/gpt/ping", params={"message": "hello"})
+def test_gpt_ping_requires_basic_auth(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Assert GPT ping endpoint returns 401 when Basic Auth is missing."""
+    monkeypatch.setenv("GPT_ACTIONS_API_KEY", "supersecret")
+    response = client.get("/gpt/ping")
+
+    assert response.status_code == 401
+    assert "Basic" in response.headers.get("www-authenticate", "")
+
+
+def test_gpt_ping_rejects_invalid_basic_auth(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Assert GPT ping endpoint rejects invalid Basic Auth credentials."""
+    monkeypatch.setenv("GPT_ACTIONS_API_KEY", "supersecret")
+
+    response = client.get("/gpt/ping", auth=("wrong", "wrong"))
+
+    assert response.status_code == 401
+
+
+def test_gpt_ping_returns_pong_with_valid_basic_auth(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Assert GPT ping endpoint returns pong with valid API key via Basic Auth."""
+    monkeypatch.setenv("GPT_ACTIONS_API_KEY", "supersecret")
+    response = client.get(
+        "/gpt/ping",
+        params={"message": "hello"},
+        auth=("chatgpt", "supersecret"),
+    )
 
     assert response.status_code == 200
     payload = response.json()
@@ -222,19 +254,86 @@ def test_gpt_ping_returns_pong(client: TestClient) -> None:
     assert payload["timestamp_utc"].endswith("Z")
 
 
-def test_gpt_openapi_exposes_ping_operation_without_security(
+def test_gpt_ping_accepts_api_key_in_basic_username(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Assert GPT ping accepts API key in the Basic username field."""
+    monkeypatch.setenv("GPT_ACTIONS_API_KEY", "supersecret")
+
+    response = client.get("/gpt/ping", auth=("supersecret", ""))
+
+    assert response.status_code == 200
+
+
+def test_gpt_ping_accepts_x_api_key_header(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Assert GPT ping accepts API key via X-API-Key header."""
+    monkeypatch.setenv("GPT_ACTIONS_API_KEY", "supersecret")
+
+    response = client.get("/gpt/ping", headers={"X-API-Key": "supersecret"})
+
+    assert response.status_code == 200
+
+
+def test_gpt_ping_accepts_bearer_api_key(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Assert GPT ping accepts API key via Bearer token."""
+    monkeypatch.setenv("GPT_ACTIONS_API_KEY", "supersecret")
+
+    response = client.get("/gpt/ping", headers={"Authorization": "Bearer supersecret"})
+
+    assert response.status_code == 200
+
+
+def test_gpt_ping_trims_whitespace_around_api_key(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Assert GPT ping auth comparisons are resilient to whitespace around key values."""
+    monkeypatch.setenv("GPT_ACTIONS_API_KEY", "  supersecret  ")
+
+    response = client.get("/gpt/ping", auth=("chatgpt", "  supersecret "))
+
+    assert response.status_code == 200
+
+
+def test_gpt_ping_returns_service_unavailable_when_auth_not_configured(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Assert GPT ping returns 503 if server API key is not configured."""
+    monkeypatch.delenv("GPT_ACTIONS_API_KEY", raising=False)
+
+    response = client.get("/gpt/ping", auth=("anything", "anything"))
+
+    assert response.status_code == 503
+
+
+def test_gpt_openapi_exposes_ping_operation_with_bearer_auth_security(
     client: TestClient,
 ) -> None:
-    """Confirm the GPT OpenAPI document advertises no-auth ping operation."""
+    """Confirm GPT OpenAPI advertises Bearer Auth for ping."""
     response = client.get("/gpt/openapi.json")
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["openapi"] == "3.0.3"
-    assert payload["servers"] == [{"url": "/api"}]
+    assert payload["openapi"] == "3.1.0"
+    assert payload["servers"] == [{"url": "https://open.heley.uk/api"}]
+    assert payload["components"]["schemas"] == {}
+    assert payload["components"]["securitySchemes"]["BearerAuth"] == {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "API Key",
+        "description": "ChatGPT Actions: Authentication type API key, Auth Type Bearer.",
+    }
     operation = payload["paths"]["/gpt/ping"]["get"]
     assert operation["operationId"] == "ping"
-    assert operation["security"] == []
+    assert operation["security"] == [{"BearerAuth": []}]
 
 
 def test_get_buckets_returns_bucket_names(client: TestClient) -> None:
