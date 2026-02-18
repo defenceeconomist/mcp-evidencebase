@@ -119,13 +119,13 @@ def gpt_ping(message: str = "ping") -> dict[str, str]:
 def gpt_openapi() -> dict[str, Any]:
     """Return a minimal OpenAPI document for the GPT ping action."""
     return {
-        "openapi": "3.0.3",
+        "openapi": "3.1.0",
         "info": {
             "title": "Evidence Base GPT Ping API",
             "version": "1.0.0",
             "description": "Minimal unauthenticated API for ChatGPT custom GPT actions.",
         },
-        "servers": [{"url": "/api"}],
+        "servers": [{"url": "https://open.heley.uk/api"}],
         "paths": {
             "/gpt/ping": {
                 "get": {
