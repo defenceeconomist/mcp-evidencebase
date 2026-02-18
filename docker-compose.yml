@@ -192,8 +192,6 @@ services:
     image: cloudflare/cloudflared:latest
     container_name: evidencebase-cloudflared
     restart: unless-stopped
-    profiles:
-      - cloudflare
     depends_on:
       proxy:
         condition: service_started
@@ -202,7 +200,7 @@ services:
       - --no-autoupdate
       - run
       - --token
-      - "${CLOUDFLARE_TUNNEL_TOKEN:?CLOUDFLARE_TUNNEL_TOKEN is required for the cloudflare profile}"
+      - "${CLOUDFLARE_TUNNEL_TOKEN:?CLOUDFLARE_TUNNEL_TOKEN is required for the cloudflared service}"
 volumes:
   minio-data:
   qdrant-storage:

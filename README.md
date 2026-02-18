@@ -150,15 +150,15 @@ Services include:
 - Redis + RedisInsight
 - Qdrant
 - Celery worker + Flower
-- Optional Cloudflare Tunnel profile
+- Cloudflare Tunnel (`cloudflared`)
 
-Enable Cloudflare Tunnel:
+Start stack (including Cloudflare Tunnel):
 
 ```bash
-docker compose --profile cloudflare up -d cloudflared
+docker compose up -d
 ```
 
-This profile runs a named tunnel and requires `CLOUDFLARE_TUNNEL_TOKEN`.
+`CLOUDFLARE_TUNNEL_TOKEN` is required because `cloudflared` always starts.
 
 ### Service URLs
 
@@ -292,7 +292,7 @@ Use this when creating an Action in the ChatGPT UI.
 
 1. Start named tunnel:
    ```bash
-   docker compose --profile cloudflare up -d cloudflared
+   docker compose up -d cloudflared
    ```
 2. Set API key in `.env`:
    ```bash
@@ -430,7 +430,7 @@ FASTEMBED_CACHE_PATH=/model-cache/fastembed
 CHUNK_SIZE_CHARS=1200
 CHUNK_OVERLAP_CHARS=150
 MINIO_SCAN_INTERVAL_SECONDS=15
-# Required for named Cloudflare Tunnel profile.
+# Required because cloudflared starts with docker compose up.
 CLOUDFLARE_TUNNEL_TOKEN=<your-cloudflare-tunnel-token>
 GPT_ACTIONS_API_KEY=<your-api-key>
 GPT_ACTIONS_LINK_BASE_URL=https://evidencebase.heley.uk
