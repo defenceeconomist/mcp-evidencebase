@@ -297,6 +297,7 @@ Use this when creating an Action in the ChatGPT UI.
 2. Set API key in `.env`:
    ```bash
    GPT_ACTIONS_API_KEY=<your-api-key>
+   GPT_ACTIONS_LINK_BASE_URL=https://evidencebase.heley.uk
    ```
 3. Verify ping from the `open.heley.uk` hostname:
    ```bash
@@ -310,6 +311,17 @@ Use this when creating an Action in the ChatGPT UI.
    - OpenAPI schema URL: `https://open.heley.uk/api/gpt/openapi.json`
 
 The ping action exposed to ChatGPT is `GET /api/gpt/ping` and requires API key over Bearer auth.
+
+Search wrapper exposed to ChatGPT Actions:
+
+```bash
+curl -sS -X POST "https://open.heley.uk/api/gpt/search" \
+  -H "Authorization: Bearer <your-api-key>" \
+  -H "Content-Type: application/json" \
+  -d '{"bucket_name":"research-raw","query":"causal inference","mode":"hybrid","limit":5,"rrf_k":80}'
+```
+
+`bucket_name` is optional for GPT search. If exactly one bucket exists, it is auto-selected.
 
 ### Ingestion Pipeline: Partitioning And Chunking
 
@@ -421,6 +433,7 @@ MINIO_SCAN_INTERVAL_SECONDS=15
 # Required for named Cloudflare Tunnel profile.
 CLOUDFLARE_TUNNEL_TOKEN=<your-cloudflare-tunnel-token>
 GPT_ACTIONS_API_KEY=<your-api-key>
+GPT_ACTIONS_LINK_BASE_URL=https://evidencebase.heley.uk
 ```
 
 ### Data Model Snapshot (Redis + Qdrant)

@@ -2534,6 +2534,57 @@ class QdrantIndexer:
         _, object_path = location.split("/", 1)
         return object_path.strip()
 
+    @staticmethod
+    def _extract_bucket_from_minio_location(value: Any) -> str:
+        """Extract bucket name from ``bucket/object`` style minio location."""
+        location = str(value or "").strip().lstrip("/")
+        if not location or "/" not in location:
+            return ""
+        bucket_name, _ = location.split("/", 1)
+        return bucket_name.strip()
+
+    @staticmethod
+    def _extract_bucket_and_path_from_resolver_url(value: Any) -> tuple[str, str]:
+        """Extract bucket/object path from ``docs://bucket/object?page=N`` resolver URLs."""
+        resolver = str(value or "").strip()
+        prefix = "docs://"
+        if not resolver.startswith(prefix):
+            return "", ""
+        path_with_query = resolver[len(prefix) :].lstrip("/")
+        path = path_with_query.split("?", 1)[0].strip()
+        if not path or "/" not in path:
+            return "", ""
+        bucket_name, object_path = path.split("/", 1)
+        return bucket_name.strip(), object_path.strip()
+
+    @staticmethod
+    def _build_source_material_url(bucket_name: str, file_path: str) -> str:
+        """Build API URL that serves the underlying source document bytes."""
+        normalized_bucket = bucket_name.strip()
+        normalized_path = file_path.strip().lstrip("/")
+        if not normalized_bucket or not normalized_path:
+            return ""
+        encoded_bucket = quote(normalized_bucket, safe="")
+        encoded_file_path = quote(normalized_path, safe="")
+        return f"/api/collections/{encoded_bucket}/documents/resolve?file_path={encoded_file_path}"
+
+    @staticmethod
+    def _build_resolver_link_url(bucket_name: str, file_path: str, page_start: Any) -> str:
+        """Build resolver page URL for source deep links."""
+        normalized_bucket = bucket_name.strip()
+        normalized_path = file_path.strip().lstrip("/")
+        if not normalized_bucket or not normalized_path:
+            return ""
+        encoded_bucket = quote(normalized_bucket, safe="")
+        encoded_file_path = quote(normalized_path, safe="")
+        page_value = _safe_int(page_start)
+        if page_value is None:
+            return f"/resolver.html?bucket={encoded_bucket}&file_path={encoded_file_path}"
+        return (
+            f"/resolver.html?bucket={encoded_bucket}&file_path={encoded_file_path}"
+            f"&page={int(page_value)}"
+        )
+
     def _format_result_payload(
         self,
         *,
@@ -2546,9 +2597,25 @@ class QdrantIndexer:
         except (TypeError, ValueError):
             score = 0.0
         minio_location = str(payload.get("minio_location", ""))
+        bucket_name = self._extract_bucket_from_minio_location(minio_location)
         file_path = str(payload.get("file_path", "")).strip()
         if not file_path:
             file_path = self._extract_file_path_from_minio_location(minio_location)
+        resolver_url = str(payload.get("resolver_url", ""))
+        if not bucket_name or not file_path:
+            resolver_bucket_name, resolver_file_path = self._extract_bucket_and_path_from_resolver_url(
+                resolver_url
+            )
+            if not bucket_name:
+                bucket_name = resolver_bucket_name
+            if not file_path:
+                file_path = resolver_file_path
+        source_material_url = self._build_source_material_url(bucket_name, file_path)
+        resolver_link_url = self._build_resolver_link_url(
+            bucket_name,
+            file_path,
+            payload.get("page_start"),
+        )
         return {
             "id": point_id,
             "score": score,
@@ -2562,7 +2629,9 @@ class QdrantIndexer:
             "text": self._normalize_search_result_text(payload.get("text", "")),
             "page_start": _safe_int(payload.get("page_start")),
             "page_end": _safe_int(payload.get("page_end")),
-            "resolver_url": str(payload.get("resolver_url", "")),
+            "resolver_url": resolver_url,
+            "resolver_link_url": resolver_link_url,
+            "source_material_url": source_material_url,
             "minio_location": minio_location,
             "qdrant_payload": dict(payload),
         }

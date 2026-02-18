@@ -146,6 +146,7 @@ services:
       CHUNK_OVERLAP_CHARS: ${CHUNK_OVERLAP_CHARS:-150}
       MINIO_SCAN_INTERVAL_SECONDS: ${MINIO_SCAN_INTERVAL_SECONDS:-15}
       GPT_ACTIONS_API_KEY: ${GPT_ACTIONS_API_KEY:-}
+      GPT_ACTIONS_LINK_BASE_URL: ${GPT_ACTIONS_LINK_BASE_URL:-https://evidencebase.heley.uk}
     volumes:
       - model-cache:/model-cache
     depends_on:

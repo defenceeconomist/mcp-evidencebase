@@ -39,6 +39,7 @@ class FakeBucketService:
 
 @dataclass
 class FakeIngestionService:
+    bucket_names: list[str] = field(default_factory=lambda: ["research-raw"])
     documents: list[dict[str, Any]] = field(default_factory=list)
     search_results: list[dict[str, Any]] = field(default_factory=list)
     uploaded: list[tuple[str, str, bytes]] = field(default_factory=list)
@@ -57,6 +58,9 @@ class FakeIngestionService:
     qdrant_delete_result: bool = True
     qdrant_create_error: Exception | None = None
     qdrant_delete_error: Exception | None = None
+
+    def list_buckets(self) -> list[str]:
+        return self.bucket_names
 
     def list_documents(self, bucket_name: str) -> list[dict[str, Any]]:
         return self.documents
@@ -302,6 +306,226 @@ def test_gpt_ping_trims_whitespace_around_api_key(
     assert response.status_code == 200
 
 
+def test_gpt_search_returns_results_with_bearer_auth(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Assert GPT search wrapper returns results and forwards search parameters."""
+    monkeypatch.setenv("GPT_ACTIONS_API_KEY", "supersecret")
+    service = FakeIngestionService(
+        search_results=[
+            {
+                "id": "chunk-1",
+                "score": 0.91,
+                "document_id": "doc-1",
+                "file_path": "paper.pdf",
+                "text": "Causal inference content",
+                "source_material_url": "/api/collections/research-raw/documents/resolve?file_path=paper.pdf",
+                "resolver_link_url": "/resolver.html?bucket=research-raw&file_path=paper.pdf&page=3",
+                "resolver_url": "docs://research-raw/paper.pdf?page=3",
+            }
+        ]
+    )
+    _override_ingestion_service(service)
+
+    response = client.post(
+        "/gpt/search",
+        headers={"Authorization": "Bearer supersecret"},
+        json={
+            "bucket_name": "research-raw",
+            "query": "causal inference",
+            "limit": 5,
+            "mode": "hybrid",
+            "rrf_k": 80,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["bucket_name"] == "research-raw"
+    assert payload["query"] == "causal inference"
+    assert payload["mode"] == "hybrid"
+    assert payload["limit"] == 5
+    assert payload["rrf_k"] == 80
+    assert len(payload["results"]) == 1
+    assert (
+        payload["results"][0]["source_material_url"]
+        == "http://testserver/api/collections/research-raw/documents/resolve?file_path=paper.pdf"
+    )
+    assert (
+        payload["results"][0]["resolver_link_url"]
+        == "http://testserver/resolver.html?bucket=research-raw&file_path=paper.pdf&page=3"
+    )
+    assert (
+        payload["results"][0]["resolver_url"]
+        == "http://testserver/resolver.html?bucket=research-raw&file_path=paper.pdf&page=3"
+    )
+    assert (
+        payload["results"][0]["resolver_reference"]
+        == "docs://research-raw/paper.pdf?page=3"
+    )
+    assert service.search_calls == [("research-raw", "causal inference", 5, "hybrid", 80)]
+
+
+def test_gpt_search_honors_links_base_url_override(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Assert GPT search link fields use the configured public base URL when provided."""
+    monkeypatch.setenv("GPT_ACTIONS_API_KEY", "supersecret")
+    monkeypatch.setenv("GPT_ACTIONS_LINK_BASE_URL", "https://evidencebase.heley.uk")
+    service = FakeIngestionService(
+        search_results=[
+            {
+                "id": "chunk-1",
+                "score": 0.91,
+                "source_material_url": "/api/collections/research-raw/documents/resolve?file_path=paper.pdf",
+                "resolver_link_url": "/resolver.html?bucket=research-raw&file_path=paper.pdf&page=3",
+                "resolver_url": "docs://research-raw/paper.pdf?page=3",
+            }
+        ]
+    )
+    _override_ingestion_service(service)
+
+    response = client.post(
+        "/gpt/search",
+        headers={"Authorization": "Bearer supersecret"},
+        json={"bucket_name": "research-raw", "query": "offsets"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert (
+        payload["results"][0]["source_material_url"]
+        == "https://evidencebase.heley.uk/api/collections/research-raw/documents/resolve?file_path=paper.pdf"
+    )
+    assert (
+        payload["results"][0]["resolver_link_url"]
+        == "https://evidencebase.heley.uk/resolver.html?bucket=research-raw&file_path=paper.pdf&page=3"
+    )
+    assert (
+        payload["results"][0]["resolver_url"]
+        == "https://evidencebase.heley.uk/resolver.html?bucket=research-raw&file_path=paper.pdf&page=3"
+    )
+    assert (
+        payload["results"][0]["resolver_reference"]
+        == "docs://research-raw/paper.pdf?page=3"
+    )
+
+
+def test_gpt_search_honors_links_base_url_override_without_scheme(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Assert GPT search base URL override defaults to HTTPS when scheme is omitted."""
+    monkeypatch.setenv("GPT_ACTIONS_API_KEY", "supersecret")
+    monkeypatch.setenv("GPT_ACTIONS_LINK_BASE_URL", "evidencebase.heley.uk")
+    service = FakeIngestionService(
+        search_results=[
+            {
+                "id": "chunk-1",
+                "score": 0.91,
+                "source_material_url": "/api/collections/research-raw/documents/resolve?file_path=paper.pdf",
+                "resolver_link_url": "/resolver.html?bucket=research-raw&file_path=paper.pdf&page=3",
+                "resolver_url": "docs://research-raw/paper.pdf?page=3",
+            }
+        ]
+    )
+    _override_ingestion_service(service)
+
+    response = client.post(
+        "/gpt/search",
+        headers={"Authorization": "Bearer supersecret"},
+        json={"bucket_name": "research-raw", "query": "offsets"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert (
+        payload["results"][0]["source_material_url"]
+        == "https://evidencebase.heley.uk/api/collections/research-raw/documents/resolve?file_path=paper.pdf"
+    )
+    assert (
+        payload["results"][0]["resolver_link_url"]
+        == "https://evidencebase.heley.uk/resolver.html?bucket=research-raw&file_path=paper.pdf&page=3"
+    )
+    assert (
+        payload["results"][0]["resolver_url"]
+        == "https://evidencebase.heley.uk/resolver.html?bucket=research-raw&file_path=paper.pdf&page=3"
+    )
+    assert (
+        payload["results"][0]["resolver_reference"]
+        == "docs://research-raw/paper.pdf?page=3"
+    )
+
+
+def test_gpt_search_rejects_invalid_mode(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Assert GPT search wrapper validates mode and returns 400 for invalid values."""
+    monkeypatch.setenv("GPT_ACTIONS_API_KEY", "supersecret")
+    service = FakeIngestionService()
+    _override_ingestion_service(service)
+
+    response = client.post(
+        "/gpt/search",
+        headers={"Authorization": "Bearer supersecret"},
+        json={
+            "bucket_name": "research-raw",
+            "query": "causal inference",
+            "mode": "invalid",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "mode must be one of" in response.json()["detail"]
+    assert service.search_calls == []
+
+
+def test_gpt_search_uses_single_bucket_when_bucket_name_omitted(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Assert GPT search auto-selects the only bucket when bucket_name is omitted."""
+    monkeypatch.setenv("GPT_ACTIONS_API_KEY", "supersecret")
+    service = FakeIngestionService(
+        bucket_names=["offsets"],
+        search_results=[{"id": "chunk-1", "score": 0.8}],
+    )
+    _override_ingestion_service(service)
+
+    response = client.post(
+        "/gpt/search",
+        headers={"Authorization": "Bearer supersecret"},
+        json={"query": "offsets"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["bucket_name"] == "offsets"
+    assert service.search_calls == [("offsets", "offsets", 10, "hybrid", 60)]
+
+
+def test_gpt_search_requires_bucket_name_when_multiple_buckets_exist(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Assert GPT search returns 400 when bucket_name is omitted and multiple buckets exist."""
+    monkeypatch.setenv("GPT_ACTIONS_API_KEY", "supersecret")
+    service = FakeIngestionService(bucket_names=["offsets", "research-raw"])
+    _override_ingestion_service(service)
+
+    response = client.post(
+        "/gpt/search",
+        headers={"Authorization": "Bearer supersecret"},
+        json={"query": "offsets"},
+    )
+
+    assert response.status_code == 400
+    assert "bucket_name is required when multiple buckets exist" in response.json()["detail"]
+    assert service.search_calls == []
+
+
 def test_gpt_ping_returns_service_unavailable_when_auth_not_configured(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
@@ -324,16 +548,27 @@ def test_gpt_openapi_exposes_ping_operation_with_bearer_auth_security(
     payload = response.json()
     assert payload["openapi"] == "3.1.0"
     assert payload["servers"] == [{"url": "https://open.heley.uk/api"}]
-    assert payload["components"]["schemas"] == {}
+    assert "GptSearchRequest" in payload["components"]["schemas"]
+    assert "GptSearchResponse" in payload["components"]["schemas"]
+    assert "GptSearchResult" in payload["components"]["schemas"]
+    assert payload["components"]["schemas"]["GptSearchRequest"]["required"] == ["query"]
+    result_schema = payload["components"]["schemas"]["GptSearchResult"]
+    assert result_schema["properties"]["source_material_url"]["type"] == "string"
+    assert result_schema["properties"]["resolver_link_url"]["type"] == "string"
+    assert result_schema["properties"]["resolver_url"]["type"] == "string"
+    assert result_schema["properties"]["resolver_reference"]["type"] == "string"
     assert payload["components"]["securitySchemes"]["BearerAuth"] == {
         "type": "http",
         "scheme": "bearer",
         "bearerFormat": "API Key",
         "description": "ChatGPT Actions: Authentication type API key, Auth Type Bearer.",
     }
-    operation = payload["paths"]["/gpt/ping"]["get"]
-    assert operation["operationId"] == "ping"
-    assert operation["security"] == [{"BearerAuth": []}]
+    ping_operation = payload["paths"]["/gpt/ping"]["get"]
+    assert ping_operation["operationId"] == "ping"
+    assert ping_operation["security"] == [{"BearerAuth": []}]
+    search_operation = payload["paths"]["/gpt/search"]["post"]
+    assert search_operation["operationId"] == "searchCollection"
+    assert search_operation["security"] == [{"BearerAuth": []}]
 
 
 def test_get_buckets_returns_bucket_names(client: TestClient) -> None:

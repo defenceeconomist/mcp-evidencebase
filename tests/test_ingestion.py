@@ -1699,6 +1699,16 @@ def test_qdrant_indexer_hybrid_search_merges_dense_and_keyword_results() -> None
     assert results[1]["qdrant_payload"]["text"] == "keyword\nmatch"
     assert results[0]["qdrant_payload"]["document_id"] == "doc-a"
     assert results[1]["qdrant_payload"]["document_id"] == "doc-b"
+    assert (
+        results[0]["source_material_url"]
+        == "/api/collections/research-raw/documents/resolve?file_path=a.pdf"
+    )
+    assert results[0]["resolver_link_url"] == "/resolver.html?bucket=research-raw&file_path=a.pdf&page=2"
+    assert (
+        results[1]["source_material_url"]
+        == "/api/collections/research-raw/documents/resolve?file_path=b.pdf"
+    )
+    assert results[1]["resolver_link_url"] == "/resolver.html?bucket=research-raw&file_path=b.pdf&page=5"
     assert [call["vector_name"] for call in qdrant.search_calls] == ["dense", "keyword"]
 
 

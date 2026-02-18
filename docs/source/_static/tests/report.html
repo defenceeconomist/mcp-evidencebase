@@ -438,7 +438,7 @@
     <div class="report-metadata" style="background: #f2f4f7;">
     <h2 onclick="this.nextElementSibling.classList.toggle('hidden')" style="cursor: pointer; font-size: 12px; ">
         Execution Metadata (click to toggle)
-         <button class="inline-copy-btn" onclick="event.stopPropagation(); copyFromBase64('eydyZXBvcnRfdGl0bGUnOiAndGVzdHMnLCAnZW52aXJvbm1lbnQnOiAnUGFzcyAtLXJwLWVudiB0byBwb3B1bGF0ZSBlbnZpcm9ubWVudCcsICdicmFuY2gnOiAnUGFzcyAtLWdpdC1icmFuY2ggdG8gcG9wdWxhdGUgZ2l0IG1ldGFkYXRhJywgJ2NvbW1pdCc6ICdQYXNzIC0tZ2l0LWNvbW1pdCB0byBwb3B1bGF0ZSBnaXQgbWV0YWRhdGEnLCAncHl0aG9uX3ZlcnNpb24nOiAnMy4xNC4yJywgJ2dlbmVyYXRlZF9hdCc6ICcyMDI2LTAyLTE4VDE3OjUxOjQzLjkzMjk2Nid9', this)" title="Copy metadata">
+         <button class="inline-copy-btn" onclick="event.stopPropagation(); copyFromBase64('eydyZXBvcnRfdGl0bGUnOiAndGVzdHMnLCAnZW52aXJvbm1lbnQnOiAnUGFzcyAtLXJwLWVudiB0byBwb3B1bGF0ZSBlbnZpcm9ubWVudCcsICdicmFuY2gnOiAnUGFzcyAtLWdpdC1icmFuY2ggdG8gcG9wdWxhdGUgZ2l0IG1ldGFkYXRhJywgJ2NvbW1pdCc6ICdQYXNzIC0tZ2l0LWNvbW1pdCB0byBwb3B1bGF0ZSBnaXQgbWV0YWRhdGEnLCAncHl0aG9uX3ZlcnNpb24nOiAnMy4xNC4yJywgJ2dlbmVyYXRlZF9hdCc6ICcyMDI2LTAyLTE4VDE5OjE4OjIwLjc0Mzg5MSd9', this)" title="Copy metadata">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                         <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
@@ -451,7 +451,7 @@
         <tr><th>Environment</th><td>Pass --rp-env to populate environment</td></tr>
         <tr><th>Branch</th><td>Pass --git-branch to populate git metadata</td></tr>
         <tr><th>Commit</th><td>Pass --git-commit to populate git metadata</td></tr>
-        <tr><th>Generated At</th><td>2026-02-18T17:51:43.932966</td></tr>
+        <tr><th>Generated At</th><td>2026-02-18T19:18:20.743891</td></tr>
         <tr><th>Python version</th><td>3.14.2</td></tr>
     </table>
 </div>
@@ -463,7 +463,7 @@
       </label>
       <label>
         <input type="checkbox" id="errorOnlyCheckbox" />
-        Show only error tests (<span>7</span>)
+        Show only error tests (<span>0</span>)
       </label>
       <label>
         <input type="checkbox" id="skippedOnlyCheckbox" />
@@ -475,7 +475,7 @@
       </label>
       <label style="margin-left: 1rem;">
         <input type="checkbox" id="untrackedOnlyCheckbox" />
-        Show untracked (<span>7</span>)
+        Show untracked (<span>3</span>)
       </label>
       <span onclick="toggleUntrackedInfo()" style="
   display: inline-flex;
@@ -532,26 +532,26 @@
 
     <div id="markersFilter" class="marker-filter" style="margin-bottom: 1rem;">
       <strong>Filter by Markers:</strong><br/>
-    <span class="muted-hint">Use <code>pytest.mark.*</code> to enable marker filters</span>
-            <div style="padding: 1rem; background: #fdecea; 
-            border: 1px solid #a83232; 
+    <label><input type="checkbox" value="area_api" /> area_api (3)</label> 
+            <div style="padding: 1rem; background: #e6f4ea; 
+            border: 1px solid #2f7a33; 
             border-radius: 5px; margin-bottom: 1rem;">
-              Total tests: 7, Failures: 0, Errors: 7.
-              The slowest test was <strong>COLLECTION ERROR</strong> at 0.00s.
+              <strong>Bingo!</strong> All your tests passed!
+              The slowest test was <strong>test_gpt_search_returns_results_with_bearer_auth</strong> at 0.00s.
             </div>
             <div id="tests-container">
     
-<div class="test test-card" data-name="COLLECTION ERROR" data-link="" data-markers="">
-  <div class="header error" onclick="toggleDetails(this)">
+<div class="test test-card" data-name="test_gpt_search_returns_results_with_bearer_auth" data-link="" data-markers="area_api">
+  <div class="header passed" onclick="toggleDetails(this)">
     <div class="header-section test-info">
       <span class="toggle"></span>
-      <strong>COLLECTION ERROR</strong>
-      <span>— ERROR</span>
+      <strong>test_gpt_search_returns_results_with_bearer_auth</strong>
+      <span>— PASSED</span>
     </div>
     <div class="header-section meta">
       <span class="nodeid-badge" style="display: flex; align-items: center; gap: 6px;">
-        <code style="font-size: 0.6em; color: #555;">tests/test_api.py</code>
-          <button class="inline-copy-btn" onclick="event.stopPropagation(); copyFromBase64('dGVzdHMvdGVzdF9hcGkucHk=', this)" title="Copy nodeid">
+        <code style="font-size: 0.6em; color: #555;">tests/test_api.py::test_gpt_search_returns_results_with_bearer_auth</code>
+          <button class="inline-copy-btn" onclick="event.stopPropagation(); copyFromBase64('dGVzdHMvdGVzdF9hcGkucHk6OnRlc3RfZ3B0X3NlYXJjaF9yZXR1cm5zX3Jlc3VsdHNfd2l0aF9iZWFyZXJfYXV0aA==', this)" title="Copy nodeid">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                         <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
@@ -573,19 +573,29 @@
     <div class="details-content">
       <div class="details-text">
          
-                    <div class="error-content"><strong>Error:</strong> <button class="inline-copy-btn" onclick="event.stopPropagation(); copyFromBase64('RSAgIE1vZHVsZU5vdEZvdW5kRXJyb3I6IE5vIG1vZHVsZSBuYW1lZCAnbWNwX2V2aWRlbmNlYmFzZSc=', this)" title="Copy error">
+        
+        
+        
+                <div><strong>STDERR:</strong> <button class="inline-copy-btn" onclick="event.stopPropagation(); copyFromBase64('SU5GTyAtIEhUVFAgUmVxdWVzdDogUE9TVCBodHRwOi8vdGVzdHNlcnZlci9ncHQvc2VhcmNoICJIVFRQLzEuMSAyMDAgT0siCg==', this)" title="Copy stderr">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                         <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
                     </svg>
                 </button>
             
-                    <pre>E   ModuleNotFoundError: No module named 'mcp_evidencebase'</pre></div>
+                <pre>INFO - HTTP Request: POST http://testserver/gpt/search "HTTP/1.1 200 OK"
+</pre></div>
+                
+        
+                    <div><strong>Logs:</strong> <button class="inline-copy-btn" onclick="event.stopPropagation(); copyFromBase64('SFRUUCBSZXF1ZXN0OiBQT1NUIGh0dHA6Ly90ZXN0c2VydmVyL2dwdC9zZWFyY2ggIkhUVFAvMS4xIDIwMCBPSyI=', this)" title="Copy logs">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                    </svg>
+                </button>
+            
+                    <pre>HTTP Request: POST http://testserver/gpt/search "HTTP/1.1 200 OK"</pre></div>
                     
-        
-        
-        
-        
       </div>
       
     </div>
@@ -594,17 +604,17 @@
 
     
     
-<div class="test test-card" data-name="COLLECTION ERROR" data-link="" data-markers="">
-  <div class="header error" onclick="toggleDetails(this)">
+<div class="test test-card" data-name="test_gpt_search_honors_links_base_url_override" data-link="" data-markers="area_api">
+  <div class="header passed" onclick="toggleDetails(this)">
     <div class="header-section test-info">
       <span class="toggle"></span>
-      <strong>COLLECTION ERROR</strong>
-      <span>— ERROR</span>
+      <strong>test_gpt_search_honors_links_base_url_override</strong>
+      <span>— PASSED</span>
     </div>
     <div class="header-section meta">
       <span class="nodeid-badge" style="display: flex; align-items: center; gap: 6px;">
-        <code style="font-size: 0.6em; color: #555;">tests/test_chunking.py</code>
-          <button class="inline-copy-btn" onclick="event.stopPropagation(); copyFromBase64('dGVzdHMvdGVzdF9jaHVua2luZy5weQ==', this)" title="Copy nodeid">
+        <code style="font-size: 0.6em; color: #555;">tests/test_api.py::test_gpt_search_honors_links_base_url_override</code>
+          <button class="inline-copy-btn" onclick="event.stopPropagation(); copyFromBase64('dGVzdHMvdGVzdF9hcGkucHk6OnRlc3RfZ3B0X3NlYXJjaF9ob25vcnNfbGlua3NfYmFzZV91cmxfb3ZlcnJpZGU=', this)" title="Copy nodeid">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                         <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
@@ -626,19 +636,29 @@
     <div class="details-content">
       <div class="details-text">
          
-                    <div class="error-content"><strong>Error:</strong> <button class="inline-copy-btn" onclick="event.stopPropagation(); copyFromBase64('RSAgIE1vZHVsZU5vdEZvdW5kRXJyb3I6IE5vIG1vZHVsZSBuYW1lZCAnbWNwX2V2aWRlbmNlYmFzZSc=', this)" title="Copy error">
+        
+        
+        
+                <div><strong>STDERR:</strong> <button class="inline-copy-btn" onclick="event.stopPropagation(); copyFromBase64('SU5GTyAtIEhUVFAgUmVxdWVzdDogUE9TVCBodHRwOi8vdGVzdHNlcnZlci9ncHQvc2VhcmNoICJIVFRQLzEuMSAyMDAgT0siCg==', this)" title="Copy stderr">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                         <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
                     </svg>
                 </button>
             
-                    <pre>E   ModuleNotFoundError: No module named 'mcp_evidencebase'</pre></div>
+                <pre>INFO - HTTP Request: POST http://testserver/gpt/search "HTTP/1.1 200 OK"
+</pre></div>
+                
+        
+                    <div><strong>Logs:</strong> <button class="inline-copy-btn" onclick="event.stopPropagation(); copyFromBase64('SFRUUCBSZXF1ZXN0OiBQT1NUIGh0dHA6Ly90ZXN0c2VydmVyL2dwdC9zZWFyY2ggIkhUVFAvMS4xIDIwMCBPSyI=', this)" title="Copy logs">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                    </svg>
+                </button>
+            
+                    <pre>HTTP Request: POST http://testserver/gpt/search "HTTP/1.1 200 OK"</pre></div>
                     
-        
-        
-        
-        
       </div>
       
     </div>
@@ -647,17 +667,17 @@
 
     
     
-<div class="test test-card" data-name="COLLECTION ERROR" data-link="" data-markers="">
-  <div class="header error" onclick="toggleDetails(this)">
+<div class="test test-card" data-name="test_gpt_search_honors_links_base_url_override_without_scheme" data-link="" data-markers="area_api">
+  <div class="header passed" onclick="toggleDetails(this)">
     <div class="header-section test-info">
       <span class="toggle"></span>
-      <strong>COLLECTION ERROR</strong>
-      <span>— ERROR</span>
+      <strong>test_gpt_search_honors_links_base_url_override_without_scheme</strong>
+      <span>— PASSED</span>
     </div>
     <div class="header-section meta">
       <span class="nodeid-badge" style="display: flex; align-items: center; gap: 6px;">
-        <code style="font-size: 0.6em; color: #555;">tests/test_cli.py</code>
-          <button class="inline-copy-btn" onclick="event.stopPropagation(); copyFromBase64('dGVzdHMvdGVzdF9jbGkucHk=', this)" title="Copy nodeid">
+        <code style="font-size: 0.6em; color: #555;">tests/test_api.py::test_gpt_search_honors_links_base_url_override_without_scheme</code>
+          <button class="inline-copy-btn" onclick="event.stopPropagation(); copyFromBase64('dGVzdHMvdGVzdF9hcGkucHk6OnRlc3RfZ3B0X3NlYXJjaF9ob25vcnNfbGlua3NfYmFzZV91cmxfb3ZlcnJpZGVfd2l0aG91dF9zY2hlbWU=', this)" title="Copy nodeid">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                         <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
@@ -679,231 +699,29 @@
     <div class="details-content">
       <div class="details-text">
          
-                    <div class="error-content"><strong>Error:</strong> <button class="inline-copy-btn" onclick="event.stopPropagation(); copyFromBase64('RSAgIE1vZHVsZU5vdEZvdW5kRXJyb3I6IE5vIG1vZHVsZSBuYW1lZCAnbWNwX2V2aWRlbmNlYmFzZSc=', this)" title="Copy error">
+        
+        
+        
+                <div><strong>STDERR:</strong> <button class="inline-copy-btn" onclick="event.stopPropagation(); copyFromBase64('SU5GTyAtIEhUVFAgUmVxdWVzdDogUE9TVCBodHRwOi8vdGVzdHNlcnZlci9ncHQvc2VhcmNoICJIVFRQLzEuMSAyMDAgT0siCg==', this)" title="Copy stderr">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                         <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
                     </svg>
                 </button>
             
-                    <pre>E   ModuleNotFoundError: No module named 'mcp_evidencebase'</pre></div>
+                <pre>INFO - HTTP Request: POST http://testserver/gpt/search "HTTP/1.1 200 OK"
+</pre></div>
+                
+        
+                    <div><strong>Logs:</strong> <button class="inline-copy-btn" onclick="event.stopPropagation(); copyFromBase64('SFRUUCBSZXF1ZXN0OiBQT1NUIGh0dHA6Ly90ZXN0c2VydmVyL2dwdC9zZWFyY2ggIkhUVFAvMS4xIDIwMCBPSyI=', this)" title="Copy logs">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                    </svg>
+                </button>
+            
+                    <pre>HTTP Request: POST http://testserver/gpt/search "HTTP/1.1 200 OK"</pre></div>
                     
-        
-        
-        
-        
-      </div>
-      
-    </div>
-  </div>
-</div>
-
-    
-    
-<div class="test test-card" data-name="COLLECTION ERROR" data-link="" data-markers="">
-  <div class="header error" onclick="toggleDetails(this)">
-    <div class="header-section test-info">
-      <span class="toggle"></span>
-      <strong>COLLECTION ERROR</strong>
-      <span>— ERROR</span>
-    </div>
-    <div class="header-section meta">
-      <span class="nodeid-badge" style="display: flex; align-items: center; gap: 6px;">
-        <code style="font-size: 0.6em; color: #555;">tests/test_core.py</code>
-          <button class="inline-copy-btn" onclick="event.stopPropagation(); copyFromBase64('dGVzdHMvdGVzdF9jb3JlLnB5', this)" title="Copy nodeid">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                    </svg>
-                </button>
-            
-      </span>
-      <span class="worker-id" style="background: #ddd; border-radius: 3px; padding: 2px 5px; font-size: 0.85em; font-weight: bold;">main</span>
-    </div>
-
-    <div class="header-section badges-and-timing">
-      <span style="display:inline-block; min-width:40px;"></span>
-      <span style="display:inline-block; min-width:45px;"></span>
-      <span class="timestamp">⏱ 0.00s</span>
-    </div>
-  </div>
-
-  <div class="details">
-    <div class="details-content">
-      <div class="details-text">
-         
-                    <div class="error-content"><strong>Error:</strong> <button class="inline-copy-btn" onclick="event.stopPropagation(); copyFromBase64('RSAgIE1vZHVsZU5vdEZvdW5kRXJyb3I6IE5vIG1vZHVsZSBuYW1lZCAnbWNwX2V2aWRlbmNlYmFzZSc=', this)" title="Copy error">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                    </svg>
-                </button>
-            
-                    <pre>E   ModuleNotFoundError: No module named 'mcp_evidencebase'</pre></div>
-                    
-        
-        
-        
-        
-      </div>
-      
-    </div>
-  </div>
-</div>
-
-    
-    
-<div class="test test-card" data-name="COLLECTION ERROR" data-link="" data-markers="">
-  <div class="header error" onclick="toggleDetails(this)">
-    <div class="header-section test-info">
-      <span class="toggle"></span>
-      <strong>COLLECTION ERROR</strong>
-      <span>— ERROR</span>
-    </div>
-    <div class="header-section meta">
-      <span class="nodeid-badge" style="display: flex; align-items: center; gap: 6px;">
-        <code style="font-size: 0.6em; color: #555;">tests/test_ingestion.py</code>
-          <button class="inline-copy-btn" onclick="event.stopPropagation(); copyFromBase64('dGVzdHMvdGVzdF9pbmdlc3Rpb24ucHk=', this)" title="Copy nodeid">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                    </svg>
-                </button>
-            
-      </span>
-      <span class="worker-id" style="background: #ddd; border-radius: 3px; padding: 2px 5px; font-size: 0.85em; font-weight: bold;">main</span>
-    </div>
-
-    <div class="header-section badges-and-timing">
-      <span style="display:inline-block; min-width:40px;"></span>
-      <span style="display:inline-block; min-width:45px;"></span>
-      <span class="timestamp">⏱ 0.00s</span>
-    </div>
-  </div>
-
-  <div class="details">
-    <div class="details-content">
-      <div class="details-text">
-         
-                    <div class="error-content"><strong>Error:</strong> <button class="inline-copy-btn" onclick="event.stopPropagation(); copyFromBase64('RSAgIE1vZHVsZU5vdEZvdW5kRXJyb3I6IE5vIG1vZHVsZSBuYW1lZCAnbWNwX2V2aWRlbmNlYmFzZSc=', this)" title="Copy error">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                    </svg>
-                </button>
-            
-                    <pre>E   ModuleNotFoundError: No module named 'mcp_evidencebase'</pre></div>
-                    
-        
-        
-        
-        
-      </div>
-      
-    </div>
-  </div>
-</div>
-
-    
-    
-<div class="test test-card" data-name="COLLECTION ERROR" data-link="" data-markers="">
-  <div class="header error" onclick="toggleDetails(this)">
-    <div class="header-section test-info">
-      <span class="toggle"></span>
-      <strong>COLLECTION ERROR</strong>
-      <span>— ERROR</span>
-    </div>
-    <div class="header-section meta">
-      <span class="nodeid-badge" style="display: flex; align-items: center; gap: 6px;">
-        <code style="font-size: 0.6em; color: #555;">tests/test_minio_settings.py</code>
-          <button class="inline-copy-btn" onclick="event.stopPropagation(); copyFromBase64('dGVzdHMvdGVzdF9taW5pb19zZXR0aW5ncy5weQ==', this)" title="Copy nodeid">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                    </svg>
-                </button>
-            
-      </span>
-      <span class="worker-id" style="background: #ddd; border-radius: 3px; padding: 2px 5px; font-size: 0.85em; font-weight: bold;">main</span>
-    </div>
-
-    <div class="header-section badges-and-timing">
-      <span style="display:inline-block; min-width:40px;"></span>
-      <span style="display:inline-block; min-width:45px;"></span>
-      <span class="timestamp">⏱ 0.00s</span>
-    </div>
-  </div>
-
-  <div class="details">
-    <div class="details-content">
-      <div class="details-text">
-         
-                    <div class="error-content"><strong>Error:</strong> <button class="inline-copy-btn" onclick="event.stopPropagation(); copyFromBase64('RSAgIE1vZHVsZU5vdEZvdW5kRXJyb3I6IE5vIG1vZHVsZSBuYW1lZCAnbWNwX2V2aWRlbmNlYmFzZSc=', this)" title="Copy error">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                    </svg>
-                </button>
-            
-                    <pre>E   ModuleNotFoundError: No module named 'mcp_evidencebase'</pre></div>
-                    
-        
-        
-        
-        
-      </div>
-      
-    </div>
-  </div>
-</div>
-
-    
-    
-<div class="test test-card" data-name="COLLECTION ERROR" data-link="" data-markers="">
-  <div class="header error" onclick="toggleDetails(this)">
-    <div class="header-section test-info">
-      <span class="toggle"></span>
-      <strong>COLLECTION ERROR</strong>
-      <span>— ERROR</span>
-    </div>
-    <div class="header-section meta">
-      <span class="nodeid-badge" style="display: flex; align-items: center; gap: 6px;">
-        <code style="font-size: 0.6em; color: #555;">tests/test_tasks.py</code>
-          <button class="inline-copy-btn" onclick="event.stopPropagation(); copyFromBase64('dGVzdHMvdGVzdF90YXNrcy5weQ==', this)" title="Copy nodeid">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                    </svg>
-                </button>
-            
-      </span>
-      <span class="worker-id" style="background: #ddd; border-radius: 3px; padding: 2px 5px; font-size: 0.85em; font-weight: bold;">main</span>
-    </div>
-
-    <div class="header-section badges-and-timing">
-      <span style="display:inline-block; min-width:40px;"></span>
-      <span style="display:inline-block; min-width:45px;"></span>
-      <span class="timestamp">⏱ 0.00s</span>
-    </div>
-  </div>
-
-  <div class="details">
-    <div class="details-content">
-      <div class="details-text">
-         
-                    <div class="error-content"><strong>Error:</strong> <button class="inline-copy-btn" onclick="event.stopPropagation(); copyFromBase64('RSAgIE1vZHVsZU5vdEZvdW5kRXJyb3I6IE5vIG1vZHVsZSBuYW1lZCAnbWNwX2V2aWRlbmNlYmFzZSc=', this)" title="Copy error">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                    </svg>
-                </button>
-            
-                    <pre>E   ModuleNotFoundError: No module named 'mcp_evidencebase'</pre></div>
-                    
-        
-        
-        
-        
       </div>
       
     </div>
