@@ -158,6 +158,8 @@ Enable Cloudflare Tunnel:
 docker compose --profile cloudflare up -d cloudflared
 ```
 
+This profile runs a named tunnel and requires `CLOUDFLARE_TUNNEL_TOKEN`.
+
 ### Service URLs
 
 All services are proxied through one host port (`${PROXY_PORT:-52180}`):
@@ -172,6 +174,8 @@ http://localhost:52180/minio-console/
 http://localhost:52180/redisinsight/
 http://localhost:52180/dashboard/
 http://localhost:52180/flower/
+http://localhost:52180/api/gpt/openapi.json
+http://localhost:52180/api/gpt/ping?message=hello
 ```
 
 Public equivalents currently configured:
@@ -186,7 +190,29 @@ https://evidencebase.heley.uk/minio-console/
 https://evidencebase.heley.uk/redisinsight/
 https://evidencebase.heley.uk/dashboard/
 https://evidencebase.heley.uk/flower/
+https://evidencebase.heley.uk/api/gpt/openapi.json
+https://evidencebase.heley.uk/api/gpt/ping?message=hello
 ```
+
+Recommended public GPT-only hostname:
+
+```text
+https://open.heley.uk/api/gpt/openapi.json
+https://open.heley.uk/api/gpt/ping?message=hello
+```
+
+### Cloudflare Split: Protected UI + Open GPT API
+
+To keep `evidencebase.heley.uk` behind Cloudflare Access while exposing only the GPT action API:
+
+1. In Cloudflare Zero Trust -> Networks -> Tunnels -> your named tunnel -> Public hostnames, add:
+   - Hostname: `open.heley.uk`
+   - Service: `http://proxy:80`
+2. Keep `evidencebase.heley.uk` mapped to `http://proxy:80` as-is.
+3. In Cloudflare Access -> Applications, ensure policy scope protects only `evidencebase.heley.uk/*` (not `*.heley.uk`).
+4. Do not attach Access protection to `open.heley.uk`.
+
+NGINX already restricts `open.heley.uk` to `/api/gpt/*` and returns `404` for all other paths.
 
 ### API Workflow Examples
 
@@ -259,6 +285,24 @@ Delete bucket:
 ```bash
 curl -sS -X DELETE "$BASE_URL/buckets/research-raw"
 ```
+
+### Custom GPT Ping Action (No Auth)
+
+Use this when creating an Action in the ChatGPT UI.
+
+1. Start named tunnel:
+   ```bash
+   docker compose --profile cloudflare up -d cloudflared
+   ```
+2. Verify ping from the `open.heley.uk` hostname:
+   ```bash
+   curl -sS "https://open.heley.uk/api/gpt/ping?message=hello"
+   ```
+3. In ChatGPT -> Custom GPT -> Actions:
+   - Authentication: `None`
+   - OpenAPI schema URL: `https://open.heley.uk/api/gpt/openapi.json`
+
+The ping action exposed to ChatGPT is `GET /api/gpt/ping` and does not require authentication.
 
 ### Ingestion Pipeline: Partitioning And Chunking
 
@@ -367,6 +411,7 @@ FASTEMBED_CACHE_PATH=/model-cache/fastembed
 CHUNK_SIZE_CHARS=1200
 CHUNK_OVERLAP_CHARS=150
 MINIO_SCAN_INTERVAL_SECONDS=15
+# Required for named Cloudflare Tunnel profile.
 CLOUDFLARE_TUNNEL_TOKEN=<your-cloudflare-tunnel-token>
 ```
 

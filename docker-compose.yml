@@ -196,14 +196,11 @@ services:
       proxy:
         condition: service_started
     command:
-      [
-        "tunnel",
-        "--no-autoupdate",
-        "run",
-        "--token",
-        "${CLOUDFLARE_TUNNEL_TOKEN:-}",
-      ]
-
+      - tunnel
+      - --no-autoupdate
+      - run
+      - --token
+      - "${CLOUDFLARE_TUNNEL_TOKEN:?CLOUDFLARE_TUNNEL_TOKEN is required for the cloudflare profile}"
 volumes:
   minio-data:
   qdrant-storage:

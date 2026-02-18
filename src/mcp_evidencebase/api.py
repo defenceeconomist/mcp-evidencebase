@@ -5,6 +5,7 @@ The module exposes endpoints used by the dashboard and command-line workflows.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 import logging
 from pathlib import PurePosixPath
 from typing import Annotated, Any, NoReturn
@@ -100,6 +101,78 @@ def healthz() -> dict[str, str]:
         Dictionary with a static ``ok`` status string.
     """
     return {"status": "ok"}
+
+
+@app.get("/gpt/ping")
+def gpt_ping(message: str = "ping") -> dict[str, str]:
+    """Return a small unauthenticated ping response for GPT Actions."""
+    normalized_message = message.strip() or "ping"
+    return {
+        "status": "ok",
+        "reply": "pong",
+        "echo": normalized_message,
+        "timestamp_utc": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+    }
+
+
+@app.get("/gpt/openapi.json", include_in_schema=False)
+def gpt_openapi() -> dict[str, Any]:
+    """Return a minimal OpenAPI document for the GPT ping action."""
+    return {
+        "openapi": "3.0.3",
+        "info": {
+            "title": "Evidence Base GPT Ping API",
+            "version": "1.0.0",
+            "description": "Minimal unauthenticated API for ChatGPT custom GPT actions.",
+        },
+        "servers": [{"url": "/api"}],
+        "paths": {
+            "/gpt/ping": {
+                "get": {
+                    "operationId": "ping",
+                    "summary": "Ping endpoint",
+                    "description": "Returns a pong response to confirm API connectivity.",
+                    "security": [],
+                    "parameters": [
+                        {
+                            "name": "message",
+                            "in": "query",
+                            "required": False,
+                            "schema": {"type": "string", "default": "ping"},
+                            "description": "Optional text to echo back in the response.",
+                        }
+                    ],
+                    "responses": {
+                        "200": {
+                            "description": "Successful ping response.",
+                            "content": {
+                                "application/json": {
+                                    "schema": {
+                                        "type": "object",
+                                        "required": [
+                                            "status",
+                                            "reply",
+                                            "echo",
+                                            "timestamp_utc",
+                                        ],
+                                        "properties": {
+                                            "status": {"type": "string"},
+                                            "reply": {"type": "string"},
+                                            "echo": {"type": "string"},
+                                            "timestamp_utc": {
+                                                "type": "string",
+                                                "format": "date-time",
+                                            },
+                                        },
+                                    }
+                                }
+                            },
+                        }
+                    },
+                }
+            }
+        },
+    }
 
 
 @app.get("/buckets")

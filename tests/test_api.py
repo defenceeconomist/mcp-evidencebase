@@ -210,6 +210,33 @@ def test_healthz_returns_ok(client: TestClient) -> None:
     assert response.json() == {"status": "ok"}
 
 
+def test_gpt_ping_returns_pong(client: TestClient) -> None:
+    """Assert GPT ping endpoint is unauthenticated and returns pong payload."""
+    response = client.get("/gpt/ping", params={"message": "hello"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ok"
+    assert payload["reply"] == "pong"
+    assert payload["echo"] == "hello"
+    assert payload["timestamp_utc"].endswith("Z")
+
+
+def test_gpt_openapi_exposes_ping_operation_without_security(
+    client: TestClient,
+) -> None:
+    """Confirm the GPT OpenAPI document advertises no-auth ping operation."""
+    response = client.get("/gpt/openapi.json")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["openapi"] == "3.0.3"
+    assert payload["servers"] == [{"url": "/api"}]
+    operation = payload["paths"]["/gpt/ping"]["get"]
+    assert operation["operationId"] == "ping"
+    assert operation["security"] == []
+
+
 def test_get_buckets_returns_bucket_names(client: TestClient) -> None:
     """Ensure ``GET /buckets`` returns bucket names from the bucket service."""
     _override_bucket_service(FakeBucketService(bucket_names=["alpha", "beta"]))
