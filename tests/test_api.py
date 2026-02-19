@@ -700,6 +700,20 @@ def test_get_documents_returns_documents(client: TestClient) -> None:
     assert response.json()["documents"][0]["document_id"] == "doc-1"
 
 
+def test_get_metadata_schema_returns_shared_rules(client: TestClient) -> None:
+    """Ensure metadata schema endpoint exposes shared citation/author rules."""
+    response = client.get("/metadata/schema")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert "document_types" in payload
+    assert "bibtex_fields" in payload
+    assert "bibtex_type_rules" in payload
+    assert "known_author_suffixes" in payload
+    assert "crossref_lookup_seed_fields" in payload
+    assert "minimal_metadata_identity_fields" in payload
+
+
 def test_search_collection_returns_results(client: TestClient) -> None:
     """Ensure search endpoint returns ranked results from ingestion service."""
     service = FakeIngestionService(

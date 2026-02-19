@@ -1,3 +1,29 @@
+import { createApiRequest } from "./js/api-client.mjs";
+import {
+  buildFallbackCitationKey as buildFallbackCitationKeyFromModule,
+  getBulkBibtexFieldOrder as getBulkBibtexFieldOrderFromModule,
+  getDefaultCitationSchema,
+  getBibtexFieldStatus as getBibtexFieldStatusFromModule,
+  normalizeCitationSchema,
+  normalizeDocumentType as normalizeDocumentTypeFromModule,
+} from "./js/metadata-editor.mjs";
+import {
+  formatSearchAuthorYear as formatSearchAuthorYearFromModule,
+  formatSearchLocation as formatSearchLocationFromModule,
+  formatSearchPages as formatSearchPagesFromModule,
+  formatSearchTitle as formatSearchTitleFromModule,
+} from "./js/search-ui.mjs";
+import {
+  clearCookieValue,
+  createStateStore,
+  getCookieValue,
+  setCookieValue,
+} from "./js/state-store.mjs";
+import {
+  ensureSelectedDocumentId,
+  filterDocumentsByTitle,
+} from "./js/table-ui.mjs";
+
 (function () {
   window.__EVIDENCEBASE_UI_BUILD__ = "2026-02-17-detail-harvard-author-a";
   const origin = window.location.origin;
@@ -64,197 +90,30 @@
   }
 
   const selectedBucketCookieName = "evidencebase_selected_bucket";
-  const documentTypes = [
-    "article",
-    "book",
-    "booklet",
-    "conference",
-    "inbook",
-    "incollection",
-    "inproceedings",
-    "manual",
-    "mastersthesis",
-    "misc",
-    "phdthesis",
-    "proceedings",
-    "techreport",
-    "unpublished",
-  ];
-  const bibtexFields = [
-    "address",
-    "annote",
-    "author",
-    "booktitle",
-    "chapter",
-    "crossref",
-    "doi",
-    "isbn",
-    "issn",
-    "edition",
-    "editor",
-    "email",
-    "howpublished",
-    "institution",
-    "journal",
-    "month",
-    "note",
-    "number",
-    "organization",
-    "pages",
-    "publisher",
-    "school",
-    "series",
-    "title",
-    "type",
-    "volume",
-    "year",
-  ];
-  const bibtexTypeRules = {
-    article: {
-      required: ["author", "title", "journal", "year"],
-      recommended: ["volume", "number", "pages", "month", "note", "doi", "issn"],
-    },
-    book: {
-      required: ["title", "author", "year", "publisher", "address"],
-      recommended: ["editor", "volume", "number", "series", "edition", "month", "note", "doi", "isbn"],
-    },
-    booklet: {
-      required: ["title"],
-      recommended: ["author", "howpublished", "address", "month", "year", "note", "isbn"],
-    },
-    conference: {
-      required: ["author", "title", "booktitle", "year"],
-      recommended: [
-        "editor",
-        "volume",
-        "number",
-        "series",
-        "pages",
-        "address",
-        "month",
-        "organization",
-        "publisher",
-        "note",
-      ],
-    },
-    inbook: {
-      required: ["author", "title", "booktitle", "publisher", "year"],
-      recommended: [
-        "editor",
-        "chapter",
-        "pages",
-        "volume",
-        "number",
-        "series",
-        "address",
-        "edition",
-        "month",
-        "note",
-        "isbn",
-      ],
-    },
-    incollection: {
-      required: ["author", "title", "booktitle", "publisher", "year"],
-      recommended: [
-        "editor",
-        "volume",
-        "number",
-        "series",
-        "chapter",
-        "pages",
-        "address",
-        "edition",
-        "month",
-        "organization",
-        "note",
-        "isbn",
-      ],
-    },
-    inproceedings: {
-      required: ["author", "title", "booktitle", "year"],
-      recommended: [
-        "editor",
-        "volume",
-        "number",
-        "series",
-        "pages",
-        "address",
-        "month",
-        "organization",
-        "publisher",
-        "note",
-      ],
-    },
-    manual: {
-      required: ["title"],
-      recommended: ["author", "organization", "address", "edition", "month", "year", "note", "isbn"],
-    },
-    mastersthesis: {
-      required: ["author", "title", "school", "year"],
-      recommended: ["type", "address", "month", "note"],
-    },
-    misc: {
-      required: [],
-      recommended: ["author", "title", "howpublished", "month", "year", "note"],
-    },
-    phdthesis: {
-      required: ["author", "title", "school", "year"],
-      recommended: ["type", "address", "month", "note"],
-    },
-    proceedings: {
-      required: ["title", "year"],
-      recommended: [
-        "editor",
-        "volume",
-        "number",
-        "series",
-        "address",
-        "month",
-        "publisher",
-        "organization",
-        "note",
-        "isbn",
-      ],
-    },
-    techreport: {
-      required: ["author", "title", "institution", "year"],
-      recommended: ["type", "number", "address", "month", "note"],
-    },
-    unpublished: {
-      required: ["author", "title", "note"],
-      recommended: ["month", "year"],
-    },
+  const uiState = createStateStore({
+    selectedBucketName: null,
+    documents: [],
+  });
+
+  let citationSchema = getDefaultCitationSchema();
+  let documentTypes = [...citationSchema.document_types];
+  let bibtexFields = [...citationSchema.bibtex_fields];
+  let bibtexTypeRules = { ...citationSchema.bibtex_type_rules };
+  let crossrefLookupSeedFields = [...citationSchema.crossref_lookup_seed_fields];
+  let minimalMetadataIdentityFields = [...citationSchema.minimal_metadata_identity_fields];
+  let knownAuthorSuffixes = new Set(citationSchema.known_author_suffixes);
+  let bulkBibtexFieldOrder = getBulkBibtexFieldOrderFromModule(bibtexFields, bibtexTypeRules);
+
+  const applyCitationSchema = (rawSchema) => {
+    citationSchema = normalizeCitationSchema(rawSchema);
+    documentTypes = [...citationSchema.document_types];
+    bibtexFields = [...citationSchema.bibtex_fields];
+    bibtexTypeRules = { ...citationSchema.bibtex_type_rules };
+    crossrefLookupSeedFields = [...citationSchema.crossref_lookup_seed_fields];
+    minimalMetadataIdentityFields = [...citationSchema.minimal_metadata_identity_fields];
+    knownAuthorSuffixes = new Set(citationSchema.known_author_suffixes);
+    bulkBibtexFieldOrder = getBulkBibtexFieldOrderFromModule(bibtexFields, bibtexTypeRules);
   };
-  const getBulkBibtexFieldOrder = () => {
-    const metrics = new Map();
-    bibtexFields.forEach((fieldName) => {
-      metrics.set(fieldName, { requiredCount: 0, recommendedCount: 0 });
-    });
-    Object.values(bibtexTypeRules).forEach((rules) => {
-      (rules.required || []).forEach((fieldName) => {
-        if (metrics.has(fieldName)) {
-          metrics.get(fieldName).requiredCount += 1;
-        }
-      });
-      (rules.recommended || []).forEach((fieldName) => {
-        if (metrics.has(fieldName)) {
-          metrics.get(fieldName).recommendedCount += 1;
-        }
-      });
-    });
-    return [...bibtexFields].sort((leftField, rightField) => {
-      const left = metrics.get(leftField);
-      const right = metrics.get(rightField);
-      if (left.requiredCount !== right.requiredCount) {
-        return right.requiredCount - left.requiredCount;
-      }
-      if (left.recommendedCount !== right.recommendedCount) {
-        return right.recommendedCount - left.recommendedCount;
-      }
-      return leftField.localeCompare(rightField);
-    });
-  };
-  const bulkBibtexFieldOrder = getBulkBibtexFieldOrder();
   const bibtexFieldLabelOverrides = {
     doi: "DOI",
     isbn: "ISBN",
@@ -262,8 +121,6 @@
     month: "Month",
     year: "Year",
   };
-  const crossrefLookupSeedFields = ["doi", "issn", "isbn", "title"];
-  const minimalMetadataIdentityFields = ["doi", "issn", "isbn", "title", "author"];
   const statusBadgeMeta = {
     required: { label: "Required", className: "bibtex-status-required" },
     recommended: { label: "Recommended", className: "bibtex-status-recommended" },
@@ -326,17 +183,11 @@
   };
 
   const getBibtexFieldStatus = (documentType, fieldName) => {
-    const rules = bibtexTypeRules[normalizeDocumentType(documentType)] || {
-      required: [],
-      recommended: [],
-    };
-    if ((rules.required || []).includes(fieldName)) {
-      return "required";
-    }
-    if ((rules.recommended || []).includes(fieldName)) {
-      return "recommended";
-    }
-    return "optional";
+    return getBibtexFieldStatusFromModule({
+      documentType,
+      fieldName,
+      bibtexTypeRules,
+    });
   };
 
   const getOrderedDetailBibtexFields = (documentType) => {
@@ -389,35 +240,21 @@
   const isMobileViewport = () => window.matchMedia("(max-width: 991.98px)").matches;
 
   const setCookie = (name, value, maxAgeSeconds) => {
-    document.cookie = [
-      `${name}=${encodeURIComponent(value)}`,
-      "Path=/",
-      "SameSite=Lax",
-      `Max-Age=${maxAgeSeconds}`,
-    ].join("; ");
+    setCookieValue(name, value, maxAgeSeconds);
   };
 
   const getCookie = (name) => {
-    const cookiePrefix = `${name}=`;
-    const cookieValue = document.cookie
-      .split(";")
-      .map((item) => item.trim())
-      .find((item) => item.startsWith(cookiePrefix));
-
-    if (!cookieValue) {
-      return null;
-    }
-
-    return decodeURIComponent(cookieValue.slice(cookiePrefix.length));
+    return getCookieValue(name);
   };
 
   const clearCookie = (name) => {
-    document.cookie = `${name}=; Path=/; SameSite=Lax; Max-Age=0`;
+    clearCookieValue(name);
   };
 
   const setSelectedBucketName = (bucketName) => {
     flushPendingMetadataSaveTimers();
     selectedBucketName = bucketName;
+    uiState.set("selectedBucketName", bucketName);
     if (bucketName) {
       setCookie(selectedBucketCookieName, bucketName, 60 * 60 * 24 * 365);
       setSemanticSearchStatus(`Selected collection: ${bucketName}.`);
@@ -481,11 +318,7 @@
   };
 
   const normalizeDocumentType = (value) => {
-    const normalized = normalizeText(value).toLowerCase();
-    if (!normalized) {
-      return "misc";
-    }
-    return documentTypes.includes(normalized) ? normalized : "misc";
+    return normalizeDocumentTypeFromModule(value, documentTypes);
   };
 
   const filenameFromPath = (filePath) => {
@@ -559,20 +392,6 @@
       highlightText: result.text,
     });
   };
-
-  const knownAuthorSuffixes = new Set([
-    "jr",
-    "jr.",
-    "sr",
-    "sr.",
-    "ii",
-    "iii",
-    "iv",
-    "v",
-    "phd",
-    "m.d.",
-    "md",
-  ]);
 
   const isLikelyAuthorSuffix = (value) => {
     const normalizedValue = normalizeText(value).toLowerCase();
@@ -1050,23 +869,14 @@
     title,
     year,
   }) => {
-    const authorToken = normalizeCitationToken(
-      extractCitationFirstAuthorLastName(authorEntries, authorText)
-    );
-    const yearToken = extractCitationYearToken(year);
-    const titleToken = normalizeCitationToken(extractCitationFirstTitleWord(title));
-    const candidate = `${authorToken}${yearToken}${titleToken}`;
-    if (candidate) {
-      return candidate;
-    }
-
-    const withoutExtension = filenameFromPath(filePath).replace(/\.[^/.]+$/, "");
-    const slug = withoutExtension
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+/, "")
-      .replace(/-+$/, "");
-    return slug || `document-${index + 1}`;
+    return buildFallbackCitationKeyFromModule({
+      filePath,
+      index,
+      authorLastName: extractCitationFirstAuthorLastName(authorEntries, authorText),
+      title,
+      year,
+      filenameFromPath,
+    });
   };
 
   const buildDefaultCitationKeyForRecord = (record) => {
@@ -1225,38 +1035,7 @@
     bucketEmptyState.classList.toggle("d-none", message.length === 0);
   };
 
-  const parseErrorMessage = async (response) => {
-    try {
-      const payload = await response.json();
-      if (payload && typeof payload.detail === "string") {
-        return payload.detail;
-      }
-    } catch (error) {
-      // Ignore JSON parse failures and use status text fallback.
-    }
-    return `${response.status} ${response.statusText}`;
-  };
-
-  const apiRequest = async (path, options = {}) => {
-    const headers = { ...(options.headers || {}) };
-    const hasContentTypeHeader = Object.keys(headers).some(
-      (headerName) => headerName.toLowerCase() === "content-type"
-    );
-    const isFormDataBody =
-      typeof FormData !== "undefined" && options.body && options.body instanceof FormData;
-    if (!hasContentTypeHeader && !isFormDataBody) {
-      headers["Content-Type"] = "application/json";
-    }
-
-    const response = await fetch(apiBasePath + path, {
-      headers,
-      ...options,
-    });
-    if (!response.ok) {
-      throw new Error(await parseErrorMessage(response));
-    }
-    return response.json();
-  };
+  const apiRequest = createApiRequest({ apiBasePath });
 
   const buildMetadataUpdatePayload = (record) => {
     if (!record || typeof record !== "object") {
@@ -1443,42 +1222,19 @@
   };
 
   const formatSearchPages = (pageStart, pageEnd) => {
-    const start = Number.parseInt(pageStart, 10);
-    const end = Number.parseInt(pageEnd, 10);
-    const hasStart = Number.isFinite(start) && start > 0;
-    const hasEnd = Number.isFinite(end) && end > 0;
-    if (!hasStart && !hasEnd) {
-      return "n/a";
-    }
-    if (hasStart && hasEnd) {
-      return start === end ? String(start) : `${start}-${end}`;
-    }
-    if (hasStart) {
-      return String(start);
-    }
-    return String(end);
+    return formatSearchPagesFromModule(pageStart, pageEnd);
   };
 
   const formatSearchTitle = (result) => {
-    const title =
-      normalizeText(result.title) ||
-      normalizeText(filenameFromPath(result.file_path || "")) ||
-      normalizeText(result.document_id) ||
-      "Untitled chunk";
-    return title;
+    return formatSearchTitleFromModule(result, filenameFromPath, normalizeText);
   };
 
   const formatSearchLocation = (result) => {
-    return normalizeText(result.minio_location) || normalizeText(result.file_path) || "n/a";
+    return formatSearchLocationFromModule(result, normalizeText);
   };
 
   const formatSearchAuthorYear = (result) => {
-    const author = normalizeText(result.author);
-    const year = normalizeText(result.year);
-    if (author && year) {
-      return `${author} (${year})`;
-    }
-    return author || year || "n/a";
+    return formatSearchAuthorYearFromModule(result, normalizeText);
   };
 
   const renderSemanticSearchResults = () => {
@@ -2280,14 +2036,11 @@
   };
 
   const getFilteredDocuments = () => {
-    return documents.filter((documentRecord) => {
-      if (!titleSearchQuery) {
-        return true;
-      }
-      const documentTitle = normalizeText(
-        documentRecord.title || filenameFromPath(documentRecord.file_path)
-      ).toLowerCase();
-      return documentTitle.includes(titleSearchQuery);
+    return filterDocumentsByTitle({
+      documents,
+      titleSearchQuery,
+      normalizeText,
+      filenameFromPath,
     });
   };
 
@@ -2317,16 +2070,10 @@
   };
 
   const ensureSelectedDocument = (candidateDocuments) => {
-    if (!Array.isArray(candidateDocuments) || candidateDocuments.length === 0) {
-      selectedDocumentId = null;
-      return;
-    }
-    const selectedStillVisible = candidateDocuments.some(
-      (documentRecord) => documentRecord.document_id === selectedDocumentId
-    );
-    if (!selectedStillVisible) {
-      selectedDocumentId = candidateDocuments[0].document_id;
-    }
+    selectedDocumentId = ensureSelectedDocumentId({
+      candidateDocuments,
+      selectedDocumentId,
+    });
   };
 
   const renderParseStatusIntoCell = (cell, documentRecord) => {
@@ -2835,6 +2582,7 @@
     if (!selectedBucketName) {
       clearDocumentRefreshTimer();
       documents = [];
+      uiState.set("documents", []);
       selectedDocumentId = null;
       renderDocumentMeta();
       return;
@@ -2846,6 +2594,7 @@
       );
       const rawDocuments = Array.isArray(payload.documents) ? payload.documents : [];
       documents = rawDocuments.map((rawDocument, index) => normalizeDocumentRecord(rawDocument, index));
+      uiState.set("documents", documents);
 
       if (!preserveSelection) {
         selectedDocumentId = null;
@@ -2863,6 +2612,16 @@
       if (!silent) {
         window.alert(`Could not load documents: ${error.message}`);
       }
+    }
+  };
+
+  const loadCitationSchema = async () => {
+    try {
+      const payload = await apiRequest("/metadata/schema");
+      applyCitationSchema(payload);
+    } catch (error) {
+      console.warn("Could not load metadata schema from API, using frontend defaults.", error);
+      applyCitationSchema(getDefaultCitationSchema());
     }
   };
 
@@ -2897,6 +2656,7 @@
       renderBuckets();
       setEmptyState("Failed to load collections from API.");
       documents = [];
+      uiState.set("documents", []);
       selectedDocumentId = null;
       renderDocumentMeta();
       window.alert(`Could not load collections: ${error.message}`);
@@ -3785,5 +3545,8 @@
   updateRemoveTooltip();
   updateRemoveDocumentButtonState();
   window.requestAnimationFrame(setIndependentScrollHeights);
-  void refreshBuckets();
+  void (async () => {
+    await loadCitationSchema();
+    await refreshBuckets();
+  })();
 })();

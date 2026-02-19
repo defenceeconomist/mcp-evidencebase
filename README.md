@@ -131,16 +131,21 @@ pytest -m integration_live tests/test_live_datastores_integration.py
 Configure live endpoints with `MCP_EVIDENCEBASE_LIVE_*` variables (or fall back to
 `MINIO_ENDPOINT`, `REDIS_URL`, and `QDRANT_URL`).
 
-Run live integration tests inside Docker Compose (same network as MinIO/Redis/Qdrant):
+Run live integration tests inside Docker Compose (recommended, same network as
+MinIO/Redis/Qdrant):
 
 ```bash
 # 1) Start only required datastores (avoids cloudflared dependency).
 docker compose up -d minio redis qdrant
 
 # 2) Run pytest in a one-off api container on the compose network.
+#    Use compose service hostnames for live endpoints.
 docker compose run --rm --no-deps \
   -v "$PWD:/app" \
   -e MCP_EVIDENCEBASE_RUN_LIVE_INTEGRATION=1 \
+  -e MCP_EVIDENCEBASE_LIVE_MINIO_ENDPOINT=minio:9000 \
+  -e MCP_EVIDENCEBASE_LIVE_REDIS_URL=redis://redis:6379/2 \
+  -e MCP_EVIDENCEBASE_LIVE_QDRANT_URL=http://qdrant:6333 \
   api sh -lc 'python -m pip install -e ".[dev]" && pytest -m integration_live tests/test_live_datastores_integration.py'
 ```
 
