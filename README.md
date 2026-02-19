@@ -108,6 +108,32 @@ The repository includes local Docker orchestration, Sphinx documentation, API/CL
    pytest
    ```
 
+Optional live datastore integration tests (MinIO/Redis/Qdrant):
+
+```bash
+MCP_EVIDENCEBASE_RUN_LIVE_INTEGRATION=1 \
+pytest -m integration_live tests/test_live_datastores_integration.py
+```
+
+Configure live endpoints with `MCP_EVIDENCEBASE_LIVE_*` variables (or fall back to
+`MINIO_ENDPOINT`, `REDIS_URL`, and `QDRANT_URL`).
+
+Run live integration tests inside Docker Compose (same network as MinIO/Redis/Qdrant):
+
+```bash
+# 1) Start only required datastores (avoids cloudflared dependency).
+docker compose up -d minio redis qdrant
+
+# 2) Run pytest in a one-off api container on the compose network.
+docker compose run --rm --no-deps \
+  -v "$PWD:/app" \
+  -e MCP_EVIDENCEBASE_RUN_LIVE_INTEGRATION=1 \
+  api sh -lc 'python -m pip install -e ".[dev]" && pytest -m integration_live tests/test_live_datastores_integration.py'
+```
+
+This uses service-hostnames from `docker-compose.yml` (`minio`, `redis`, `qdrant`)
+without exposing datastore ports to localhost.
+
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 ## Usage
@@ -125,12 +151,48 @@ Run hybrid search from the CLI:
 
 ```bash
 python -m mcp_evidencebase \
-  --search-bucket research-raw \
-  --search-query "causal inference in healthcare" \
+  --search-bucket offsets \
+  --search-query "definition of offsets" \
   --search-mode hybrid \
   --search-limit 5 \
   --search-rrf-k 80
 ```
+
+If you run this on your host while using Docker Compose defaults, `connection refused`
+is expected unless your datastore endpoints are reachable from the host. Compose uses
+internal hostnames (`minio`, `redis`, `qdrant`) for container-to-container traffic.
+
+Run CLI search inside the Compose network:
+
+```bash
+# Start only required services.
+docker compose up -d minio redis qdrant
+
+# Run CLI in a one-off api container on the same Docker network.
+docker compose run --rm --no-deps \
+  -v "$PWD:/app" \
+  api python -m mcp_evidencebase \
+    --search-bucket offsets \
+    --search-query "definition of offsets" \
+    --search-mode hybrid \
+    --search-limit 5 \
+    --search-rrf-k 80
+```
+
+Run CLI search on host (alternative):
+
+```bash
+export QDRANT_URL=http://localhost:52180
+python -m mcp_evidencebase \
+  --search-bucket offsets \
+  --search-query "definition of offsets" \
+  --search-mode hybrid \
+  --search-limit 5 \
+  --search-rrf-k 80
+```
+
+The host-based command above works through the NGINX proxy and does not require
+direct `localhost:6333` access.
 
 ### Docker Compose Stack
 
@@ -489,7 +551,7 @@ Qdrant point payload fields include:
 - [x] Sphinx docs with API reference and CLI vignette
 - [x] Test reporting with grouped areas and coverage summary in docs
 - [ ] Add automated deployment workflow for docs and services
-- [ ] Expand integration tests for live MinIO/Redis/Qdrant interactions
+- [x] Expand integration tests for live MinIO/Redis/Qdrant interactions
 
 See open issues for additional planning: [open issues][issues-url].
 

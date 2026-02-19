@@ -56,6 +56,7 @@ markers = [
   "area_settings: settings parsing and defaults tests",
   "area_api: HTTP API endpoint behavior tests",
   "area_ingestion: ingestion, metadata, and indexing tests",
+  "integration_live: opt-in live MinIO/Redis/Qdrant integration tests",
 ]
 
 [tool.ruff]
