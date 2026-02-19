@@ -5,6 +5,7 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+import os
 from minio.error import S3Error
 
 from mcp_evidencebase.api import app, get_bucket_service, get_ingestion_service
@@ -158,6 +159,8 @@ class FakeIngestionService:
 
 @pytest.fixture
 def client() -> TestClient:
+    # Ensure local environment doesn't influence TestClient behavior
+    os.environ.pop("GPT_ACTIONS_LINK_BASE_URL", None)
     app.dependency_overrides[get_ingestion_service] = lambda: FakeIngestionService()
     with TestClient(app) as test_client:
         yield test_client
@@ -220,6 +223,10 @@ def test_gpt_ping_requires_basic_auth(
 ) -> None:
     """Assert GPT ping endpoint returns 401 when Basic Auth is missing."""
     monkeypatch.setenv("GPT_ACTIONS_API_KEY", "supersecret")
+    # Ensure any local override doesn't affect this test
+    monkeypatch.delenv("GPT_ACTIONS_LINK_BASE_URL", raising=False)
+    # Ensure any local override doesn't affect this test
+    monkeypatch.delenv("GPT_ACTIONS_LINK_BASE_URL", raising=False)
     response = client.get("/gpt/ping")
 
     assert response.status_code == 401

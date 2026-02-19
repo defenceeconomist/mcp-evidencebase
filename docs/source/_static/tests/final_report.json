@@ -1,79 +1,8 @@
 {
   "filters": {
-    "untracked": 3,
-    "total": 3,
-    "passed": 3,
-    "marker_counts": {
-      "area_ingestion": 3,
-      "integration_live": 3
-    }
+    "total": 0,
+    "passed": 0,
+    "marker_counts": {}
   },
-  "results": [
-    {
-      "test": "test_live_partition_chunk_and_search_round_trip",
-      "nodeid": "tests/test_live_datastores_integration.py::test_live_partition_chunk_and_search_round_trip",
-      "status": "passed",
-      "duration": 3.66691254300531,
-      "trace": null,
-      "error": null,
-      "markers": [
-        "area_ingestion",
-        "integration_live"
-      ],
-      "file": "tests/test_live_datastores_integration.py",
-      "line": 358,
-      "stdout": "",
-      "stderr": "INFO - HTTP Request: GET http://qdrant:6333 \"HTTP/1.1 200 OK\"\nINFO - HTTP Request: GET http://qdrant:6333/collections \"HTTP/1.1 200 OK\"\nWARNING - EOF marker not found\nINFO - HTTP Request: GET http://qdrant:6333/collections \"HTTP/1.1 200 OK\"\nINFO - HTTP Request: PUT http://qdrant:6333/collections/it_live_6d49d895a5eb_it_live_6d49d895a5eb \"HTTP/1.1 200 OK\"\nINFO - HTTP Request: GET http://qdrant:6333/collections \"HTTP/1.1 200 OK\"\nINFO - HTTP Request: POST http://qdrant:6333/collections/it_live_6d49d895a5eb_it_live_6d49d895a5eb/points/delete?wait=true \"HTTP/1.1 200 OK\"\nINFO - HTTP Request: PUT http://qdrant:6333/collections/it_live_6d49d895a5eb_it_live_6d49d895a5eb/points?wait=true \"HTTP/1.1 200 OK\"\nINFO - HTTP Request: GET http://qdrant:6333/collections \"HTTP/1.1 200 OK\"\nINFO - HTTP Request: POST http://qdrant:6333/collections/it_live_6d49d895a5eb_it_live_6d49d895a5eb/points/scroll \"HTTP/1.1 200 OK\"\nINFO - HTTP Request: GET http://qdrant:6333/collections \"HTTP/1.1 200 OK\"\nINFO - HTTP Request: POST http://qdrant:6333/collections/it_live_6d49d895a5eb_it_live_6d49d895a5eb/points/query \"HTTP/1.1 200 OK\"\nINFO - HTTP Request: POST http://qdrant:6333/collections/it_live_6d49d895a5eb_it_live_6d49d895a5eb/points/query \"HTTP/1.1 200 OK\"\n",
-      "timestamp": "2026-02-19T09:10:02.902560Z",
-      "screenshot": "screenshots",
-      "logs": "EOF marker not found\nHTTP Request: GET http://qdrant:6333/collections \"HTTP/1.1 200 OK\"\nHTTP Request: PUT http://qdrant:6333/collections/it_live_6d49d895a5eb_it_live_6d49d895a5eb \"HTTP/1.1 200 OK\"\nHTTP Request: GET http://qdrant:6333/collections \"HTTP/1.1 200 OK\"\nHTTP Request: POST http://qdrant:6333/collections/it_live_6d49d895a5eb_it_live_6d49d895a5eb/points/delete?wait=true \"HTTP/1.1 200 OK\"\nHTTP Request: PUT http://qdrant:6333/collections/it_live_6d49d895a5eb_it_live_6d49d895a5eb/points?wait=true \"HTTP/1.1 200 OK\"\nHTTP Request: GET http://qdrant:6333/collections \"HTTP/1.1 200 OK\"\nHTTP Request: POST http://qdrant:6333/collections/it_live_6d49d895a5eb_it_live_6d49d895a5eb/points/scroll \"HTTP/1.1 200 OK\"\nHTTP Request: GET http://qdrant:6333/collections \"HTTP/1.1 200 OK\"\nHTTP Request: POST http://qdrant:6333/collections/it_live_6d49d895a5eb_it_live_6d49d895a5eb/points/query \"HTTP/1.1 200 OK\"\nHTTP Request: POST http://qdrant:6333/collections/it_live_6d49d895a5eb_it_live_6d49d895a5eb/points/query \"HTTP/1.1 200 OK\"",
-      "worker": "main",
-      "links": [],
-      "flaky": false
-    },
-    {
-      "test": "test_live_etag_changes_require_reprocessing",
-      "nodeid": "tests/test_live_datastores_integration.py::test_live_etag_changes_require_reprocessing",
-      "status": "passed",
-      "duration": 0.03857066697673872,
-      "trace": null,
-      "error": null,
-      "markers": [
-        "area_ingestion",
-        "integration_live"
-      ],
-      "file": "tests/test_live_datastores_integration.py",
-      "line": 413,
-      "stdout": "",
-      "stderr": "INFO - HTTP Request: GET http://qdrant:6333 \"HTTP/1.1 200 OK\"\nINFO - HTTP Request: GET http://qdrant:6333/collections \"HTTP/1.1 200 OK\"\nWARNING - EOF marker not found\nINFO - HTTP Request: GET http://qdrant:6333/collections \"HTTP/1.1 200 OK\"\nINFO - HTTP Request: PUT http://qdrant:6333/collections/it_live_bd0c96917831_it_live_bd0c96917831 \"HTTP/1.1 200 OK\"\nINFO - HTTP Request: GET http://qdrant:6333/collections \"HTTP/1.1 200 OK\"\nINFO - HTTP Request: POST http://qdrant:6333/collections/it_live_bd0c96917831_it_live_bd0c96917831/points/delete?wait=true \"HTTP/1.1 200 OK\"\nINFO - HTTP Request: PUT http://qdrant:6333/collections/it_live_bd0c96917831_it_live_bd0c96917831/points?wait=true \"HTTP/1.1 200 OK\"\n",
-      "timestamp": "2026-02-19T09:10:02.979296Z",
-      "screenshot": "screenshots",
-      "logs": "EOF marker not found\nHTTP Request: GET http://qdrant:6333/collections \"HTTP/1.1 200 OK\"\nHTTP Request: PUT http://qdrant:6333/collections/it_live_bd0c96917831_it_live_bd0c96917831 \"HTTP/1.1 200 OK\"\nHTTP Request: GET http://qdrant:6333/collections \"HTTP/1.1 200 OK\"\nHTTP Request: POST http://qdrant:6333/collections/it_live_bd0c96917831_it_live_bd0c96917831/points/delete?wait=true \"HTTP/1.1 200 OK\"\nHTTP Request: PUT http://qdrant:6333/collections/it_live_bd0c96917831_it_live_bd0c96917831/points?wait=true \"HTTP/1.1 200 OK\"",
-      "worker": "main",
-      "links": [],
-      "flaky": false
-    },
-    {
-      "test": "test_live_delete_document_cleans_minio_redis_and_qdrant",
-      "nodeid": "tests/test_live_datastores_integration.py::test_live_delete_document_cleans_minio_redis_and_qdrant",
-      "status": "passed",
-      "duration": 0.08571358301560394,
-      "trace": null,
-      "error": null,
-      "markers": [
-        "area_ingestion",
-        "integration_live"
-      ],
-      "file": "tests/test_live_datastores_integration.py",
-      "line": 468,
-      "stdout": "",
-      "stderr": "INFO - HTTP Request: GET http://qdrant:6333 \"HTTP/1.1 200 OK\"\nINFO - HTTP Request: GET http://qdrant:6333/collections \"HTTP/1.1 200 OK\"\nWARNING - EOF marker not found\nINFO - HTTP Request: GET http://qdrant:6333/collections \"HTTP/1.1 200 OK\"\nINFO - HTTP Request: PUT http://qdrant:6333/collections/it_live_f58ec2de6ca7_it_live_f58ec2de6ca7 \"HTTP/1.1 200 OK\"\nINFO - HTTP Request: GET http://qdrant:6333/collections \"HTTP/1.1 200 OK\"\nINFO - HTTP Request: POST http://qdrant:6333/collections/it_live_f58ec2de6ca7_it_live_f58ec2de6ca7/points/delete?wait=true \"HTTP/1.1 200 OK\"\nINFO - HTTP Request: PUT http://qdrant:6333/collections/it_live_f58ec2de6ca7_it_live_f58ec2de6ca7/points?wait=true \"HTTP/1.1 200 OK\"\nINFO - HTTP Request: GET http://qdrant:6333/collections \"HTTP/1.1 200 OK\"\nINFO - HTTP Request: POST http://qdrant:6333/collections/it_live_f58ec2de6ca7_it_live_f58ec2de6ca7/points/scroll \"HTTP/1.1 200 OK\"\nINFO - HTTP Request: GET http://qdrant:6333/collections \"HTTP/1.1 200 OK\"\nINFO - HTTP Request: POST http://qdrant:6333/collections/it_live_f58ec2de6ca7_it_live_f58ec2de6ca7/points/delete?wait=true \"HTTP/1.1 200 OK\"\nINFO - HTTP Request: GET http://qdrant:6333/collections \"HTTP/1.1 200 OK\"\nINFO - HTTP Request: POST http://qdrant:6333/collections/it_live_f58ec2de6ca7_it_live_f58ec2de6ca7/points/scroll \"HTTP/1.1 200 OK\"\n",
-      "timestamp": "2026-02-19T09:10:03.087719Z",
-      "screenshot": "screenshots",
-      "logs": "EOF marker not found\nHTTP Request: GET http://qdrant:6333/collections \"HTTP/1.1 200 OK\"\nHTTP Request: PUT http://qdrant:6333/collections/it_live_f58ec2de6ca7_it_live_f58ec2de6ca7 \"HTTP/1.1 200 OK\"\nHTTP Request: GET http://qdrant:6333/collections \"HTTP/1.1 200 OK\"\nHTTP Request: POST http://qdrant:6333/collections/it_live_f58ec2de6ca7_it_live_f58ec2de6ca7/points/delete?wait=true \"HTTP/1.1 200 OK\"\nHTTP Request: PUT http://qdrant:6333/collections/it_live_f58ec2de6ca7_it_live_f58ec2de6ca7/points?wait=true \"HTTP/1.1 200 OK\"\nHTTP Request: GET http://qdrant:6333/collections \"HTTP/1.1 200 OK\"\nHTTP Request: POST http://qdrant:6333/collections/it_live_f58ec2de6ca7_it_live_f58ec2de6ca7/points/scroll \"HTTP/1.1 200 OK\"\nHTTP Request: GET http://qdrant:6333/collections \"HTTP/1.1 200 OK\"\nHTTP Request: POST http://qdrant:6333/collections/it_live_f58ec2de6ca7_it_live_f58ec2de6ca7/points/delete?wait=true \"HTTP/1.1 200 OK\"\nHTTP Request: GET http://qdrant:6333/collections \"HTTP/1.1 200 OK\"\nHTTP Request: POST http://qdrant:6333/collections/it_live_f58ec2de6ca7_it_live_f58ec2de6ca7/points/scroll \"HTTP/1.1 200 OK\"",
-      "worker": "main",
-      "links": [],
-      "flaky": false
-    }
-  ]
+  "results": []
 }
