@@ -564,6 +564,8 @@ Qdrant point payload fields include:
 - [x] Sphinx docs with API reference and CLI vignette
 - [x] Test reporting with grouped areas and coverage summary in docs
 - [ ] Add automated deployment workflow for docs and services
+- [ ] Implement parent-child context retrieval
+- [ ] Add prompt rewriting for query refinement
 - [x] Expand integration tests for live MinIO/Redis/Qdrant interactions
 
 See open issues for additional planning: [open issues][issues-url].
