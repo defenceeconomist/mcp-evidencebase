@@ -1582,6 +1582,13 @@ def test_qdrant_payload_contains_document_partition_meta_and_resolver_keys() -> 
             {
                 "chunk_index": 0,
                 "text": "hello world",
+                "metadata": {
+                    "section_title": "Methods",
+                    "parent_section_id": "section-123",
+                    "parent_section_index": 4,
+                    "parent_section_title": "Methods",
+                    "parent_section_text": "Methods section full text.",
+                },
                 "page_numbers": [1],
                 "bounding_boxes": [
                     {
@@ -1619,6 +1626,12 @@ def test_qdrant_payload_contains_document_partition_meta_and_resolver_keys() -> 
     assert "file_path" not in point.payload
     assert point.payload["resolver_url"] == "docs://research-raw/paper.pdf?page=1"
     assert point.payload["minio_location"] == "research-raw/paper.pdf"
+    assert point.payload["section_title"] == "Methods"
+    assert point.payload["section_id"] == "section-123"
+    assert "parent_section_id" not in point.payload
+    assert "parent_section_index" not in point.payload
+    assert "parent_section_title" not in point.payload
+    assert "parent_section_text" not in point.payload
     assert point.payload["page_start"] == 1
     assert point.payload["page_end"] == 1
     assert "page_numbers" not in point.payload
@@ -1628,6 +1641,54 @@ def test_qdrant_payload_contains_document_partition_meta_and_resolver_keys() -> 
             "points": [[10.0, 20.0], [30.0, 20.0], [30.0, 40.0], [10.0, 40.0]],
         }
     ]
+
+
+def test_qdrant_upsert_skips_image_chunks_for_embedding() -> None:
+    """Ensure image chunks are excluded from embedding/index payload writes."""
+    install_qdrant_client_stub()
+    qdrant = FakeQdrantClient()
+    indexer = StubQdrantIndexer(
+        qdrant_client=qdrant,
+        fastembed_model="ignored",
+        fastembed_keyword_model="ignored-keyword",
+        collection_prefix="evidencebase",
+    )
+
+    indexer.upsert_document_chunks(
+        bucket_name="research-raw",
+        document_id="abc123",
+        file_path="paper.pdf",
+        chunks=[
+            {
+                "chunk_index": 0,
+                "type": "text",
+                "text": "indexed narrative text",
+                "metadata": {"section_title": "Methods"},
+            },
+            {
+                "chunk_index": 1,
+                "type": "image",
+                "text": "[Image]",
+                "metadata": {
+                    "section_title": "Methods",
+                    "render_markdown": "![Figure](https://example.com/figure.png)",
+                },
+            },
+        ],
+        partition_key="partition-hash",
+        meta_key="meta-hash",
+        document_title="Paper Title",
+        document_author="Author, A.",
+        document_year="2024",
+    )
+
+    assert len(qdrant.upsert_calls) == 1
+    upsert_call = qdrant.upsert_calls[0]
+    assert len(upsert_call["points"]) == 1
+    point = upsert_call["points"][0]
+    assert point.payload["chunk_type"] == "text"
+    assert point.payload["chunk_index"] == 0
+    assert point.payload["text"] == "indexed narrative text"
 
 
 def test_qdrant_indexer_hybrid_search_merges_dense_and_keyword_results() -> None:
@@ -1646,6 +1707,7 @@ def test_qdrant_indexer_hybrid_search_merges_dense_and_keyword_results() -> None
                 "year": "2023",
                 "minio_location": "research-raw/a.pdf",
                 "section_title": "Methods",
+                "section_id": "section-a",
                 "page_start": 2,
                 "page_end": 3,
                 "text": "dense\n\nmatch",
@@ -1663,6 +1725,7 @@ def test_qdrant_indexer_hybrid_search_merges_dense_and_keyword_results() -> None
                 "year": "2021",
                 "minio_location": "research-raw/b.pdf",
                 "section_title": "Findings",
+                "section_id": "section-b",
                 "page_start": 5,
                 "page_end": 5,
                 "text": "keyword\nmatch",
@@ -1678,6 +1741,7 @@ def test_qdrant_indexer_hybrid_search_merges_dense_and_keyword_results() -> None
                 "year": "2023",
                 "minio_location": "research-raw/a.pdf",
                 "section_title": "Methods",
+                "section_id": "section-a",
                 "page_start": 2,
                 "page_end": 3,
                 "text": "dense\n\nmatch",
@@ -1712,6 +1776,16 @@ def test_qdrant_indexer_hybrid_search_merges_dense_and_keyword_results() -> None
     assert results[1]["file_path"] == "b.pdf"
     assert results[0]["section_title"] == "Methods"
     assert results[1]["section_title"] == "Findings"
+    assert results[0]["section_id"] == "section-a"
+    assert results[1]["section_id"] == "section-b"
+    assert results[0]["parent_section_id"] == "section-a"
+    assert results[1]["parent_section_id"] == "section-b"
+    assert results[0]["parent_section_index"] is None
+    assert results[1]["parent_section_index"] is None
+    assert results[0]["parent_section_title"] == ""
+    assert results[1]["parent_section_title"] == ""
+    assert results[0]["parent_section_text"] == ""
+    assert results[1]["parent_section_text"] == ""
     assert results[0]["text"] == "dense match"
     assert results[1]["text"] == "keyword match"
     assert results[0]["page_start"] == 2
@@ -1785,3 +1859,129 @@ def test_ingestion_service_search_documents_delegates_to_qdrant_indexer() -> Non
             "rrf_k": 80,
         }
     ]
+
+
+def test_ingestion_service_search_documents_hydrates_parent_section_from_redis() -> None:
+    """Ensure search results are enriched from Redis section mappings by section_id."""
+
+    class SearchRecordingIndexer(RecordingQdrantIndexer):
+        def search_chunks(
+            self,
+            *,
+            bucket_name: str,
+            query: str,
+            limit: int,
+            mode: str,
+            rrf_k: int = 60,
+        ) -> list[dict[str, Any]]:
+            super().search_chunks(
+                bucket_name=bucket_name,
+                query=query,
+                limit=limit,
+                mode=mode,
+                rrf_k=rrf_k,
+            )
+            return [
+                {
+                    "id": "chunk-1",
+                    "document_id": "doc-1",
+                    "section_id": "section-42",
+                    "section_title": "",
+                    "parent_section_id": "section-42",
+                    "parent_section_title": "",
+                    "parent_section_index": None,
+                    "parent_section_text": "",
+                }
+            ]
+
+    redis_client = FakeRedis()
+    repository = RedisDocumentRepository(redis_client, key_prefix="test")
+    repository.set_document_sections(
+        document_id="doc-1",
+        partition_key="partition-1",
+        sections=[
+            {
+                "section_id": "section-42",
+                "section_index": 5,
+                "section_title": "Methods",
+                "section_text": "Full section text from Redis mapping.",
+            }
+        ],
+        chunk_sections=[
+            {"chunk_index": 0, "chunk_id": "chunk-1", "section_id": "section-42"},
+        ],
+    )
+    indexer = SearchRecordingIndexer()
+    service = IngestionService(
+        minio_client=types.SimpleNamespace(),
+        repository=repository,
+        partition_client=types.SimpleNamespace(),
+        qdrant_indexer=indexer,  # type: ignore[arg-type]
+        chunk_size_chars=1200,
+        chunk_overlap_chars=150,
+    )
+
+    results = service.search_documents(
+        bucket_name="research-raw",
+        query="causal effects",
+        limit=5,
+        mode="semantic",
+        rrf_k=60,
+    )
+
+    assert results[0]["section_id"] == "section-42"
+    assert results[0]["parent_section_id"] == "section-42"
+    assert results[0]["parent_section_index"] == 5
+    assert results[0]["parent_section_title"] == "Methods"
+    assert results[0]["parent_section_text"] == "Full section text from Redis mapping."
+    assert results[0]["section_title"] == "Methods"
+
+
+def test_ingestion_service_rebuild_document_section_mapping_from_partitions() -> None:
+    """Ensure section mappings can be rebuilt independently from stored partitions."""
+    redis_client = FakeRedis()
+    repository = RedisDocumentRepository(redis_client, key_prefix="test")
+    repository.add_document("research-raw", "doc-1")
+    repository.mark_object(
+        bucket_name="research-raw",
+        object_name="paper.pdf",
+        document_id="doc-1",
+        etag="etag-1",
+    )
+    partition_key = repository.set_partitions(
+        "research-raw",
+        "doc-1",
+        [
+            {
+                "type": "Title",
+                "text": "Methods",
+                "metadata": {"page_number": 1, "filename": "paper.pdf"},
+            },
+            {
+                "type": "NarrativeText",
+                "text": "Methods section full body text.",
+                "metadata": {"page_number": 1, "filename": "paper.pdf"},
+            },
+        ],
+    )
+
+    service = IngestionService(
+        minio_client=types.SimpleNamespace(),
+        repository=repository,
+        partition_client=types.SimpleNamespace(),
+        qdrant_indexer=RecordingQdrantIndexer(),  # type: ignore[arg-type]
+        chunk_size_chars=1200,
+        chunk_overlap_chars=150,
+    )
+
+    result = service.rebuild_document_section_mapping(
+        bucket_name="research-raw",
+        document_id="doc-1",
+    )
+
+    assert result["partition_key"] == partition_key
+    assert result["sections_count"] >= 1
+    sections = repository.get_document_sections("doc-1")
+    assert sections
+    assert sections[0]["section_id"]
+    assert sections[0]["section_text"]

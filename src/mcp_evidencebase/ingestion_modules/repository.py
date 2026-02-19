@@ -39,6 +39,9 @@ class RedisDocumentRepository:
     def _document_partition_payload_key(self, document_id: str) -> str:
         return f"{self._prefix}:document:{document_id}:partition"
 
+    def _document_sections_payload_key(self, document_id: str) -> str:
+        return f"{self._prefix}:document:{document_id}:sections"
+
     def _source_mapping_key(self, bucket_name: str, object_name: str) -> str:
         return f"{self._prefix}:source:{self._location_reference(bucket_name, object_name)}"
 
@@ -367,6 +370,78 @@ class RedisDocumentRepository:
         )
         return partition_key
 
+    def set_document_sections(
+        self,
+        *,
+        document_id: str,
+        partition_key: str,
+        sections: list[dict[str, Any]],
+        chunk_sections: list[dict[str, Any]],
+    ) -> None:
+        """Persist section/chunk mapping payload for one document."""
+        payload = {
+            "document_id": document_id,
+            "partition_key": partition_key,
+            "sections_count": len(sections),
+            "chunk_sections_count": len(chunk_sections),
+            "sections": sections,
+            "chunk_sections": chunk_sections,
+            "updated_at": utc_now_iso(),
+        }
+        self._redis.set(
+            self._document_sections_payload_key(document_id),
+            canonical_json(payload),
+        )
+        self.set_state(
+            document_id,
+            {
+                "sections_count": len(sections),
+            },
+        )
+
+    @staticmethod
+    def _parse_document_sections_payload(raw_value: str | None) -> dict[str, Any]:
+        """Parse section/chunk mapping payload stored for one document."""
+        if not isinstance(raw_value, str) or not raw_value:
+            return {}
+        parsed = json.loads(raw_value)
+        if not isinstance(parsed, dict):
+            return {}
+        return {str(key): value for key, value in parsed.items()}
+
+    def get_document_sections_payload(self, document_id: str) -> dict[str, Any]:
+        """Return section/chunk mapping payload for one document."""
+        return self._parse_document_sections_payload(
+            self._redis.get(self._document_sections_payload_key(document_id))
+        )
+
+    def get_document_sections(self, document_id: str) -> list[dict[str, Any]]:
+        """Return section records for one document."""
+        payload = self.get_document_sections_payload(document_id)
+        raw_sections = payload.get("sections")
+        if not isinstance(raw_sections, list):
+            return []
+        sections: list[dict[str, Any]] = []
+        for raw_section in raw_sections:
+            if not isinstance(raw_section, Mapping):
+                continue
+            sections.append({str(key): value for key, value in raw_section.items()})
+        return sections
+
+    def get_document_section(
+        self,
+        document_id: str,
+        section_id: str,
+    ) -> dict[str, Any] | None:
+        """Return one section record for a document by section ID."""
+        normalized_section_id = section_id.strip()
+        if not normalized_section_id:
+            return None
+        for section in self.get_document_sections(document_id):
+            if str(section.get("section_id", "")).strip() == normalized_section_id:
+                return section
+        return None
+
     @staticmethod
     def _parse_partitions_payload(raw_value: str | None) -> list[dict[str, Any]]:
         """Parse a Redis string value as a partition payload."""
@@ -479,6 +554,13 @@ class RedisDocumentRepository:
                     "partitions_count": 0,
                 },
             )
+        self._redis.delete(self._document_sections_payload_key(document_id))
+        self.set_state(
+            document_id,
+            {
+                "sections_count": 0,
+            },
+        )
 
         return True
 
@@ -598,5 +680,4 @@ class RedisDocumentRepository:
         for field_name in BIBTEX_FIELDS:
             record[field_name] = metadata.get(field_name, "")
         return record
-
 

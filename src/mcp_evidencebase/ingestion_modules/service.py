@@ -157,6 +157,167 @@ class IngestionService:
         """Convenience wrapper for repository state updates."""
         self._repository.set_state(document_id, values)
 
+    @staticmethod
+    def _safe_positive_int(value: Any) -> int | None:
+        """Convert value to positive integer when possible."""
+        try:
+            resolved = int(value)
+        except (TypeError, ValueError):
+            return None
+        if resolved < 0:
+            return None
+        return resolved
+
+    def _build_document_section_payload(
+        self,
+        *,
+        partition_key: str,
+        chunks: list[dict[str, Any]],
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Build per-document section/chunk mapping payload from chunk metadata."""
+        sections_by_id: dict[str, dict[str, Any]] = {}
+        chunk_sections: list[dict[str, Any]] = []
+
+        for chunk in chunks:
+            raw_metadata = chunk.get("metadata")
+            metadata = raw_metadata if isinstance(raw_metadata, Mapping) else {}
+
+            section_id = str(metadata.get("parent_section_id", "")).strip()
+            if not section_id:
+                continue
+
+            section_title = str(
+                metadata.get("parent_section_title", metadata.get("section_title", ""))
+            ).strip()
+            section_markdown = str(
+                metadata.get("parent_section_markdown", metadata.get("parent_section_text", ""))
+            ).strip()
+            section_index = self._safe_positive_int(metadata.get("parent_section_index"))
+
+            chunk_index = self._safe_positive_int(chunk.get("chunk_index"))
+            chunk_id = str(chunk.get("chunk_id", "")).strip()
+            chunk_page_start = self._safe_positive_int(metadata.get("page_start"))
+            chunk_page_end = self._safe_positive_int(metadata.get("page_end"))
+            if chunk_page_start is None and chunk_page_end is not None:
+                chunk_page_start = chunk_page_end
+            if chunk_page_end is None and chunk_page_start is not None:
+                chunk_page_end = chunk_page_start
+
+            section = sections_by_id.get(section_id)
+            if section is None:
+                section = {
+                    "section_id": section_id,
+                    "section_index": section_index if section_index is not None else len(sections_by_id),
+                    "section_title": section_title,
+                    "section_text": section_markdown,
+                    "section_markdown": section_markdown,
+                    "page_start": chunk_page_start,
+                    "page_end": chunk_page_end,
+                    "chunk_indexes": [],
+                    "chunk_ids": [],
+                    "partition_key": partition_key,
+                }
+                sections_by_id[section_id] = section
+            else:
+                if not str(section.get("section_title", "")).strip() and section_title:
+                    section["section_title"] = section_title
+                if not str(section.get("section_text", "")).strip() and section_markdown:
+                    section["section_text"] = section_markdown
+                    section["section_markdown"] = section_markdown
+                current_page_start = self._safe_positive_int(section.get("page_start"))
+                current_page_end = self._safe_positive_int(section.get("page_end"))
+                if chunk_page_start is not None:
+                    section["page_start"] = (
+                        chunk_page_start
+                        if current_page_start is None
+                        else min(current_page_start, chunk_page_start)
+                    )
+                if chunk_page_end is not None:
+                    section["page_end"] = (
+                        chunk_page_end
+                        if current_page_end is None
+                        else max(current_page_end, chunk_page_end)
+                    )
+
+            if chunk_index is not None and chunk_index not in section["chunk_indexes"]:
+                section["chunk_indexes"].append(chunk_index)
+            if chunk_id and chunk_id not in section["chunk_ids"]:
+                section["chunk_ids"].append(chunk_id)
+
+            chunk_sections.append(
+                {
+                    "chunk_index": chunk_index,
+                    "chunk_id": chunk_id,
+                    "section_id": section_id,
+                }
+            )
+
+        sections = list(sections_by_id.values())
+        sections.sort(key=lambda item: self._safe_positive_int(item.get("section_index")) or 0)
+        for section in sections:
+            section["chunk_indexes"] = sorted(
+                index for index in section.get("chunk_indexes", []) if isinstance(index, int)
+            )
+        chunk_sections.sort(
+            key=lambda item: (
+                self._safe_positive_int(item.get("chunk_index")) or 0,
+                str(item.get("chunk_id", "")),
+            )
+        )
+        return sections, chunk_sections
+
+    def _hydrate_search_results_with_sections(
+        self,
+        *,
+        results: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Attach section text/title/index from Redis section mappings."""
+        if not results:
+            return results
+
+        sections_cache: dict[str, dict[str, dict[str, Any]]] = {}
+
+        def section_map_for_document(document_id: str) -> dict[str, dict[str, Any]]:
+            cached = sections_cache.get(document_id)
+            if cached is not None:
+                return cached
+            section_map: dict[str, dict[str, Any]] = {}
+            for section in self._repository.get_document_sections(document_id):
+                section_id = str(section.get("section_id", "")).strip()
+                if section_id:
+                    section_map[section_id] = section
+            sections_cache[document_id] = section_map
+            return section_map
+
+        for result in results:
+            document_id = str(result.get("document_id", "")).strip()
+            section_id = str(result.get("section_id", "")).strip() or str(
+                result.get("parent_section_id", "")
+            ).strip()
+            if not document_id or not section_id:
+                continue
+
+            section = section_map_for_document(document_id).get(section_id)
+            if section is None:
+                continue
+
+            section_title = str(section.get("section_title", "")).strip()
+            section_text = str(
+                section.get("section_markdown", section.get("section_text", ""))
+            ).strip()
+            section_index = self._safe_positive_int(section.get("section_index"))
+
+            result["section_id"] = section_id
+            result["parent_section_id"] = section_id
+            result["parent_section_index"] = section_index
+            result["parent_section_title"] = section_title
+            result["parent_section_text"] = section_text
+            result["parent_section_markdown"] = section_text
+            if section_title:
+                result["section_title"] = section_title
+
+        return results
+
     def _read_object_bytes(self, bucket_name: str, object_name: str) -> bytes:
         """Read and return object bytes from MinIO."""
         object_response = self._minio_client.get_object(bucket_name, object_name)
@@ -565,6 +726,16 @@ class IngestionService:
                 chunk_size_chars=self._chunk_size_chars,
                 chunk_overlap_chars=self._chunk_overlap_chars,
             )
+            sections, chunk_sections = self._build_document_section_payload(
+                partition_key=partition_key,
+                chunks=chunks,
+            )
+            self._repository.set_document_sections(
+                document_id=document_id,
+                partition_key=partition_key,
+                sections=sections,
+                chunk_sections=chunk_sections,
+            )
             self._set_state(
                 document_id,
                 processing_state="processing",
@@ -573,6 +744,7 @@ class IngestionService:
                 meta_key=meta_key,
                 partitions_count=len(partitions),
                 chunks_count=len(chunks),
+                sections_count=len(sections),
                 error="",
             )
 
@@ -595,6 +767,7 @@ class IngestionService:
                 meta_key=meta_key,
                 partitions_count=len(partitions),
                 chunks_count=len(chunks),
+                sections_count=len(sections),
                 error="",
             )
             return {
@@ -612,6 +785,170 @@ class IngestionService:
                 error=str(exc),
             )
             raise
+
+    def get_document_section(
+        self,
+        *,
+        bucket_name: str,
+        document_id: str,
+        section_id: str,
+    ) -> dict[str, Any]:
+        """Return one section mapping record for a document."""
+        normalized_bucket_name = bucket_name.strip()
+        normalized_document_id = document_id.strip()
+        normalized_section_id = section_id.strip()
+        if not normalized_bucket_name:
+            raise ValueError("bucket_name must not be empty.")
+        if not normalized_document_id:
+            raise ValueError("document_id must not be empty.")
+        if not normalized_section_id:
+            raise ValueError("section_id must not be empty.")
+
+        if not self._repository.get_document_object_names(
+            normalized_bucket_name,
+            normalized_document_id,
+        ):
+            raise ValueError(
+                f"Document '{normalized_document_id}' was not found in bucket '{normalized_bucket_name}'."
+            )
+
+        section = self._repository.get_document_section(normalized_document_id, normalized_section_id)
+        if section is None:
+            raise ValueError(
+                f"Section '{normalized_section_id}' was not found for document '{normalized_document_id}'."
+            )
+        return section
+
+    def list_document_sections(
+        self,
+        *,
+        bucket_name: str,
+        document_id: str,
+    ) -> list[dict[str, Any]]:
+        """Return all section mapping records for a document."""
+        normalized_bucket_name = bucket_name.strip()
+        normalized_document_id = document_id.strip()
+        if not normalized_bucket_name:
+            raise ValueError("bucket_name must not be empty.")
+        if not normalized_document_id:
+            raise ValueError("document_id must not be empty.")
+
+        if not self._repository.get_document_object_names(
+            normalized_bucket_name,
+            normalized_document_id,
+        ):
+            raise ValueError(
+                f"Document '{normalized_document_id}' was not found in bucket '{normalized_bucket_name}'."
+            )
+
+        sections = self._repository.get_document_sections(normalized_document_id)
+        sections.sort(
+            key=lambda section: (
+                self._safe_positive_int(section.get("section_index")) or 0,
+                str(section.get("section_id", "")),
+            )
+        )
+        return sections
+
+    def rebuild_document_section_mapping(
+        self,
+        *,
+        bucket_name: str,
+        document_id: str,
+    ) -> dict[str, Any]:
+        """Rebuild and persist section mapping for one document from stored partitions."""
+        normalized_bucket_name = bucket_name.strip()
+        normalized_document_id = document_id.strip()
+        if not normalized_bucket_name:
+            raise ValueError("bucket_name must not be empty.")
+        if not normalized_document_id:
+            raise ValueError("document_id must not be empty.")
+
+        if not self._repository.get_document_object_names(
+            normalized_bucket_name,
+            normalized_document_id,
+        ):
+            raise ValueError(
+                f"Document '{normalized_document_id}' was not found in bucket '{normalized_bucket_name}'."
+            )
+
+        state = self._repository.get_state(normalized_document_id)
+        partition_key = state.get("partition_key", "")
+        if not partition_key:
+            raise ValueError(
+                f"Document '{normalized_document_id}' has no partition_key; run partition stage first."
+            )
+
+        partitions = self._repository.get_partitions_by_key(
+            partition_key,
+            document_id=normalized_document_id,
+        )
+        if not partitions:
+            raise ValueError(
+                "No partitions were found for document "
+                f"'{normalized_document_id}' and key '{partition_key}'."
+            )
+
+        chunks = build_partition_chunks(
+            partitions,
+            chunk_size_chars=self._chunk_size_chars,
+            chunk_overlap_chars=self._chunk_overlap_chars,
+        )
+        sections, chunk_sections = self._build_document_section_payload(
+            partition_key=partition_key,
+            chunks=chunks,
+        )
+        self._repository.set_document_sections(
+            document_id=normalized_document_id,
+            partition_key=partition_key,
+            sections=sections,
+            chunk_sections=chunk_sections,
+        )
+        self._set_state(
+            normalized_document_id,
+            partition_key=partition_key,
+            partitions_count=len(partitions),
+            chunks_count=len(chunks),
+            sections_count=len(sections),
+            error="",
+        )
+        return {
+            "bucket_name": normalized_bucket_name,
+            "document_id": normalized_document_id,
+            "partition_key": partition_key,
+            "sections_count": len(sections),
+            "chunk_sections_count": len(chunk_sections),
+        }
+
+    def rebuild_bucket_section_mappings(self, *, bucket_name: str) -> dict[str, Any]:
+        """Rebuild section mappings for all documents in one bucket."""
+        normalized_bucket_name = bucket_name.strip()
+        if not normalized_bucket_name:
+            raise ValueError("bucket_name must not be empty.")
+
+        document_ids = self._repository.list_document_ids(normalized_bucket_name)
+        rebuilt = 0
+        failed = 0
+        errors: list[str] = []
+
+        for document_id in document_ids:
+            try:
+                self.rebuild_document_section_mapping(
+                    bucket_name=normalized_bucket_name,
+                    document_id=document_id,
+                )
+                rebuilt += 1
+            except Exception as exc:
+                failed += 1
+                errors.append(f"{document_id}: {exc}")
+
+        return {
+            "bucket_name": normalized_bucket_name,
+            "documents_seen": len(document_ids),
+            "rebuilt": rebuilt,
+            "failed": failed,
+            "errors": errors,
+        }
 
     def update_metadata(
         self,
@@ -1031,12 +1368,11 @@ class IngestionService:
         rrf_k: int = 60,
     ) -> list[dict[str, Any]]:
         """Search indexed chunks for one bucket using semantic/keyword/hybrid retrieval."""
-        return self._qdrant_indexer.search_chunks(
+        results = self._qdrant_indexer.search_chunks(
             bucket_name=bucket_name,
             query=query,
             limit=limit,
             mode=mode,
             rrf_k=rrf_k,
         )
-
-
+        return self._hydrate_search_results_with_sections(results=results)

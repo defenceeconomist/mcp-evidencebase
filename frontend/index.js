@@ -25,7 +25,7 @@ import {
 } from "./js/table-ui.mjs";
 
 (function () {
-  window.__EVIDENCEBASE_UI_BUILD__ = "2026-02-17-detail-harvard-author-a";
+  window.__EVIDENCEBASE_UI_BUILD__ = "2026-02-19-search-parent-sections-d";
   const origin = window.location.origin;
   const apiBasePath = origin + "/api";
   const bucketList = document.getElementById("bucket-list");
@@ -69,6 +69,12 @@ import {
   const docJsonModalTitle = document.getElementById("doc-json-modal-title");
   const docJsonModalSubtitle = document.getElementById("doc-json-modal-subtitle");
   const docJsonModalTree = document.getElementById("doc-json-modal-tree");
+  const searchSectionModalElement = document.getElementById("search-section-modal");
+  const searchSectionModalTitle = document.getElementById("search-section-modal-title");
+  const searchSectionModalSubtitle = document.getElementById("search-section-modal-subtitle");
+  const searchSectionModalBody = document.getElementById("search-section-modal-body");
+  const searchSectionPrevButton = document.getElementById("search-section-prev-btn");
+  const searchSectionNextButton = document.getElementById("search-section-next-btn");
   const semanticSearchTab = document.getElementById("semantic-search-tab");
   const semanticSearchPane = document.getElementById("semantic-search-pane");
   const semanticSearchForm = document.getElementById("semantic-search-form");
@@ -87,6 +93,9 @@ import {
   // Keep the JSON modal outside tab panes so it can open from any active view.
   if (docJsonModalElement && docJsonModalElement.parentElement !== document.body) {
     document.body.appendChild(docJsonModalElement);
+  }
+  if (searchSectionModalElement && searchSectionModalElement.parentElement !== document.body) {
+    document.body.appendChild(searchSectionModalElement);
   }
 
   const selectedBucketCookieName = "evidencebase_selected_bucket";
@@ -232,11 +241,20 @@ import {
   let wasMobileLayout = window.matchMedia("(max-width: 991.98px)").matches;
   let documentTable = null;
   let docJsonModalInstance = null;
+  let searchSectionModalInstance = null;
   let documentRefreshTimerId = null;
   const metadataSaveTimers = new Map();
   const metadataSaveDelayMs = 650;
   let bulkFetchMetaInProgress = false;
   let semanticSearchResults = [];
+  let searchSectionModalLoadToken = 0;
+  let searchSectionNavigationState = {
+    bucketName: "",
+    documentId: "",
+    sourceResult: null,
+    sections: [],
+    currentIndex: -1,
+  };
   const isMobileViewport = () => window.matchMedia("(max-width: 991.98px)").matches;
 
   const setCookie = (name, value, maxAgeSeconds) => {
@@ -1237,6 +1255,305 @@ import {
     return formatSearchAuthorYearFromModule(result, normalizeText);
   };
 
+  const getSearchResultQdrantPayload = (result) => {
+    if (!result || typeof result !== "object") {
+      return null;
+    }
+    const payload = result.qdrant_payload;
+    return payload && typeof payload === "object" ? payload : null;
+  };
+
+  const resolveSearchResultParentSectionId = (result) => {
+    const direct = normalizeText(result?.parent_section_id);
+    if (direct) {
+      return direct;
+    }
+    return normalizeText(getSearchResultQdrantPayload(result)?.parent_section_id);
+  };
+
+  const resolveSearchResultParentSectionIndex = (result) => {
+    const rawValue =
+      result?.parent_section_index ?? getSearchResultQdrantPayload(result)?.parent_section_index;
+    const parsed = Number.parseInt(rawValue, 10);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      return null;
+    }
+    return parsed;
+  };
+
+  const resolveSearchResultParentSectionTitle = (result) => {
+    const direct = normalizeText(result?.parent_section_title);
+    if (direct) {
+      return direct;
+    }
+    const payloadTitle = normalizeText(getSearchResultQdrantPayload(result)?.parent_section_title);
+    if (payloadTitle) {
+      return payloadTitle;
+    }
+    return normalizeText(result?.section_title);
+  };
+
+  const resolveSearchResultParentSectionText = (result) => {
+    const directMarkdown = result?.parent_section_markdown;
+    if (directMarkdown !== null && directMarkdown !== undefined) {
+      const text = String(directMarkdown).trim();
+      if (text) {
+        return text;
+      }
+    }
+    const direct = result?.parent_section_text;
+    if (direct !== null && direct !== undefined) {
+      const text = String(direct).trim();
+      if (text) {
+        return text;
+      }
+    }
+    const payloadText = getSearchResultQdrantPayload(result)?.parent_section_text;
+    if (payloadText !== null && payloadText !== undefined) {
+      const text = String(payloadText).trim();
+      if (text) {
+        return text;
+      }
+    }
+    return "";
+  };
+
+  const escapeHtml = (value) => {
+    return String(value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/\"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  };
+
+  const renderSectionMarkdownHtml = (markdownText) => {
+    const normalizedText = normalizeText(markdownText);
+    if (!normalizedText) {
+      return '<p class="text-body-secondary mb-0">Section text is unavailable.</p>';
+    }
+
+    const markedParser = window.marked;
+    const domPurify = window.DOMPurify;
+    if (
+      markedParser &&
+      typeof markedParser.parse === "function" &&
+      domPurify &&
+      typeof domPurify.sanitize === "function"
+    ) {
+      try {
+        const rendered = markedParser.parse(normalizedText, {
+          gfm: true,
+          breaks: false,
+          headerIds: false,
+          mangle: false,
+        });
+        return domPurify.sanitize(String(rendered), {
+          USE_PROFILES: { html: true },
+          ADD_DATA_URI_TAGS: ["img"],
+        });
+      } catch (error) {
+        console.warn("Failed to render markdown for section text.", error);
+      }
+    }
+
+    return `<p>${escapeHtml(normalizedText).replace(/\n/g, "<br />")}</p>`;
+  };
+
+  const parseOptionalNonNegativeInt = (value) => {
+    const parsed = Number.parseInt(value, 10);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      return null;
+    }
+    return parsed;
+  };
+
+  const resolveSearchResultDocumentId = (result) => {
+    const direct = normalizeText(result?.document_id);
+    if (direct) {
+      return direct;
+    }
+    const payload = getSearchResultQdrantPayload(result);
+    const payloadDocumentId = normalizeText(payload?.document_id || payload?.doc_id);
+    if (payloadDocumentId) {
+      return payloadDocumentId;
+    }
+    return "";
+  };
+
+  const resolveSearchResultBucketName = (result) => {
+    const fromLocation = parseMinioLocation(result?.minio_location);
+    return normalizeText(fromLocation?.bucketName || selectedBucketName);
+  };
+
+  const normalizeDocumentSectionRecord = (section) => {
+    if (!section || typeof section !== "object") {
+      return null;
+    }
+    const sectionId = normalizeText(section.section_id || section.id);
+    if (!sectionId) {
+      return null;
+    }
+    return {
+      section_id: sectionId,
+      section_index: parseOptionalNonNegativeInt(section.section_index),
+      section_title: normalizeText(section.section_title || section.title),
+      section_markdown: normalizeText(section.section_markdown || section.markdown),
+      section_text: normalizeText(section.section_text || section.text),
+      page_start: parseOptionalNonNegativeInt(section.page_start),
+      page_end: parseOptionalNonNegativeInt(section.page_end),
+    };
+  };
+
+  const normalizeDocumentSectionsPayload = (payload) => {
+    if (!payload || typeof payload !== "object" || !Array.isArray(payload.sections)) {
+      return [];
+    }
+    return payload.sections
+      .map((section, index) => {
+        const normalized = normalizeDocumentSectionRecord(section);
+        if (!normalized) {
+          return null;
+        }
+        return { ...normalized, _inputOrder: index };
+      })
+      .filter((section) => Boolean(section))
+      .sort((a, b) => {
+        const aIndex = Number.isFinite(a.section_index) ? a.section_index : Number.MAX_SAFE_INTEGER;
+        const bIndex = Number.isFinite(b.section_index) ? b.section_index : Number.MAX_SAFE_INTEGER;
+        if (aIndex !== bIndex) {
+          return aIndex - bIndex;
+        }
+        return a._inputOrder - b._inputOrder;
+      })
+      .map(({ _inputOrder, ...section }) => section);
+  };
+
+  const clearSearchSectionNavigationState = () => {
+    searchSectionNavigationState = {
+      bucketName: "",
+      documentId: "",
+      sourceResult: null,
+      sections: [],
+      currentIndex: -1,
+    };
+  };
+
+  const updateSearchSectionModalNavigationButtons = () => {
+    if (!searchSectionPrevButton || !searchSectionNextButton) {
+      return;
+    }
+    const hasSections =
+      Array.isArray(searchSectionNavigationState.sections) &&
+      searchSectionNavigationState.sections.length > 0 &&
+      searchSectionNavigationState.currentIndex >= 0;
+    searchSectionPrevButton.disabled = !hasSections || searchSectionNavigationState.currentIndex <= 0;
+    searchSectionNextButton.disabled =
+      !hasSections ||
+      searchSectionNavigationState.currentIndex >= searchSectionNavigationState.sections.length - 1;
+  };
+
+  const buildSearchModalSectionIdentifier = (sectionId, sectionIndex) => {
+    if (sectionIndex === null) {
+      return `Section ID: ${sectionId || "n/a"}`;
+    }
+    return `Section #${sectionIndex + 1} | Section ID: ${sectionId || "n/a"}`;
+  };
+
+  const renderSearchSectionModalSection = ({ section, result }) => {
+    if (!searchSectionModalTitle || !searchSectionModalSubtitle || !searchSectionModalBody) {
+      return;
+    }
+    const sectionTitle =
+      normalizeText(section?.section_title) || resolveSearchResultParentSectionTitle(result) || "n/a";
+    const sectionId = normalizeText(section?.section_id) || resolveSearchResultParentSectionId(result) || "n/a";
+    const sectionIndex =
+      parseOptionalNonNegativeInt(section?.section_index) ?? resolveSearchResultParentSectionIndex(result);
+    const sectionIdentifier = buildSearchModalSectionIdentifier(sectionId, sectionIndex);
+    const pages = formatSearchPages(
+      section?.page_start ?? result?.page_start,
+      section?.page_end ?? result?.page_end
+    );
+    const sectionText =
+      normalizeText(section?.section_markdown || section?.section_text) ||
+      resolveSearchResultParentSectionText(result) ||
+      "Parent section text is unavailable for this chunk. Re-index this collection to populate parent sections.";
+
+    searchSectionModalTitle.textContent = `Section: ${sectionTitle}`;
+    searchSectionModalSubtitle.textContent = `${formatSearchTitle(result)} | ${sectionIdentifier} | Pages: ${pages}`;
+    searchSectionModalBody.innerHTML = renderSectionMarkdownHtml(sectionText);
+    searchSectionModalBody.querySelectorAll("a[href]").forEach((anchor) => {
+      anchor.setAttribute("target", "_blank");
+      anchor.setAttribute("rel", "noopener noreferrer");
+    });
+  };
+
+  const resolveCurrentSectionIndex = ({ sections, result }) => {
+    if (!Array.isArray(sections) || !sections.length) {
+      return -1;
+    }
+
+    const parentSectionId = resolveSearchResultParentSectionId(result);
+    if (parentSectionId) {
+      const byIdIndex = sections.findIndex((section) => section.section_id === parentSectionId);
+      if (byIdIndex >= 0) {
+        return byIdIndex;
+      }
+    }
+
+    const parentSectionIndex = resolveSearchResultParentSectionIndex(result);
+    if (parentSectionIndex !== null) {
+      const byIndex = sections.findIndex((section) => section.section_index === parentSectionIndex);
+      if (byIndex >= 0) {
+        return byIndex;
+      }
+      if (parentSectionIndex >= 0 && parentSectionIndex < sections.length) {
+        return parentSectionIndex;
+      }
+    }
+
+    const parentSectionTitle = normalizeText(resolveSearchResultParentSectionTitle(result)).toLowerCase();
+    if (parentSectionTitle) {
+      const byTitle = sections.findIndex(
+        (section) => normalizeText(section.section_title).toLowerCase() === parentSectionTitle
+      );
+      if (byTitle >= 0) {
+        return byTitle;
+      }
+    }
+
+    return 0;
+  };
+
+  const fetchDocumentSectionsForModal = async ({ bucketName, documentId }) => {
+    if (!bucketName || !documentId) {
+      return [];
+    }
+    const response = await apiRequest(
+      `/collections/${encodeURIComponent(bucketName)}/documents/${encodeURIComponent(documentId)}/sections`
+    );
+    return normalizeDocumentSectionsPayload(response);
+  };
+
+  const navigateSearchSectionModal = (offset) => {
+    const sections = searchSectionNavigationState.sections;
+    if (!Array.isArray(sections) || !sections.length || !searchSectionNavigationState.sourceResult) {
+      updateSearchSectionModalNavigationButtons();
+      return;
+    }
+    const nextIndex = searchSectionNavigationState.currentIndex + offset;
+    if (nextIndex < 0 || nextIndex >= sections.length) {
+      updateSearchSectionModalNavigationButtons();
+      return;
+    }
+    searchSectionNavigationState.currentIndex = nextIndex;
+    renderSearchSectionModalSection({
+      section: sections[nextIndex],
+      result: searchSectionNavigationState.sourceResult,
+    });
+    updateSearchSectionModalNavigationButtons();
+  };
+
   const renderSemanticSearchResults = () => {
     if (!semanticSearchResultsContainer) {
       return;
@@ -1314,7 +1631,23 @@ import {
       meta.appendChild(score);
 
       const actions = document.createElement("div");
-      actions.className = "d-flex align-items-center";
+      actions.className = "d-flex align-items-center gap-2 flex-wrap";
+
+      const sectionText = resolveSearchResultParentSectionText(result);
+      const sectionButton = document.createElement("button");
+      sectionButton.type = "button";
+      sectionButton.className = "btn btn-outline-primary btn-sm";
+      sectionButton.textContent = "View Section";
+      if (sectionText) {
+        sectionButton.addEventListener("click", () => {
+          openSearchParentSectionModal(result);
+        });
+      } else {
+        sectionButton.setAttribute("disabled", "disabled");
+        sectionButton.title = "Section text unavailable. Re-index this collection to populate parent sections.";
+      }
+      actions.appendChild(sectionButton);
+
       const metadataButton = document.createElement("button");
       metadataButton.type = "button";
       metadataButton.className = "btn btn-outline-secondary btn-sm";
@@ -1723,6 +2056,73 @@ import {
     });
   };
 
+  const openSearchParentSectionModal = (result) => {
+    if (
+      !searchSectionModalElement ||
+      !searchSectionModalTitle ||
+      !searchSectionModalSubtitle ||
+      !searchSectionModalBody
+    ) {
+      return;
+    }
+    const fallbackSection = {
+      section_id: resolveSearchResultParentSectionId(result),
+      section_index: resolveSearchResultParentSectionIndex(result),
+      section_title: resolveSearchResultParentSectionTitle(result),
+      section_markdown: normalizeText(result?.parent_section_markdown),
+      section_text: resolveSearchResultParentSectionText(result),
+      page_start: parseOptionalNonNegativeInt(result?.page_start),
+      page_end: parseOptionalNonNegativeInt(result?.page_end),
+    };
+    const fallbackSections = fallbackSection.section_text ? [fallbackSection] : [];
+    searchSectionNavigationState = {
+      bucketName: resolveSearchResultBucketName(result),
+      documentId: resolveSearchResultDocumentId(result),
+      sourceResult: result,
+      sections: fallbackSections,
+      currentIndex: fallbackSections.length > 0 ? 0 : -1,
+    };
+    renderSearchSectionModalSection({
+      section: fallbackSections.length > 0 ? fallbackSections[0] : null,
+      result,
+    });
+    updateSearchSectionModalNavigationButtons();
+
+    if (!searchSectionModalInstance) {
+      searchSectionModalInstance = bootstrap.Modal.getOrCreateInstance(searchSectionModalElement);
+    }
+    searchSectionModalInstance.show();
+
+    const requestToken = searchSectionModalLoadToken + 1;
+    searchSectionModalLoadToken = requestToken;
+    void (async () => {
+      try {
+        const sections = await fetchDocumentSectionsForModal({
+          bucketName: searchSectionNavigationState.bucketName,
+          documentId: searchSectionNavigationState.documentId,
+        });
+        if (searchSectionModalLoadToken !== requestToken || !sections.length) {
+          return;
+        }
+        const currentIndex = resolveCurrentSectionIndex({ sections, result });
+        searchSectionNavigationState.sections = sections;
+        searchSectionNavigationState.currentIndex = currentIndex;
+        if (currentIndex >= 0 && sections[currentIndex]) {
+          renderSearchSectionModalSection({
+            section: sections[currentIndex],
+            result: searchSectionNavigationState.sourceResult,
+          });
+        }
+      } catch (error) {
+        console.warn("Failed to load section navigation data.", error);
+      } finally {
+        if (searchSectionModalLoadToken === requestToken) {
+          updateSearchSectionModalNavigationButtons();
+        }
+      }
+    })();
+  };
+
   const openSearchChunkMetadataModal = (result) => {
     if (!result || typeof result !== "object") {
       return;
@@ -1740,6 +2140,10 @@ import {
             file_path: result.file_path,
             chunk_index: result.chunk_index,
             section_title: result.section_title,
+            parent_section_id: result.parent_section_id,
+            parent_section_index: result.parent_section_index,
+            parent_section_title: result.parent_section_title,
+            parent_section_text: result.parent_section_text,
             page_start: result.page_start,
             page_end: result.page_end,
             resolver_url: result.resolver_url,
@@ -3394,6 +3798,17 @@ import {
     event.preventDefault();
     void searchCollection();
   });
+  searchSectionPrevButton?.addEventListener("click", () => {
+    navigateSearchSectionModal(-1);
+  });
+  searchSectionNextButton?.addEventListener("click", () => {
+    navigateSearchSectionModal(1);
+  });
+  searchSectionModalElement?.addEventListener("hidden.bs.modal", () => {
+    searchSectionModalLoadToken += 1;
+    clearSearchSectionNavigationState();
+    updateSearchSectionModalNavigationButtons();
+  });
   semanticSearchModeSelect?.addEventListener("change", () => {
     syncSemanticSearchModeFields();
   });
@@ -3540,6 +3955,7 @@ import {
   setMainTabState("document-meta-pane");
   syncSemanticSearchModeFields();
   renderSemanticSearchResults();
+  updateSearchSectionModalNavigationButtons();
   setSemanticSearchStatus("Select a collection and run a query.");
 
   updateRemoveTooltip();

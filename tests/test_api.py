@@ -49,12 +49,17 @@ class FakeIngestionService:
     metadata_fetches: list[tuple[str, str]] = field(default_factory=list)
     resolved_documents: list[tuple[str, str]] = field(default_factory=list)
     search_calls: list[tuple[str, str, int, str, int]] = field(default_factory=list)
+    section_fetches: list[tuple[str, str, str]] = field(default_factory=list)
+    section_list_calls: list[tuple[str, str]] = field(default_factory=list)
+    section_rebuild_calls: list[tuple[str, str | None]] = field(default_factory=list)
     upload_error: Exception | None = None
     delete_error: Exception | None = None
     metadata_error: Exception | None = None
     metadata_fetch_error: Exception | None = None
     resolve_error: Exception | None = None
     search_error: Exception | None = None
+    section_fetch_error: Exception | None = None
+    section_rebuild_error: Exception | None = None
     qdrant_create_result: bool = True
     qdrant_delete_result: bool = True
     qdrant_create_error: Exception | None = None
@@ -155,6 +160,76 @@ class FakeIngestionService:
             raise self.qdrant_delete_error
         self.metadata_updates.append((bucket_name, "__qdrant_delete__", {}))
         return self.qdrant_delete_result
+
+    def get_document_section(
+        self,
+        *,
+        bucket_name: str,
+        document_id: str,
+        section_id: str,
+    ) -> dict[str, Any]:
+        if self.section_fetch_error is not None:
+            raise self.section_fetch_error
+        self.section_fetches.append((bucket_name, document_id, section_id))
+        return {
+            "section_id": section_id,
+            "section_index": 2,
+            "section_title": "Methods",
+            "section_text": "Full methods section text.",
+        }
+
+    def list_document_sections(
+        self,
+        *,
+        bucket_name: str,
+        document_id: str,
+    ) -> list[dict[str, Any]]:
+        if self.section_fetch_error is not None:
+            raise self.section_fetch_error
+        self.section_list_calls.append((bucket_name, document_id))
+        return [
+            {
+                "section_id": "section-41",
+                "section_index": 1,
+                "section_title": "Introduction",
+                "section_text": "Intro section text.",
+            },
+            {
+                "section_id": "section-42",
+                "section_index": 2,
+                "section_title": "Methods",
+                "section_text": "Full methods section text.",
+            },
+        ]
+
+    def rebuild_document_section_mapping(
+        self,
+        *,
+        bucket_name: str,
+        document_id: str,
+    ) -> dict[str, Any]:
+        if self.section_rebuild_error is not None:
+            raise self.section_rebuild_error
+        self.section_rebuild_calls.append((bucket_name, document_id))
+        return {
+            "bucket_name": bucket_name,
+            "document_id": document_id,
+            "partition_key": "partition-1",
+            "sections_count": 3,
+            "chunk_sections_count": 12,
+        }
+
+    def rebuild_bucket_section_mappings(self, *, bucket_name: str) -> dict[str, Any]:
+        if self.section_rebuild_error is not None:
+            raise self.section_rebuild_error
+        self.section_rebuild_calls.append((bucket_name, None))
+        return {
+            "bucket_name": bucket_name,
+            "documents_seen": 4,
+            "rebuilt": 4,
+            "failed": 0,
+            "errors": [],
+        }
 
 
 @pytest.fixture
@@ -940,6 +1015,96 @@ def test_fetch_document_metadata_from_crossref_returns_payload(client: TestClien
         "metadata": {"title": "Fetched Title", "document_type": "article"},
     }
     assert service.metadata_fetches == [("research-raw", "doc-1")]
+
+
+def test_get_document_section_returns_section_payload(client: TestClient) -> None:
+    """Ensure section endpoint returns section mapping payload from ingestion service."""
+    service = FakeIngestionService()
+    _override_ingestion_service(service)
+
+    response = client.get("/collections/research-raw/documents/doc-1/sections/section-42")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "bucket_name": "research-raw",
+        "document_id": "doc-1",
+        "section_id": "section-42",
+        "section": {
+            "section_id": "section-42",
+            "section_index": 2,
+            "section_title": "Methods",
+            "section_text": "Full methods section text.",
+        },
+    }
+    assert service.section_fetches == [("research-raw", "doc-1", "section-42")]
+
+
+def test_list_document_sections_returns_sections_payload(client: TestClient) -> None:
+    """Ensure section listing endpoint returns ordered section mappings."""
+    service = FakeIngestionService()
+    _override_ingestion_service(service)
+
+    response = client.get("/collections/research-raw/documents/doc-1/sections")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "bucket_name": "research-raw",
+        "document_id": "doc-1",
+        "sections": [
+            {
+                "section_id": "section-41",
+                "section_index": 1,
+                "section_title": "Introduction",
+                "section_text": "Intro section text.",
+            },
+            {
+                "section_id": "section-42",
+                "section_index": 2,
+                "section_title": "Methods",
+                "section_text": "Full methods section text.",
+            },
+        ],
+    }
+    assert service.section_list_calls == [("research-raw", "doc-1")]
+
+
+def test_rebuild_sections_runs_bucket_rebuild_by_default(client: TestClient) -> None:
+    """Ensure section rebuild endpoint can rebuild all document mappings in a bucket."""
+    service = FakeIngestionService()
+    _override_ingestion_service(service)
+
+    response = client.post("/collections/research-raw/sections/rebuild")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "bucket_name": "research-raw",
+        "documents_seen": 4,
+        "rebuilt": 4,
+        "failed": 0,
+        "errors": [],
+    }
+    assert service.section_rebuild_calls == [("research-raw", None)]
+
+
+def test_rebuild_sections_can_target_single_document(client: TestClient) -> None:
+    """Ensure section rebuild endpoint supports document-specific mapping rebuild."""
+    service = FakeIngestionService()
+    _override_ingestion_service(service)
+
+    response = client.post(
+        "/collections/research-raw/sections/rebuild",
+        params={"document_id": "doc-1"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "bucket_name": "research-raw",
+        "document_id": "doc-1",
+        "partition_key": "partition-1",
+        "sections_count": 3,
+        "chunk_sections_count": 12,
+    }
+    assert service.section_rebuild_calls == [("research-raw", "doc-1")]
 
 
 def test_delete_document_keeps_partitions(client: TestClient) -> None:

@@ -392,6 +392,8 @@ class QdrantIndexer:
             file_path,
             payload.get("page_start"),
         )
+        section_id = str(payload.get("section_id", "") or payload.get("parent_section_id", ""))
+        section_title = str(payload.get("section_title", "") or "")
         return {
             "id": point_id,
             "score": score,
@@ -401,7 +403,12 @@ class QdrantIndexer:
             "year": str(payload.get("year", "")),
             "file_path": file_path,
             "chunk_index": int(payload.get("chunk_index", 0) or 0),
-            "section_title": str(payload.get("section_title", "")),
+            "section_id": section_id,
+            "section_title": section_title,
+            "parent_section_id": section_id,
+            "parent_section_index": None,
+            "parent_section_title": "",
+            "parent_section_text": "",
             "text": self._normalize_search_result_text(payload.get("text", "")),
             "page_start": _safe_int(payload.get("page_start")),
             "page_end": _safe_int(payload.get("page_end")),
@@ -581,13 +588,25 @@ class QdrantIndexer:
         if not chunks:
             return
 
-        texts = [str(chunk.get("text", "")) for chunk in chunks]
-        if not any(texts):
+        indexable_chunks: list[dict[str, Any]] = []
+        texts: list[str] = []
+        for chunk in chunks:
+            chunk_type = str(chunk.get("type", "text")).strip().lower()
+            if chunk_type == "image":
+                continue
+            text_value = str(chunk.get("text", "")).strip()
+            if not text_value:
+                continue
+            indexable_chunks.append(chunk)
+            texts.append(text_value)
+        if not indexable_chunks:
+            self.delete_document(bucket_name, document_id)
             return
 
         embedder = self._get_embedder()
         embeddings = list(embedder.embed(texts))
         if not embeddings:
+            self.delete_document(bucket_name, document_id)
             return
         keyword_embedder = self._get_keyword_embedder()
         sparse_embeddings = list(keyword_embedder.embed(texts))
@@ -608,10 +627,14 @@ class QdrantIndexer:
         resolved_document_year = str(document_year or "").strip()
 
         points: list[qdrant_models.PointStruct] = []
-        for index, (chunk, embedding) in enumerate(zip(chunks, embeddings, strict=False)):
+        for index, (chunk, embedding) in enumerate(zip(indexable_chunks, embeddings, strict=False)):
             chunk_index = int(chunk.get("chunk_index", len(points)))
             raw_metadata = chunk.get("metadata")
             chunk_metadata = raw_metadata if isinstance(raw_metadata, Mapping) else {}
+            section_title = str(chunk_metadata.get("section_title", "") or "")
+            section_id = str(
+                chunk_metadata.get("parent_section_id", "") or chunk_metadata.get("section_id", "")
+            ).strip()
             raw_orig_elements = chunk.get("orig_elements", [])
             orig_elements: list[dict[str, Any]] = []
             if isinstance(raw_orig_elements, list):
@@ -722,7 +745,8 @@ class QdrantIndexer:
                 "chunk_index": chunk_index,
                 "chunk_id": str(chunk.get("chunk_id", "")),
                 "chunk_type": str(chunk.get("type", "text")),
-                "section_title": chunk_metadata.get("section_title"),
+                "section_id": section_id,
+                "section_title": section_title,
                 "page_start": chunk_page_start,
                 "page_end": chunk_page_end,
                 "filename": chunk_metadata.get("filename"),
@@ -740,4 +764,3 @@ class QdrantIndexer:
 
         if points:
             self._qdrant_client.upsert(collection_name=collection_name, points=points, wait=True)
-

@@ -18,11 +18,15 @@ class _NormalizedElement:
 
     element_id: str
     text: str
+    render_markdown: str
     raw_type: str
     kind: str
     page_number: int | None
     coordinates: dict[str, Any] | None
     filename: str | None
+
+
+_MAX_INLINE_IMAGE_BASE64_CHARS = 200_000
 
 
 def _safe_int(value: Any) -> int | None:
@@ -61,7 +65,7 @@ def _normalize_element_type(element: Mapping[str, Any]) -> tuple[str, str]:
     }:
         return resolved_type, "excluded"
     if "image" in lowered:
-        return resolved_type, "excluded"
+        return resolved_type, "image"
     if lowered in {
         "uncategorizedtext",
         "uncategorized_text",
@@ -86,24 +90,110 @@ def _stable_fallback_element_id(
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:20]
 
 
+def _resolve_table_markdown(
+    raw_element: Mapping[str, Any],
+    *,
+    fallback_text: str,
+    metadata_mapping: Mapping[str, Any],
+) -> str:
+    """Return render-markdown for a table element, preferring HTML when provided."""
+    table_html = _safe_non_empty_string(metadata_mapping.get("text_as_html")) or _safe_non_empty_string(
+        raw_element.get("text_as_html")
+    )
+    if table_html and "<table" in table_html.lower():
+        return table_html
+    return fallback_text
+
+
+def _escape_markdown_alt_text(value: str) -> str:
+    """Escape markdown image-alt control characters."""
+    return value.replace("[", "\\[").replace("]", "\\]").replace("\n", " ").strip()
+
+
+def _resolve_image_markdown(
+    raw_element: Mapping[str, Any],
+    *,
+    fallback_text: str,
+    metadata_mapping: Mapping[str, Any],
+) -> str | None:
+    """Return render-markdown for an image element."""
+    image_source = (
+        _safe_non_empty_string(metadata_mapping.get("image_url"))
+        or _safe_non_empty_string(metadata_mapping.get("url"))
+        or _safe_non_empty_string(raw_element.get("image_url"))
+        or _safe_non_empty_string(raw_element.get("url"))
+        or _safe_non_empty_string(metadata_mapping.get("image_path"))
+        or _safe_non_empty_string(raw_element.get("image_path"))
+    )
+    if not image_source:
+        image_base64 = _safe_non_empty_string(
+            metadata_mapping.get("image_base64") or raw_element.get("image_base64")
+        )
+        if image_base64:
+            normalized_base64 = "".join(image_base64.split())
+            if len(normalized_base64) <= _MAX_INLINE_IMAGE_BASE64_CHARS:
+                mime_type = (
+                    _safe_non_empty_string(metadata_mapping.get("image_mime_type"))
+                    or _safe_non_empty_string(raw_element.get("image_mime_type"))
+                    or "image/png"
+                )
+                if "/" not in mime_type:
+                    mime_type = "image/png"
+                image_source = f"data:{mime_type};base64,{normalized_base64}"
+
+    alt_text = (
+        _safe_non_empty_string(metadata_mapping.get("image_alt_text"))
+        or _safe_non_empty_string(raw_element.get("image_alt_text"))
+        or _safe_non_empty_string(fallback_text)
+        or "Image"
+    )
+    escaped_alt = _escape_markdown_alt_text(alt_text) or "Image"
+    if image_source:
+        return f"![{escaped_alt}]({image_source})"
+
+    page_number = _safe_int(metadata_mapping.get("page_number"))
+    if page_number is not None:
+        return f"**Image (page {page_number})**: {escaped_alt}"
+    return f"**Image**: {escaped_alt}"
+
+
 def _normalize_chunking_elements(
     elements: Iterable[Mapping[str, Any]],
 ) -> list[_NormalizedElement]:
     """Normalize raw Unstructured elements into deterministic internal records."""
     normalized: list[_NormalizedElement] = []
     for raw_element in elements:
-        text_value = raw_element.get("text")
-        if not isinstance(text_value, str):
-            continue
-        text = text_value.strip()
-        if not text:
-            continue
+        metadata = raw_element.get("metadata")
+        metadata_mapping = metadata if isinstance(metadata, Mapping) else {}
+        text = _safe_non_empty_string(raw_element.get("text")) or ""
 
         raw_type, kind = _normalize_element_type(raw_element)
         if kind == "excluded":
             continue
-        metadata = raw_element.get("metadata")
-        metadata_mapping = metadata if isinstance(metadata, Mapping) else {}
+
+        render_markdown = text
+        index_text = text
+        if kind == "table":
+            render_markdown = _resolve_table_markdown(
+                raw_element,
+                fallback_text=text,
+                metadata_mapping=metadata_mapping,
+            )
+        elif kind == "image":
+            render_markdown = (
+                _resolve_image_markdown(
+                    raw_element,
+                    fallback_text=text,
+                    metadata_mapping=metadata_mapping,
+                )
+                or ""
+            )
+            index_text = "[Image]"
+
+        if kind != "image" and not index_text:
+            continue
+        if not render_markdown:
+            continue
 
         page_number = _safe_int(metadata_mapping.get("page_number"))
         if page_number is None:
@@ -114,7 +204,7 @@ def _normalize_chunking_elements(
             element_id = _stable_fallback_element_id(
                 raw_type=raw_type,
                 page_number=page_number,
-                text=text,
+                text=index_text or render_markdown,
             )
 
         filename = _safe_non_empty_string(metadata_mapping.get("filename")) or (
@@ -125,7 +215,8 @@ def _normalize_chunking_elements(
         normalized.append(
             _NormalizedElement(
                 element_id=element_id,
-                text=text,
+                text=index_text,
+                render_markdown=render_markdown,
                 raw_type=raw_type,
                 kind=kind,
                 page_number=page_number,
@@ -193,6 +284,7 @@ def _emit_chunk(
     text: str,
     section_title: str | None,
     contributions: list[tuple[_NormalizedElement, int]],
+    render_markdown: str | None = None,
 ) -> dict[str, Any] | None:
     """Build one chunk payload from normalized element contributions."""
     resolved_text = text.strip()
@@ -223,6 +315,9 @@ def _emit_chunk(
     }
     if filename is not None:
         metadata["filename"] = filename
+    resolved_render_markdown = _safe_non_empty_string(render_markdown)
+    if resolved_render_markdown:
+        metadata["render_markdown"] = resolved_render_markdown
 
     return {
         "chunk_id": "",
@@ -307,6 +402,19 @@ def _merge_text_chunks(
         "page_end": max(page_numbers) if page_numbers else None,
         "section_title": left_meta.get("section_title", right_meta.get("section_title")),
     }
+    left_render_markdown = _safe_non_empty_string(left_meta.get("render_markdown")) or str(
+        left.get("text", "")
+    ).strip()
+    right_render_markdown = _safe_non_empty_string(right_meta.get("render_markdown")) or str(
+        right.get("text", "")
+    ).strip()
+    merged_render_markdown = (
+        f"{left_render_markdown}\n\n{right_render_markdown}".strip()
+        if left_render_markdown or right_render_markdown
+        else ""
+    )
+    if merged_render_markdown:
+        metadata["render_markdown"] = merged_render_markdown
     filename = _safe_non_empty_string(left_meta.get("filename")) or _safe_non_empty_string(
         right_meta.get("filename")
     )
@@ -425,6 +533,118 @@ def _consolidate_small_chunks(
     return consolidated
 
 
+def _resolve_chunk_metadata_mapping(chunk: Mapping[str, Any]) -> dict[str, Any]:
+    """Return mutable chunk metadata mapping."""
+    metadata = chunk.get("metadata")
+    if not isinstance(metadata, Mapping):
+        return {}
+    return {str(key): value for key, value in metadata.items()}
+
+
+def _resolve_chunk_section_title(chunk: Mapping[str, Any]) -> str | None:
+    """Return normalized section title from chunk metadata."""
+    metadata = _resolve_chunk_metadata_mapping(chunk)
+    return _safe_non_empty_string(metadata.get("section_title"))
+
+
+def _resolve_chunk_first_element_id(chunk: Mapping[str, Any]) -> str:
+    """Return first orig-element ID for a chunk, or empty string."""
+    orig_elements = chunk.get("orig_elements", [])
+    if not isinstance(orig_elements, list) or not orig_elements:
+        return ""
+    first = orig_elements[0]
+    if not isinstance(first, Mapping):
+        return ""
+    return str(first.get("element_id", ""))
+
+
+def _resolve_chunk_last_element_id(chunk: Mapping[str, Any]) -> str:
+    """Return last orig-element ID for a chunk, or empty string."""
+    orig_elements = chunk.get("orig_elements", [])
+    if not isinstance(orig_elements, list) or not orig_elements:
+        return ""
+    last = orig_elements[-1]
+    if not isinstance(last, Mapping):
+        return ""
+    return str(last.get("element_id", ""))
+
+
+def _annotate_parent_sections(chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Annotate chunks with deterministic parent-section metadata."""
+    if not chunks:
+        return chunks
+
+    section_index = 0
+    run_start = 0
+    run_section_title = _resolve_chunk_section_title(chunks[0])
+
+    for index in range(1, len(chunks) + 1):
+        if index < len(chunks):
+            next_section_title = _resolve_chunk_section_title(chunks[index])
+            if next_section_title == run_section_title:
+                continue
+
+        run_chunks = chunks[run_start:index]
+        section_text_parts: list[str] = []
+        for chunk in run_chunks:
+            metadata = _resolve_chunk_metadata_mapping(chunk)
+            rendered_part = _safe_non_empty_string(metadata.get("render_markdown")) or str(
+                chunk.get("text", "")
+            ).strip()
+            if rendered_part:
+                section_text_parts.append(rendered_part)
+        section_text = "\n\n".join(part for part in section_text_parts if part).strip()
+
+        filename = ""
+        for chunk in run_chunks:
+            metadata = _resolve_chunk_metadata_mapping(chunk)
+            candidate_filename = _safe_non_empty_string(metadata.get("filename")) or ""
+            if candidate_filename:
+                filename = candidate_filename
+                break
+
+        first_element_id = ""
+        for chunk in run_chunks:
+            candidate_first = _resolve_chunk_first_element_id(chunk)
+            if candidate_first:
+                first_element_id = candidate_first
+                break
+
+        last_element_id = ""
+        for chunk in reversed(run_chunks):
+            candidate_last = _resolve_chunk_last_element_id(chunk)
+            if candidate_last:
+                last_element_id = candidate_last
+                break
+
+        parent_payload = "|".join(
+            [
+                filename,
+                run_section_title or "",
+                first_element_id,
+                last_element_id,
+                str(section_index),
+            ]
+        )
+        parent_section_id = hashlib.sha256(parent_payload.encode("utf-8")).hexdigest()[:24]
+
+        for chunk in run_chunks:
+            metadata = _resolve_chunk_metadata_mapping(chunk)
+            metadata["parent_section_id"] = parent_section_id
+            metadata["parent_section_index"] = section_index
+            metadata["parent_section_title"] = run_section_title
+            metadata["parent_section_text"] = section_text
+            metadata["parent_section_markdown"] = section_text
+            chunk["metadata"] = metadata
+
+        section_index += 1
+        run_start = index
+        if index < len(chunks):
+            run_section_title = _resolve_chunk_section_title(chunks[index])
+
+    return chunks
+
+
 def _finalize_chunk_ids(chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Assign deterministic chunk indexes and chunk IDs."""
     for index, chunk in enumerate(chunks):
@@ -484,9 +704,10 @@ def chunk_unstructured_elements(
 
     Guarantees:
         - Preserves source order and semantic element boundaries whenever possible.
-        - Excludes header/footer/image elements from chunk text and trace records.
+        - Excludes header/footer elements and parser-noise blocks from chunk text.
         - Uses Title elements as hard section boundaries.
         - Keeps table elements isolated from narrative text.
+        - Preserves image/table render markdown for section-level display.
         - Avoids inter-chunk overlap except for oversized single-element splits.
         - Produces deterministic IDs and metadata for stable re-ingestion.
     """
@@ -568,6 +789,7 @@ def chunk_unstructured_elements(
                     text=table_text,
                     section_title=section_title,
                     contributions=[(element, len(table_text))],
+                    render_markdown=element.render_markdown,
                 )
                 if chunk is not None:
                     chunks.append(chunk)
@@ -584,9 +806,23 @@ def chunk_unstructured_elements(
                     text=part,
                     section_title=section_title,
                     contributions=[(element, len(part))],
+                    render_markdown=part,
                 )
                 if chunk is not None:
                     chunks.append(chunk)
+            continue
+
+        if element.kind == "image":
+            flush_current_text_chunk()
+            chunk = _emit_chunk(
+                chunk_type="image",
+                text=element.text,
+                section_title=section_title,
+                contributions=[(element, 0)],
+                render_markdown=element.render_markdown,
+            )
+            if chunk is not None:
+                chunks.append(chunk)
             continue
 
         push_text_element(element)
@@ -597,7 +833,8 @@ def chunk_unstructured_elements(
         combine_under_n_chars=combine_under_n_chars,
         max_characters=max_characters,
     )
-    return _finalize_chunk_ids(consolidated)
+    parent_annotated = _annotate_parent_sections(consolidated)
+    return _finalize_chunk_ids(parent_annotated)
 
 
 def build_partition_chunks(
@@ -632,5 +869,3 @@ def chunk_partition_texts(
         chunk_overlap_chars=chunk_overlap_chars,
     )
     return [str(chunk.get("text", "")) for chunk in chunks if str(chunk.get("text", ""))]
-
-

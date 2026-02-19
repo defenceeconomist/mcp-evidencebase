@@ -18,6 +18,7 @@ def _element(
     filename: str = "paper.pdf",
     document_id: str = "doc-1",
     coordinates: dict[str, Any] | None = None,
+    metadata_extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     metadata: dict[str, Any] = {
         "page_number": page_number,
@@ -26,6 +27,8 @@ def _element(
     }
     if coordinates is not None:
         metadata["coordinates"] = coordinates
+    if metadata_extra:
+        metadata.update(metadata_extra)
     payload: dict[str, Any] = {"text": text, "type": element_type, "metadata": metadata}
     if element_id is not None:
         payload["element_id"] = element_id
@@ -69,6 +72,57 @@ def test_chunking_title_creates_section_boundary() -> None:
         if "m1" in {str(item["element_id"]) for item in chunk["orig_elements"]}
     )
     assert methods_chunk["metadata"]["section_title"] == "Methods"
+
+
+def test_chunking_annotates_parent_section_metadata() -> None:
+    elements = [
+        _element(text="Methods", element_id="title-methods", element_type="Title", page_number=2),
+        _element(
+            text="Methods paragraph one with unique token ALPHA.",
+            element_id="m1",
+            page_number=2,
+        ),
+        _element(
+            text="Methods paragraph two with unique token BETA.",
+            element_id="m2",
+            page_number=3,
+        ),
+    ]
+
+    chunks = chunk_unstructured_elements(
+        elements,
+        max_characters=70,
+        new_after_n_chars=60,
+        combine_under_n_chars=0,
+    )
+
+    methods_chunks = [
+        chunk for chunk in chunks if chunk.get("metadata", {}).get("section_title") == "Methods"
+    ]
+    assert len(methods_chunks) >= 2
+
+    parent_ids = {
+        str(chunk["metadata"].get("parent_section_id", ""))
+        for chunk in methods_chunks
+        if chunk.get("metadata", {}).get("parent_section_id")
+    }
+    assert len(parent_ids) == 1
+
+    parent_titles = {
+        str(chunk["metadata"].get("parent_section_title", ""))
+        for chunk in methods_chunks
+    }
+    assert parent_titles == {"Methods"}
+
+    parent_indices = {
+        int(chunk["metadata"].get("parent_section_index", -1))
+        for chunk in methods_chunks
+    }
+    assert parent_indices == {0}
+
+    parent_text = str(methods_chunks[0]["metadata"].get("parent_section_text", ""))
+    assert "unique token ALPHA" in parent_text
+    assert "unique token BETA" in parent_text
 
 
 def test_chunking_size_limits_respected() -> None:
@@ -219,7 +273,7 @@ def test_chunking_page_range_metadata_is_correct() -> None:
     ]
 
 
-def test_chunking_excludes_headers_footers_and_images() -> None:
+def test_chunking_excludes_headers_footers_and_parser_noise() -> None:
     elements = [
         _element(
             text="Company Confidential",
@@ -229,7 +283,12 @@ def test_chunking_excludes_headers_footers_and_images() -> None:
         ),
         _element(text="Overview", element_id="t1", element_type="Title", page_number=1),
         _element(text="Body text that should be indexed.", element_id="b1", page_number=1),
-        _element(text="Image OCR text should be excluded.", element_id="i1", element_type="Image"),
+        _element(
+            text="Image OCR text should be excluded from indexed text.",
+            element_id="i1",
+            element_type="Image",
+            metadata_extra={"image_url": "https://example.com/image.png"},
+        ),
         _element(text="Page 1", element_id="f1", element_type="Footer", page_number=1),
     ]
 
@@ -247,14 +306,55 @@ def test_chunking_excludes_headers_footers_and_images() -> None:
     assert "t1" not in all_element_ids
     assert "b1" in all_element_ids
     assert "h1" not in all_element_ids
-    assert "i1" not in all_element_ids
+    assert "i1" in all_element_ids
     assert "f1" not in all_element_ids
 
     merged_text = "\n".join(str(chunk["text"]) for chunk in chunks)
     assert "Overview" not in merged_text
     assert "Company Confidential" not in merged_text
-    assert "Image OCR text should be excluded." not in merged_text
+    assert "Image OCR text should be excluded from indexed text." not in merged_text
     assert "Page 1" not in merged_text
+    assert any(chunk["type"] == "image" for chunk in chunks)
+    image_chunk = next(chunk for chunk in chunks if chunk["type"] == "image")
+    image_markdown = str(image_chunk.get("metadata", {}).get("render_markdown", ""))
+    assert image_markdown.startswith("![")
+
+
+def test_chunking_parent_section_text_prefers_table_html_and_image_markdown() -> None:
+    elements = [
+        _element(text="Methods", element_id="title-methods", element_type="Title", page_number=1),
+        _element(text="Narrative context line.", element_id="m1", page_number=1),
+        _element(
+            text="A B\n1 2",
+            element_id="tbl1",
+            element_type="Table",
+            page_number=1,
+            metadata_extra={"text_as_html": "<table><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr></table>"},
+        ),
+        _element(
+            text="Microscope image",
+            element_id="img1",
+            element_type="Image",
+            page_number=1,
+            metadata_extra={"image_url": "https://example.com/figure.png"},
+        ),
+    ]
+
+    chunks = chunk_unstructured_elements(
+        elements,
+        max_characters=1000,
+        new_after_n_chars=800,
+        combine_under_n_chars=0,
+    )
+
+    methods_chunks = [
+        chunk for chunk in chunks if chunk.get("metadata", {}).get("section_title") == "Methods"
+    ]
+    assert methods_chunks
+
+    parent_text = str(methods_chunks[0]["metadata"].get("parent_section_text", ""))
+    assert "<table>" in parent_text
+    assert "![Microscope image](https://example.com/figure.png)" in parent_text
 
 
 def test_chunking_excludes_uncategorized_text() -> None:

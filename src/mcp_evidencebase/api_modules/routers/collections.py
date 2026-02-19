@@ -91,6 +91,69 @@ def resolve_document(
     )
 
 
+@router.get("/collections/{bucket_name}/documents/{document_id}/sections/{section_id}")
+def get_document_section(
+    bucket_name: str,
+    document_id: str,
+    section_id: str,
+    service: Annotated[IngestionService, Depends(get_ingestion_service)],
+) -> dict[str, Any]:
+    """Return one section record from Redis section mapping for a document."""
+    try:
+        section = service.get_document_section(
+            bucket_name=bucket_name.strip(),
+            document_id=document_id.strip(),
+            section_id=section_id.strip(),
+        )
+    except Exception as exc:
+        raise_document_http_error(exc)
+    return {
+        "bucket_name": bucket_name.strip(),
+        "document_id": document_id.strip(),
+        "section_id": section_id.strip(),
+        "section": section,
+    }
+
+
+@router.get("/collections/{bucket_name}/documents/{document_id}/sections")
+def list_document_sections(
+    bucket_name: str,
+    document_id: str,
+    service: Annotated[IngestionService, Depends(get_ingestion_service)],
+) -> dict[str, Any]:
+    """Return all section records from Redis section mapping for a document."""
+    try:
+        sections = service.list_document_sections(
+            bucket_name=bucket_name.strip(),
+            document_id=document_id.strip(),
+        )
+    except Exception as exc:
+        raise_document_http_error(exc)
+    return {
+        "bucket_name": bucket_name.strip(),
+        "document_id": document_id.strip(),
+        "sections": sections,
+    }
+
+
+@router.post("/collections/{bucket_name}/sections/rebuild")
+def rebuild_sections(
+    bucket_name: str,
+    service: Annotated[IngestionService, Depends(get_ingestion_service)],
+    document_id: str | None = None,
+) -> dict[str, Any]:
+    """Rebuild Redis section mappings from stored partitions without re-ingesting files."""
+    try:
+        if document_id and document_id.strip():
+            return service.rebuild_document_section_mapping(
+                bucket_name=bucket_name.strip(),
+                document_id=document_id.strip(),
+            )
+        return service.rebuild_bucket_section_mappings(bucket_name=bucket_name.strip())
+    except Exception as exc:
+        raise_document_http_error(exc)
+
+
 @router.post("/collections/{bucket_name}/documents/upload")
 async def upload_document(
     bucket_name: str,
