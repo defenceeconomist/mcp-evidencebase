@@ -1732,14 +1732,21 @@ class RedisDocumentRepository:
     def _document_sources_key(self, document_id: str) -> str:
         return f"{self._prefix}:document:{document_id}:sources"
 
-    def _partition_payload_key(self, partition_key: str) -> str:
-        return f"{self._prefix}:partition:{partition_key}"
-
-    def _metadata_payload_key(self, meta_key: str) -> str:
-        return f"{self._prefix}:meta:{meta_key}"
+    def _document_partition_payload_key(self, document_id: str) -> str:
+        return f"{self._prefix}:document:{document_id}:partition"
 
     def _source_mapping_key(self, bucket_name: str, object_name: str) -> str:
         return f"{self._prefix}:source:{self._location_reference(bucket_name, object_name)}"
+
+    def _source_meta_key(self, bucket_name: str, object_name: str) -> str:
+        return f"{self._source_mapping_key(bucket_name, object_name)}:meta"
+
+    def _source_meta_key_from_meta_key(self, meta_key: str) -> str | None:
+        split_location = self._split_location_reference(meta_key)
+        if not split_location:
+            return None
+        bucket_name, object_name = split_location
+        return self._source_meta_key(bucket_name, object_name)
 
     def _source_bucket_key(self, bucket_name: str) -> str:
         return f"{self._prefix}:source:bucket:{bucket_name}"
@@ -1837,7 +1844,7 @@ class RedisDocumentRepository:
                 location_reference,
             )
             # Metadata is source-scoped, so remapping a source replaces its metadata.
-            self._redis.delete(self._metadata_payload_key(location_reference))
+            self._redis.delete(self._source_meta_key(bucket_name, object_name))
 
         payload = self._build_source_mapping_payload(
             bucket_name=bucket_name,
@@ -1898,18 +1905,24 @@ class RedisDocumentRepository:
         metadata: Mapping[str, Any],
     ) -> None:
         """Store normalized metadata payload for a source-scoped metadata key."""
+        source_meta_key = self._source_meta_key_from_meta_key(meta_key)
+        if source_meta_key is None:
+            return
         normalized = normalize_metadata(metadata)
         payload = {field_name: normalized.get(field_name, "") for field_name in METADATA_FIELDS}
         payload["document_id"] = document_id
         payload["source"] = meta_key
         payload["updated_at"] = utc_now_iso()
-        self._redis.hset(self._metadata_payload_key(meta_key), mapping=payload)
+        self._redis.hset(source_meta_key, mapping=payload)
 
     def get_metadata_by_key(self, meta_key: str) -> dict[str, str]:
         """Return metadata payload by metadata hash key."""
         if not meta_key:
             return {field_name: "" for field_name in METADATA_FIELDS}
-        raw_mapping = self._redis.hgetall(self._metadata_payload_key(meta_key))
+        source_meta_key = self._source_meta_key_from_meta_key(meta_key)
+        if source_meta_key is None:
+            return {field_name: "" for field_name in METADATA_FIELDS}
+        raw_mapping = self._redis.hgetall(source_meta_key)
         metadata = {field_name: "" for field_name in METADATA_FIELDS}
         for key, value in raw_mapping.items():
             key_name = str(key)
@@ -1952,13 +1965,14 @@ class RedisDocumentRepository:
         object_names = self.get_document_object_names(bucket_name, document_id)
         for object_name in object_names:
             meta_key = self._location_reference(bucket_name, object_name)
-            if self._redis.hlen(self._metadata_payload_key(meta_key)) <= 0:
+            if self._redis.hlen(self._source_meta_key(bucket_name, object_name)) <= 0:
                 continue
             return meta_key, self.get_metadata_by_key(meta_key)
 
         state = self.get_state(document_id)
         state_meta_key = state.get("meta_key", "")
-        if state_meta_key and self._redis.hlen(self._metadata_payload_key(state_meta_key)) > 0:
+        state_meta_redis_key = self._source_meta_key_from_meta_key(state_meta_key)
+        if state_meta_redis_key and self._redis.hlen(state_meta_redis_key) > 0:
             return state_meta_key, self.get_metadata_by_key(state_meta_key)
 
         file_path = object_names[0] if object_names else state.get("file_path", document_id)
@@ -2039,7 +2053,7 @@ class RedisDocumentRepository:
         """Persist partition payload under the partition hash key."""
         del bucket_name
         partition_key = compute_partition_key(partitions)
-        self._redis.set(self._partition_payload_key(partition_key), canonical_json(partitions))
+        self._redis.set(self._document_partition_payload_key(document_id), canonical_json(partitions))
         self.set_state(
             document_id,
             {
@@ -2063,14 +2077,53 @@ class RedisDocumentRepository:
         """Read partition payload for one document hash via its partition key."""
         state = self.get_state(document_id)
         partition_key = state.get("partition_key", "")
-        return self.get_partitions_by_key(partition_key)
+        return self.get_partitions_by_key(partition_key, document_id=document_id)
 
-    def get_partitions_by_key(self, partition_key: str) -> list[dict[str, Any]]:
+    def _iter_document_ids_for_partition_lookup(self) -> list[str]:
+        """Return candidate document IDs for partition-key lookups."""
+        document_ids: set[str] = set()
+        key_prefix = f"{self._prefix}:document:"
+        scan_iter = getattr(self._redis, "scan_iter", None)
+        keys: Iterable[Any]
+        if callable(scan_iter):
+            keys = scan_iter(match=f"{key_prefix}*")
+        else:
+            keys = self._fallback_iter_keys_for_tests()
+
+        for key in keys:
+            key_text = str(key)
+            if not key_text.startswith(key_prefix):
+                continue
+            suffix = key_text[len(key_prefix) :]
+            if not suffix or ":" in suffix:
+                continue
+            document_ids.add(suffix)
+        return sorted(document_ids)
+
+    def get_partitions_by_key(
+        self,
+        partition_key: str,
+        *,
+        document_id: str | None = None,
+    ) -> list[dict[str, Any]]:
         """Read partition payload from a partition hash key."""
         if not partition_key:
             return []
-        key = self._partition_payload_key(partition_key)
-        return self._parse_partitions_payload(self._redis.get(key))
+
+        if document_id:
+            state = self.get_state(document_id)
+            if state.get("partition_key", "") != partition_key:
+                return []
+            key = self._document_partition_payload_key(document_id)
+            return self._parse_partitions_payload(self._redis.get(key))
+
+        for candidate_document_id in self._iter_document_ids_for_partition_lookup():
+            state = self.get_state(candidate_document_id)
+            if state.get("partition_key", "") != partition_key:
+                continue
+            key = self._document_partition_payload_key(candidate_document_id)
+            return self._parse_partitions_payload(self._redis.get(key))
+        return []
 
     def get_partitions(self, bucket_name: str, document_id: str) -> list[dict[str, Any]]:
         """Return partitions for one bucket/document pair."""
@@ -2102,7 +2155,7 @@ class RedisDocumentRepository:
             location_reference = self._location_reference(bucket_name, object_name)
 
             self._redis.delete(self._source_mapping_key(bucket_name, object_name))
-            self._redis.delete(self._metadata_payload_key(location_reference))
+            self._redis.delete(self._source_meta_key(bucket_name, object_name))
             self._redis.srem(self._source_bucket_key(bucket_name), location_reference)
             self._redis.srem(self._document_sources_key(document_id), location_reference)
 
@@ -2114,7 +2167,7 @@ class RedisDocumentRepository:
 
         if not keep_partitions:
             if partition_key:
-                self._redis.delete(self._partition_payload_key(partition_key))
+                self._redis.delete(self._document_partition_payload_key(document_id))
             self.set_state(
                 document_id,
                 {

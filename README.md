@@ -411,7 +411,7 @@ Stage details:
 
 1. Read bytes from MinIO and compute deterministic `document_id` (SHA-256).
 2. Partition document with Unstructured API and store raw partition JSON in Redis under
-   `partition:<partition_hash>`.
+   `document:<document_hash>:partition` (with the computed `partition_key` tracked in document state).
 3. Extract metadata:
    - title/author from embedded PDF metadata (when available),
    - DOI/ISBN/ISSN from first-page partition text.
@@ -519,10 +519,10 @@ Redis keys (prefix default: `evidencebase`):
 
 - `document:<document_hash>` processing state/progress hash
 - `document:<document_hash>:sources` source locations set (`bucket/object`)
-- `partition:<partition_hash>` partition payload JSON
+- `document:<document_hash>:partition` partition payload JSON (`partition_key` stored in state hash)
 - `source:<bucket>/<object>` source mapping (`document_id`, `etag`, `resolver_url`)
+- `source:<bucket>/<object>:meta` source-scoped normalized metadata
 - `source:bucket:<bucket>` set of source locations in bucket
-- `meta:<bucket>/<object>` source-scoped normalized metadata
 
 Qdrant point payload fields include:
 

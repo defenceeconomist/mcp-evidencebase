@@ -1412,20 +1412,42 @@ def test_remove_document_keeps_partitions_but_removes_other_redis_data() -> None
     assert repository.get_object_mapping(bucket_name, "paper.pdf") == {}
 
 
-def test_set_partitions_stores_payload_under_partition_hash_key() -> None:
-    """Ensure partition payloads use direct hash keys and not reverse-index keys."""
+def test_set_partitions_stores_payload_under_document_partition_key() -> None:
+    """Ensure partition payloads are nested under the owning document key."""
     redis_client = FakeRedis()
     repository = RedisDocumentRepository(redis_client, key_prefix="test")
+    document_id = "doc-789"
 
     partition_key = repository.set_partitions(
         "research-raw",
-        "doc-789",
+        document_id,
         [{"text": "partition text"}],
     )
 
     assert repository.get_partitions_by_key(partition_key) == [{"text": "partition text"}]
-    assert redis_client.get(f"test:partition:{partition_key}") is not None
-    assert redis_client.get(f"test:document:partition:{partition_key}") is None
+    assert redis_client.get(f"test:document:{document_id}:partition") is not None
+    assert redis_client.get(f"test:partition:{partition_key}") is None
+
+
+def test_set_metadata_for_location_stores_payload_under_source_meta_key() -> None:
+    """Ensure metadata payloads are nested under source keys."""
+    redis_client = FakeRedis()
+    repository = RedisDocumentRepository(redis_client, key_prefix="test")
+    bucket_name = "research-raw"
+    object_name = "paper.pdf"
+
+    meta_key = repository.set_metadata_for_location(
+        bucket_name=bucket_name,
+        object_name=object_name,
+        document_id="doc-meta",
+        metadata={"title": "Paper"},
+    )
+
+    assert meta_key == "research-raw/paper.pdf"
+    assert (
+        redis_client.hgetall(f"test:source:{bucket_name}/{object_name}:meta").get("title", "") == "Paper"
+    )
+    assert redis_client.hgetall(f"test:meta:{bucket_name}/{object_name}") == {}
 
 
 def test_get_partitions_by_key_does_not_read_legacy_storage() -> None:
@@ -1446,6 +1468,7 @@ def test_get_partitions_by_key_does_not_read_legacy_storage() -> None:
 
     assert partitions == []
     assert redis_client.get(f"test:partition:{partition_key}") is None
+    assert redis_client.get(f"test:document:{document_id}:partition") is None
     assert redis_client.get(f"test:document:partition:{partition_key}") == document_id
     assert redis_client.get(f"test:document:{document_id}:partitions") is not None
 
