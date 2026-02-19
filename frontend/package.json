@@ -4,6 +4,11 @@
   "private": true,
   "description": "Bootstrap frontend for Evidence Base",
   "scripts": {
-    "build": "echo \"Static frontend served by nginx\""
+    "build": "echo \"Static frontend served by nginx\"",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.52.0"
   }
 }

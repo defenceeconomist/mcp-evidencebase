@@ -192,6 +192,14 @@ cython_debug/
 # Ruff stuff:
 .ruff_cache/
 
+# Node / Playwright
+node_modules/
+frontend/node_modules/
+playwright-report/
+frontend/playwright-report/
+test-results/
+frontend/test-results/
+
 # PyPI configuration file
 .pypirc
 

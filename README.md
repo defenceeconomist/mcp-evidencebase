@@ -108,6 +108,19 @@ The repository includes local Docker orchestration, Sphinx documentation, API/CL
    pytest
    ```
 
+### UI E2E Test (Playwright)
+
+Run the frontend Playwright test:
+
+```bash
+cd frontend
+npm install
+npx playwright install chromium
+npm run test:e2e
+```
+
+The test serves the static UI and mocks `/api/*` responses, so it does not require the full Docker stack.
+
 Optional live datastore integration tests (MinIO/Redis/Qdrant):
 
 ```bash
