@@ -153,6 +153,12 @@
   height: 1rem;
 }
 
+.document-processing-progress .progress-bar {
+  font-size: 0.62rem;
+  letter-spacing: 0.015em;
+  white-space: nowrap;
+}
+
 .json-tree {
   font-family: var(--bs-font-monospace);
   font-size: 0.85rem;

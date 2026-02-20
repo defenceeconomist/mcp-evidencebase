@@ -1094,7 +1094,9 @@ def test_partition_object_persists_partitions_and_metadata_without_chunking() ->
 
     state = repository.get_state(expected_document_id)
     assert state["processing_state"] == "processing"
-    assert state["processing_progress"] == "60"
+    assert state["processing_stage"] == "meta"
+    assert state["processing_stage_progress"] == "100"
+    assert state["processing_progress"] == "40"
     assert state["partitions_count"] == "1"
     assert state["meta_key"] == result["meta_key"]
 
@@ -1141,6 +1143,8 @@ def test_chunk_object_reads_persisted_partitions_and_marks_processed() -> None:
 
     state = repository.get_state(partition_stage["document_id"])
     assert state["processing_state"] == "processed"
+    assert state["processing_stage"] == "processed"
+    assert state["processing_stage_progress"] == "100"
     assert state["processing_progress"] == "100"
     assert int(state["chunks_count"]) >= 1
 

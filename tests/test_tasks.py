@@ -38,72 +38,17 @@ class FakeScanService:
         return object_name != "skip.pdf"
 
 
-class FakePartitionService:
-    def __init__(
-        self,
-        stage_payload: dict[str, str],
-        crossref_error: Exception | None = None,
-    ) -> None:
-        self.stage_payload = stage_payload
-        self.calls: list[tuple[str, str, str | None]] = []
-        self.crossref_calls: list[tuple[str, str]] = []
-        self.crossref_error = crossref_error
-
-    def partition_object(
-        self,
-        *,
-        bucket_name: str,
-        object_name: str,
-        etag: str | None = None,
-    ) -> dict[str, str]:
-        self.calls.append((bucket_name, object_name, etag))
-        return self.stage_payload
-
-    def fetch_metadata_from_crossref(
-        self,
-        *,
-        bucket_name: str,
-        document_id: str,
-    ) -> dict[str, Any]:
-        self.crossref_calls.append((bucket_name, document_id))
-        if self.crossref_error is not None:
-            raise self.crossref_error
-        return {
-            "lookup_field": "doi",
-            "confidence": 1.0,
-            "metadata": {"title": "Fetched Title"},
-        }
-
-
-class FakeChunkService:
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, str, str]] = []
-
-    def chunk_object(
-        self,
-        *,
-        bucket_name: str,
-        object_name: str,
-        document_id: str,
-    ) -> dict[str, str]:
-        self.calls.append((bucket_name, object_name, document_id))
-        return {
-            "bucket_name": bucket_name,
-            "object_name": object_name,
-            "document_id": document_id,
-            "partition_key": "partition-hash",
-            "meta_key": "meta-hash",
-        }
-
-
-class FakeProcessService:
+class FakeStageService:
     def __init__(self, crossref_error: Exception | None = None) -> None:
         self.partition_calls: list[tuple[str, str, str | None]] = []
+        self.meta_calls: list[tuple[str, str, str, str | None]] = []
+        self.section_calls: list[tuple[str, str, str, str | None]] = []
+        self.chunk_calls: list[tuple[str, str, str, str | None]] = []
+        self.upsert_calls: list[tuple[str, str, str, str | None]] = []
         self.crossref_calls: list[tuple[str, str]] = []
-        self.chunk_calls: list[tuple[str, str, str]] = []
         self.crossref_error = crossref_error
 
-    def partition_object(
+    def partition_stage_object(
         self,
         *,
         bucket_name: str,
@@ -115,6 +60,78 @@ class FakeProcessService:
             "bucket_name": bucket_name,
             "object_name": object_name,
             "document_id": "doc-123",
+            "etag": etag or "",
+            "partition_key": "partition-hash",
+            "meta_key": "",
+        }
+
+    def meta_stage_object(
+        self,
+        *,
+        bucket_name: str,
+        object_name: str,
+        document_id: str,
+        etag: str | None = None,
+    ) -> dict[str, str]:
+        self.meta_calls.append((bucket_name, object_name, document_id, etag))
+        return {
+            "bucket_name": bucket_name,
+            "object_name": object_name,
+            "document_id": document_id,
+            "etag": etag or "",
+            "partition_key": "partition-hash",
+            "meta_key": "meta-hash",
+        }
+
+    def section_stage_object(
+        self,
+        *,
+        bucket_name: str,
+        object_name: str,
+        document_id: str,
+        etag: str | None = None,
+    ) -> dict[str, str]:
+        self.section_calls.append((bucket_name, object_name, document_id, etag))
+        return {
+            "bucket_name": bucket_name,
+            "object_name": object_name,
+            "document_id": document_id,
+            "etag": etag or "",
+            "partition_key": "partition-hash",
+            "meta_key": "meta-hash",
+        }
+
+    def chunk_stage_object(
+        self,
+        *,
+        bucket_name: str,
+        object_name: str,
+        document_id: str,
+        etag: str | None = None,
+    ) -> dict[str, str]:
+        self.chunk_calls.append((bucket_name, object_name, document_id, etag))
+        return {
+            "bucket_name": bucket_name,
+            "object_name": object_name,
+            "document_id": document_id,
+            "etag": etag or "",
+            "partition_key": "partition-hash",
+            "meta_key": "meta-hash",
+        }
+
+    def upsert_stage_object(
+        self,
+        *,
+        bucket_name: str,
+        object_name: str,
+        document_id: str,
+        etag: str | None = None,
+    ) -> dict[str, str]:
+        self.upsert_calls.append((bucket_name, object_name, document_id, etag))
+        return {
+            "bucket_name": bucket_name,
+            "object_name": object_name,
+            "document_id": document_id,
             "etag": etag or "",
             "partition_key": "partition-hash",
             "meta_key": "meta-hash",
@@ -135,22 +152,6 @@ class FakeProcessService:
             "metadata": {"title": "Fetched Title"},
         }
 
-    def chunk_object(
-        self,
-        *,
-        bucket_name: str,
-        object_name: str,
-        document_id: str,
-    ) -> dict[str, str]:
-        self.chunk_calls.append((bucket_name, object_name, document_id))
-        return {
-            "bucket_name": bucket_name,
-            "object_name": object_name,
-            "document_id": document_id,
-            "partition_key": "partition-hash",
-            "meta_key": "meta-hash",
-        }
-
 
 def test_scan_minio_objects_enqueues_partition_stage(monkeypatch: pytest.MonkeyPatch) -> None:
     """Ensure scan task queues only changed objects into the partition stage."""
@@ -164,97 +165,140 @@ def test_scan_minio_objects_enqueues_partition_stage(monkeypatch: pytest.MonkeyP
     assert fake_partition_task.calls == [("research-raw", "paper.pdf", "etag-1", True)]
 
 
-def test_partition_task_enqueues_chunk_stage(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify partition stage task schedules chunk stage with returned payload."""
-    stage_payload = {
-        "bucket_name": "research-raw",
-        "object_name": "paper.pdf",
-        "document_id": "doc-123",
-        "etag": "etag-1",
-        "partition_key": "partition-hash",
-        "meta_key": "meta-hash",
-    }
-    fake_service = FakePartitionService(stage_payload)
-    fake_chunk_task = FakeDelayTask()
+def test_partition_task_enqueues_meta_stage(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify partition task runs partition stage and schedules metadata stage."""
+    fake_service = FakeStageService()
+    fake_meta_task = FakeDelayTask()
     monkeypatch.setattr(task_module, "build_ingestion_service", lambda: fake_service)
-    monkeypatch.setattr(task_module, "chunk_minio_object", fake_chunk_task)
-
-    result = task_module.partition_minio_object.run("research-raw", "paper.pdf", "etag-1")
-
-    assert result == stage_payload
-    assert fake_service.calls == [("research-raw", "paper.pdf", "etag-1")]
-    assert fake_service.crossref_calls == []
-    assert fake_chunk_task.calls == [(stage_payload,)]
-
-
-def test_partition_task_update_meta_fetches_crossref(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify partition stage can enrich metadata before enqueueing chunk stage."""
-    stage_payload = {
-        "bucket_name": "research-raw",
-        "object_name": "paper.pdf",
-        "document_id": "doc-123",
-        "etag": "etag-1",
-        "partition_key": "partition-hash",
-        "meta_key": "meta-hash",
-    }
-    fake_service = FakePartitionService(stage_payload)
-    fake_chunk_task = FakeDelayTask()
-    monkeypatch.setattr(task_module, "build_ingestion_service", lambda: fake_service)
-    monkeypatch.setattr(task_module, "chunk_minio_object", fake_chunk_task)
+    monkeypatch.setattr(task_module, "meta_minio_object", fake_meta_task)
 
     result = task_module.partition_minio_object.run("research-raw", "paper.pdf", "etag-1", True)
 
-    assert result == stage_payload
+    assert result["document_id"] == "doc-123"
+    assert fake_service.partition_calls == [("research-raw", "paper.pdf", "etag-1")]
+    assert fake_meta_task.calls == [
+        (
+            {
+                "bucket_name": "research-raw",
+                "object_name": "paper.pdf",
+                "document_id": "doc-123",
+                "etag": "etag-1",
+                "partition_key": "partition-hash",
+                "meta_key": "",
+                "update_meta": True,
+            },
+        )
+    ]
+
+
+def test_meta_task_update_meta_fetches_crossref(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify metadata task can enrich from Crossref before queueing sections."""
+    fake_service = FakeStageService()
+    fake_section_task = FakeDelayTask()
+    monkeypatch.setattr(task_module, "build_ingestion_service", lambda: fake_service)
+    monkeypatch.setattr(task_module, "section_minio_object", fake_section_task)
+
+    payload = {
+        "bucket_name": "research-raw",
+        "object_name": "paper.pdf",
+        "document_id": "doc-123",
+        "etag": "etag-1",
+        "partition_key": "partition-hash",
+        "update_meta": True,
+    }
+    result = task_module.meta_minio_object.run(payload)
+
+    assert result["meta_key"] == "meta-hash"
+    assert fake_service.meta_calls == [("research-raw", "paper.pdf", "doc-123", "etag-1")]
     assert fake_service.crossref_calls == [("research-raw", "doc-123")]
-    assert fake_chunk_task.calls == [(stage_payload,)]
+    assert fake_section_task.calls == [(result,)]
 
 
-def test_partition_task_update_meta_ignores_crossref_errors(
+def test_meta_task_update_meta_ignores_crossref_errors(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Ensure Crossref failures do not block chunk stage execution."""
-    stage_payload = {
+    """Ensure Crossref failures do not block downstream ingestion stages."""
+    fake_service = FakeStageService(crossref_error=ValueError("no doi"))
+    fake_section_task = FakeDelayTask()
+    monkeypatch.setattr(task_module, "build_ingestion_service", lambda: fake_service)
+    monkeypatch.setattr(task_module, "section_minio_object", fake_section_task)
+
+    payload = {
         "bucket_name": "research-raw",
         "object_name": "paper.pdf",
         "document_id": "doc-123",
         "etag": "etag-1",
         "partition_key": "partition-hash",
-        "meta_key": "meta-hash",
+        "update_meta": True,
     }
-    fake_service = FakePartitionService(stage_payload, crossref_error=ValueError("no doi"))
+    result = task_module.meta_minio_object.run(payload)
+
+    assert result["document_id"] == "doc-123"
+    assert fake_service.crossref_calls == [("research-raw", "doc-123")]
+    assert fake_section_task.calls == [(result,)]
+
+
+def test_section_task_enqueues_chunk_stage(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ensure section task runs section stage and queues chunk stage."""
+    fake_service = FakeStageService()
     fake_chunk_task = FakeDelayTask()
     monkeypatch.setattr(task_module, "build_ingestion_service", lambda: fake_service)
     monkeypatch.setattr(task_module, "chunk_minio_object", fake_chunk_task)
 
-    result = task_module.partition_minio_object.run("research-raw", "paper.pdf", "etag-1", True)
+    payload = {
+        "bucket_name": "research-raw",
+        "object_name": "paper.pdf",
+        "document_id": "doc-123",
+        "etag": "etag-1",
+    }
+    result = task_module.section_minio_object.run(payload)
 
-    assert result == stage_payload
-    assert fake_service.crossref_calls == [("research-raw", "doc-123")]
-    assert fake_chunk_task.calls == [(stage_payload,)]
+    assert fake_service.section_calls == [("research-raw", "paper.pdf", "doc-123", "etag-1")]
+    assert fake_chunk_task.calls == [(result,)]
 
 
-def test_chunk_task_calls_chunk_stage_service(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Ensure chunk task resolves payload fields and calls ``chunk_object``."""
-    fake_service = FakeChunkService()
+def test_chunk_task_enqueues_upsert_stage(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ensure chunk task runs chunk stage and queues upsert stage."""
+    fake_service = FakeStageService()
+    fake_upsert_task = FakeDelayTask()
+    monkeypatch.setattr(task_module, "build_ingestion_service", lambda: fake_service)
+    monkeypatch.setattr(task_module, "upsert_minio_object", fake_upsert_task)
+
+    payload = {
+        "bucket_name": "research-raw",
+        "object_name": "paper.pdf",
+        "document_id": "doc-123",
+        "etag": "etag-1",
+    }
+    result = task_module.chunk_minio_object.run(payload)
+
+    assert fake_service.chunk_calls == [("research-raw", "paper.pdf", "doc-123", "etag-1")]
+    assert fake_upsert_task.calls == [(result,)]
+
+
+def test_upsert_task_calls_upsert_stage(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ensure upsert task runs upsert stage directly."""
+    fake_service = FakeStageService()
     monkeypatch.setattr(task_module, "build_ingestion_service", lambda: fake_service)
 
-    result = task_module.chunk_minio_object.run(
+    result = task_module.upsert_minio_object.run(
         {
             "bucket_name": "research-raw",
             "object_name": "paper.pdf",
             "document_id": "doc-123",
+            "etag": "etag-1",
         }
     )
 
     assert result["document_id"] == "doc-123"
-    assert fake_service.calls == [("research-raw", "paper.pdf", "doc-123")]
+    assert fake_service.upsert_calls == [("research-raw", "paper.pdf", "doc-123", "etag-1")]
 
 
-def test_process_task_update_meta_fetches_crossref_before_chunk(
+def test_process_task_update_meta_fetches_crossref_before_tail_stages(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Verify compatibility wrapper supports optional Crossref enrichment."""
-    fake_service = FakeProcessService()
+    """Verify compatibility wrapper still executes all stages inline."""
+    fake_service = FakeStageService()
     monkeypatch.setattr(task_module, "build_ingestion_service", lambda: fake_service)
 
     result = task_module.process_minio_object.run("research-raw", "paper.pdf", "etag-1", True)
@@ -265,5 +309,8 @@ def test_process_task_update_meta_fetches_crossref_before_chunk(
         "document_id": "doc-123",
     }
     assert fake_service.partition_calls == [("research-raw", "paper.pdf", "etag-1")]
+    assert fake_service.meta_calls == [("research-raw", "paper.pdf", "doc-123", "etag-1")]
     assert fake_service.crossref_calls == [("research-raw", "doc-123")]
-    assert fake_service.chunk_calls == [("research-raw", "paper.pdf", "doc-123")]
+    assert fake_service.section_calls == [("research-raw", "paper.pdf", "doc-123", "etag-1")]
+    assert fake_service.chunk_calls == [("research-raw", "paper.pdf", "doc-123", "etag-1")]
+    assert fake_service.upsert_calls == [("research-raw", "paper.pdf", "doc-123", "etag-1")]

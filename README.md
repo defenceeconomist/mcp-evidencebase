@@ -325,8 +325,9 @@ curl -sS -X POST \
   --data-binary "@paper.pdf"
 ```
 
-This upload path enqueues `partition_minio_object(..., update_meta=True)`, so metadata
-enrichment from Crossref is attempted before chunking when a high-confidence match is found.
+This upload path enqueues `partition_minio_object(..., update_meta=True)`, which kicks off the
+full atomic chain (`partition -> meta -> section -> chunk -> upsert`). Crossref metadata enrichment
+is attempted during the metadata stage when a high-confidence match is found.
 
 Trigger on-demand scan:
 
@@ -403,57 +404,27 @@ curl -sS -X POST "https://open.heley.uk/api/gpt/search" \
 
 `bucket_name` is optional for GPT search. If exactly one bucket exists, it is auto-selected.
 
-### Ingestion Pipeline: Partitioning And Chunking
+### Ingestion Pipeline: Atomic Stages
 
-The ingestion flow now uses two explicit stages that run sequentially:
+The ingestion flow now uses five explicit stages that run sequentially:
 
-1. `partition_minio_object` runs `IngestionService.partition_object()`.
-2. `chunk_minio_object` runs `IngestionService.chunk_object()` after partitioning succeeds.
+1. `partition_minio_object` -> `IngestionService.partition_stage_object()`
+2. `meta_minio_object` -> `IngestionService.meta_stage_object()`
+3. `section_minio_object` -> `IngestionService.section_stage_object()`
+4. `chunk_minio_object` -> `IngestionService.chunk_stage_object()`
+5. `upsert_minio_object` -> `IngestionService.upsert_stage_object()`
 
-`process_minio_object` is retained as a backward-compatible wrapper that runs both stages inline.
+`process_minio_object` is retained as a backward-compatible wrapper that runs all stages inline.
 
 Stage details:
 
-1. Read bytes from MinIO and compute deterministic `document_id` (SHA-256).
-2. Partition document with Unstructured API and store raw partition JSON in Redis under
-   `document:<document_hash>:partition` (with the computed `partition_key` tracked in document state).
-3. Extract metadata:
-   - title/author from embedded PDF metadata (when available),
-   - DOI/ISBN/ISSN from first-page partition text.
-4. Optionally enrich metadata from Crossref when `update_meta=True` is provided to the task
-   (upload and scan task paths enable this by default). Crossref requests use the existing shared
-   limiter:
-   public pool concurrency `1`, global `5 req/s`, single-record `5 req/s`, list-query `1 req/s`.
-5. Chunk partitions with structure-aware deterministic chunking (`chunk_unstructured_elements`):
-   - section strategy (`CHUNKING_STRATEGY`):
-     - `by_title` (default): each `Title` element creates a section boundary,
-     - `none`: titles do not create boundaries (single running section).
-   - element-aware assembly:
-     - narrative elements are appended in order with paragraph-aware joins,
-     - `Table` elements are emitted as standalone `type="table"` chunks,
-     - image handling is configurable via `CHUNK_IMAGE_TEXT_MODE` (`placeholder` | `ocr` | `exclude`).
-   - size controls:
-     - hard cap: `max_characters` (wired from `CHUNK_SIZE_CHARS`),
-     - soft split target: `new_after_n_chars` (wired from `CHUNK_NEW_AFTER_N_CHARS`, clamped to hard cap),
-     - undersized merge threshold: `combine_under_n_chars` (wired from `CHUNK_COMBINE_TEXT_UNDER_N_CHARS`),
-     - overlap: `overlap_chars` (wired from `CHUNK_OVERLAP_CHARS`) only for internal splits of one oversized element.
-   - deterministic IDs and traces:
-     - each chunk has deterministic `chunk_id`,
-     - each chunk keeps `metadata` (`page_start`, `page_end`, `section_title`, `section_index`, plus `filename` when present),
-     - each chunk is annotated with parent section metadata (`parent_section_id`, `parent_section_index`, `parent_section_title`, `parent_section_text`),
-     - each chunk keeps `orig_elements` trace records (`element_id`, `type/category`, `page_number`,
-       `coordinates`, `text_len`),
-     - compatibility fields `chunk_index`, `page_numbers`, and `bounding_boxes` are retained.
-6. Persist section/chunk mapping in Redis (`document:<document_hash>:sections`):
-   - `sections`: section-level payloads (`section_id`, `section_index`, `section_title`, section text/markdown, page range, chunk references),
-   - `chunk_sections`: per-chunk mapping (`chunk_index`, `chunk_id`, `section_id`).
-7. Embed chunks and upsert vectors into bucket-specific Qdrant collection:
-   - dense semantic vector (`FASTEMBED_MODEL`),
-   - sparse keyword vector (`FASTEMBED_KEYWORD_MODEL`, default `Qdrant/bm25`).
-8. Hybrid search fuses semantic and keyword ranks using weighted reciprocal rank fusion.
+1. `partition`: read bytes from MinIO, compute deterministic `document_id` (SHA-256), run Unstructured partitioning, persist partition JSON in Redis (`document:<document_hash>:partition`), and persist `partition_key` in document state.
+2. `meta`: extract metadata (embedded PDF title/author + DOI/ISBN/ISSN/title heuristics from partitions), persist source-scoped metadata (`meta_key`), and optionally run Crossref enrichment when `update_meta=True`.
+3. `section`: derive deterministic section/chunk-section mappings from partitions and persist Redis section payload (`document:<document_hash>:sections`).
+4. `chunk`: build deterministic chunk payload and persist chunk/section counters in document state.
+5. `upsert`: embed chunk text and upsert vectors into bucket-specific Qdrant collections (dense + sparse vectors).
 
-Chunking is internal to `IngestionService` and does not call Unstructured APIs. This allows
-future chunking strategy changes without changing the partition stage.
+The document state now exposes both global progress (`processing_progress`) and stage-local progress (`processing_stage`, `processing_stage_progress`) so UI progress bars can reflect which stage each document is currently in.
 
 ### Celery Tasks
 
@@ -463,10 +434,13 @@ Defined in `src/mcp_evidencebase/tasks.py`:
 - `mcp_evidencebase.scan_minio_objects(bucket_name=None, update_meta=True)`: scan one/all buckets
   and enqueue `partition_minio_object` for changed objects.
 - `mcp_evidencebase.partition_minio_object(bucket_name, object_name, etag=None, update_meta=False)`:
-  partition + metadata stage, optional Crossref metadata update, then enqueues `chunk_minio_object`.
-- `mcp_evidencebase.chunk_minio_object(partition_payload)`: chunk + vector upsert stage.
+  partition stage, then enqueues `meta_minio_object`.
+- `mcp_evidencebase.meta_minio_object(partition_payload)`: metadata stage, optional Crossref metadata update, then enqueues `section_minio_object`.
+- `mcp_evidencebase.section_minio_object(meta_payload)`: section mapping stage, then enqueues `chunk_minio_object`.
+- `mcp_evidencebase.chunk_minio_object(section_payload)`: chunk stage, then enqueues `upsert_minio_object`.
+- `mcp_evidencebase.upsert_minio_object(chunk_payload)`: vector upsert stage.
 - `mcp_evidencebase.process_minio_object(bucket_name, object_name, etag=None, update_meta=False)`:
-  backward-compatible wrapper that runs both stages inline.
+  backward-compatible wrapper that runs all five stages inline.
 
 Beat schedule is configured in `src/mcp_evidencebase/celery_app.py`. To execute scheduled scans,
 run a beat process (or worker with beat enabled). The current API endpoint
@@ -475,8 +449,9 @@ run a beat process (or worker with beat enabled). The current API endpoint
 Operational guidance:
 
 - Re-run partitioning when source bytes/ETag change.
-- Re-run chunking/indexing when only chunking strategy changes and partition payload is still valid.
-- Keep partition and chunk stage payloads deterministic so retries remain idempotent.
+- Re-run metadata enrichment independently when metadata heuristics or Crossref behavior changes.
+- Re-run section/chunk/upsert stages when chunking strategy changes and partition payload is still valid.
+- Keep stage payloads deterministic so retries remain idempotent.
 
 ### Documentation And Test Reporting
 

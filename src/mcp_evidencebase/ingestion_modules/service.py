@@ -7,7 +7,7 @@ import threading
 import time
 from collections.abc import Mapping
 from pathlib import PurePosixPath
-from typing import Any
+from typing import Any, ClassVar
 from urllib.parse import quote
 
 from minio import Minio
@@ -34,7 +34,6 @@ from mcp_evidencebase.ingestion_modules.metadata import (
     CROSSREF_SINGLE_RECORD_MAX_REQUESTS_PER_SECOND,
     CROSSREF_TIMEOUT_SECONDS,
     METADATA_FIELDS,
-    SEARCH_MODES,
     _serialize_author_entries,
     compute_document_id,
     extract_metadata_from_partitions,
@@ -116,15 +115,22 @@ class IngestionService:
     """High-level ingestion operations shared by API handlers and Celery tasks.
 
     The service coordinates MinIO object storage, Unstructured partitioning,
-    Redis state/metadata persistence, and Qdrant vector indexing. Partitioning
-    and chunking/indexing are exposed as separate stage methods so workflows can
-    rerun chunking independently from partition extraction.
+    Redis state/metadata persistence, and Qdrant vector indexing. Atomic
+    stage methods are provided for partition, metadata, section mapping,
+    chunking, and vector upsert workflows.
     """
 
     _crossref_rate_lock = threading.Lock()
     _crossref_next_allowed_global_ts = 0.0
     _crossref_next_allowed_single_ts = 0.0
     _crossref_next_allowed_list_ts = 0.0
+    _stage_progress_bounds: ClassVar[dict[str, tuple[int, int]]] = {
+        "partition": (0, 20),
+        "meta": (20, 40),
+        "section": (40, 60),
+        "chunk": (60, 80),
+        "upsert": (80, 100),
+    }
 
     def __init__(
         self,
@@ -186,6 +192,120 @@ class IngestionService:
     def _set_state(self, document_id: str, **values: Any) -> None:
         """Convenience wrapper for repository state updates."""
         self._repository.set_state(document_id, values)
+
+    @classmethod
+    def _resolve_processing_progress(cls, stage: str, stage_progress: int) -> int:
+        """Project stage-local progress onto global processing progress."""
+        if stage == "processed":
+            return 100
+        if stage == "failed":
+            return 100
+        bounds = cls._stage_progress_bounds.get(stage)
+        if bounds is None:
+            return 0
+        start, end = bounds
+        width = max(0, end - start)
+        bounded_stage_progress = max(0, min(100, int(stage_progress)))
+        return round(start + (width * bounded_stage_progress / 100))
+
+    def _set_stage_state(
+        self,
+        document_id: str,
+        *,
+        stage: str,
+        stage_progress: int,
+        processing_state: str = "processing",
+        **values: Any,
+    ) -> None:
+        """Set state with both stage-local and global progress fields."""
+        bounded_stage_progress = max(0, min(100, int(stage_progress)))
+        self._set_state(
+            document_id,
+            processing_state=processing_state,
+            processing_stage=stage,
+            processing_stage_progress=bounded_stage_progress,
+            processing_progress=self._resolve_processing_progress(stage, bounded_stage_progress),
+            **values,
+        )
+
+    def _set_stage_failed(
+        self,
+        document_id: str,
+        *,
+        stage: str,
+        error: Exception,
+        **values: Any,
+    ) -> None:
+        """Mark one stage as failed and persist the error message."""
+        self._set_state(
+            document_id,
+            processing_state="failed",
+            processing_stage=stage,
+            processing_stage_progress=100,
+            processing_progress=100,
+            error=str(error),
+            **values,
+        )
+
+    @staticmethod
+    def _build_stage_payload(
+        *,
+        bucket_name: str,
+        object_name: str,
+        document_id: str,
+        etag: str,
+        partition_key: str = "",
+        meta_key: str = "",
+    ) -> dict[str, str]:
+        """Build canonical stage payload used across Celery task boundaries."""
+        return {
+            "bucket_name": bucket_name,
+            "object_name": object_name,
+            "document_id": document_id,
+            "etag": etag,
+            "partition_key": partition_key,
+            "meta_key": meta_key,
+        }
+
+    def _load_partition_context(
+        self,
+        *,
+        document_id: str,
+    ) -> tuple[dict[str, str], str, list[dict[str, Any]]]:
+        """Load state, partition key, and partition payload for one document."""
+        state = self._repository.get_state(document_id)
+        partition_key = str(state.get("partition_key", "")).strip()
+        if not partition_key:
+            raise ValueError(
+                f"Document '{document_id}' has no partition_key; run partition stage first."
+            )
+        partitions = self._repository.get_partitions_by_key(
+            partition_key,
+            document_id=document_id,
+        )
+        if not partitions:
+            raise ValueError(
+                "No partitions were found for document "
+                f"'{document_id}' and key '{partition_key}'."
+            )
+        return state, partition_key, partitions
+
+    def _resolve_metadata_context(
+        self,
+        *,
+        bucket_name: str,
+        document_id: str,
+        state: Mapping[str, str],
+    ) -> tuple[str, dict[str, str]]:
+        """Resolve persisted metadata key and payload for one document."""
+        meta_key = str(state.get("meta_key", "")).strip()
+        resolved_meta_key, metadata = self._repository.get_document_metadata(
+            bucket_name,
+            document_id,
+        )
+        if not meta_key:
+            meta_key = resolved_meta_key
+        return meta_key, metadata
 
     def _build_partition_chunks(
         self,
@@ -571,6 +691,8 @@ class IngestionService:
             file_path=normalized_object_name,
             processing_state="processing",
             processing_progress=0,
+            processing_stage="queued",
+            processing_stage_progress=0,
             partition_key="",
             meta_key=meta_key,
             partitions_count=0,
@@ -616,6 +738,295 @@ class IngestionService:
         )
         return stage["document_id"]
 
+    def partition_stage_object(
+        self,
+        *,
+        bucket_name: str,
+        object_name: str,
+        etag: str | None = None,
+    ) -> dict[str, str]:
+        """Run only Unstructured partition extraction for one object."""
+        file_bytes = self._read_object_bytes(bucket_name, object_name)
+        if not file_bytes:
+            raise ValueError(f"Object '{object_name}' in bucket '{bucket_name}' is empty.")
+
+        document_id, resolved_etag = self._resolve_document_identity(
+            bucket_name=bucket_name,
+            object_name=object_name,
+            etag=etag,
+            file_bytes=file_bytes,
+        )
+        self._set_stage_state(
+            document_id,
+            stage="partition",
+            stage_progress=0,
+            file_path=object_name,
+            error="",
+        )
+        try:
+            partitions = self._partition_client.partition_file(
+                file_name=PurePosixPath(object_name).name,
+                file_bytes=file_bytes,
+                content_type=infer_content_type(object_name),
+            )
+            partition_key = self._repository.set_partitions(bucket_name, document_id, partitions)
+            self._set_stage_state(
+                document_id,
+                stage="partition",
+                stage_progress=100,
+                partition_key=partition_key,
+                partitions_count=len(partitions),
+                error="",
+            )
+            return self._build_stage_payload(
+                bucket_name=bucket_name,
+                object_name=object_name,
+                document_id=document_id,
+                etag=resolved_etag,
+                partition_key=partition_key,
+            )
+        except Exception as exc:
+            self._set_stage_failed(document_id, stage="partition", error=exc)
+            raise
+
+    def meta_stage_object(
+        self,
+        *,
+        bucket_name: str,
+        object_name: str,
+        document_id: str,
+        etag: str | None = None,
+    ) -> dict[str, str]:
+        """Run only metadata extraction/persistence for a partitioned document."""
+        try:
+            _, partition_key, partitions = self._load_partition_context(document_id=document_id)
+            self._set_stage_state(
+                document_id,
+                stage="meta",
+                stage_progress=0,
+                partition_key=partition_key,
+                partitions_count=len(partitions),
+                error="",
+            )
+
+            file_bytes = self._read_object_bytes(bucket_name, object_name)
+            if not file_bytes:
+                raise ValueError(f"Object '{object_name}' in bucket '{bucket_name}' is empty.")
+
+            extracted_metadata = extract_metadata_from_partitions(
+                partitions=partitions,
+                file_path=object_name,
+                document_id=document_id,
+                pdf_metadata=extract_pdf_title_author(file_bytes),
+            )
+            meta_key = self._repository.set_metadata_for_location(
+                bucket_name=bucket_name,
+                object_name=object_name,
+                document_id=document_id,
+                metadata=extracted_metadata,
+            )
+            self._set_stage_state(
+                document_id,
+                stage="meta",
+                stage_progress=100,
+                partition_key=partition_key,
+                meta_key=meta_key,
+                partitions_count=len(partitions),
+                error="",
+            )
+            return self._build_stage_payload(
+                bucket_name=bucket_name,
+                object_name=object_name,
+                document_id=document_id,
+                etag=str(etag or "").strip(),
+                partition_key=partition_key,
+                meta_key=meta_key,
+            )
+        except Exception as exc:
+            self._set_stage_failed(document_id, stage="meta", error=exc)
+            raise
+
+    def section_stage_object(
+        self,
+        *,
+        bucket_name: str,
+        object_name: str,
+        document_id: str,
+        etag: str | None = None,
+    ) -> dict[str, str]:
+        """Build and persist section/chunk-section mapping for one document."""
+        try:
+            state, partition_key, partitions = self._load_partition_context(document_id=document_id)
+            meta_key, _ = self._resolve_metadata_context(
+                bucket_name=bucket_name,
+                document_id=document_id,
+                state=state,
+            )
+            self._set_stage_state(
+                document_id,
+                stage="section",
+                stage_progress=0,
+                partition_key=partition_key,
+                meta_key=meta_key,
+                partitions_count=len(partitions),
+                error="",
+            )
+
+            chunks = self._build_partition_chunks(partitions)
+            sections, chunk_sections = self._build_document_section_payload(
+                partition_key=partition_key,
+                chunks=chunks,
+            )
+            self._repository.set_document_sections(
+                document_id=document_id,
+                partition_key=partition_key,
+                sections=sections,
+                chunk_sections=chunk_sections,
+            )
+            self._set_stage_state(
+                document_id,
+                stage="section",
+                stage_progress=100,
+                partition_key=partition_key,
+                meta_key=meta_key,
+                partitions_count=len(partitions),
+                chunks_count=len(chunks),
+                sections_count=len(sections),
+                error="",
+            )
+            return self._build_stage_payload(
+                bucket_name=bucket_name,
+                object_name=object_name,
+                document_id=document_id,
+                etag=str(etag or "").strip(),
+                partition_key=partition_key,
+                meta_key=meta_key,
+            )
+        except Exception as exc:
+            self._set_stage_failed(document_id, stage="section", error=exc)
+            raise
+
+    def chunk_stage_object(
+        self,
+        *,
+        bucket_name: str,
+        object_name: str,
+        document_id: str,
+        etag: str | None = None,
+    ) -> dict[str, str]:
+        """Build chunk payload for one document and persist chunk-level progress."""
+        try:
+            state, partition_key, partitions = self._load_partition_context(document_id=document_id)
+            meta_key, _ = self._resolve_metadata_context(
+                bucket_name=bucket_name,
+                document_id=document_id,
+                state=state,
+            )
+            self._set_stage_state(
+                document_id,
+                stage="chunk",
+                stage_progress=0,
+                partition_key=partition_key,
+                meta_key=meta_key,
+                partitions_count=len(partitions),
+                error="",
+            )
+
+            chunks = self._build_partition_chunks(partitions)
+            existing_sections_count = self._safe_positive_int(state.get("sections_count"))
+            if existing_sections_count is None:
+                existing_sections_count = len(self._repository.get_document_sections(document_id))
+            self._set_stage_state(
+                document_id,
+                stage="chunk",
+                stage_progress=100,
+                partition_key=partition_key,
+                meta_key=meta_key,
+                partitions_count=len(partitions),
+                chunks_count=len(chunks),
+                sections_count=existing_sections_count,
+                error="",
+            )
+            return self._build_stage_payload(
+                bucket_name=bucket_name,
+                object_name=object_name,
+                document_id=document_id,
+                etag=str(etag or "").strip(),
+                partition_key=partition_key,
+                meta_key=meta_key,
+            )
+        except Exception as exc:
+            self._set_stage_failed(document_id, stage="chunk", error=exc)
+            raise
+
+    def upsert_stage_object(
+        self,
+        *,
+        bucket_name: str,
+        object_name: str,
+        document_id: str,
+        etag: str | None = None,
+    ) -> dict[str, str]:
+        """Embed and upsert chunks for one document into Qdrant."""
+        try:
+            state, partition_key, partitions = self._load_partition_context(document_id=document_id)
+            meta_key, metadata = self._resolve_metadata_context(
+                bucket_name=bucket_name,
+                document_id=document_id,
+                state=state,
+            )
+            self._set_stage_state(
+                document_id,
+                stage="upsert",
+                stage_progress=0,
+                partition_key=partition_key,
+                meta_key=meta_key,
+                partitions_count=len(partitions),
+                error="",
+            )
+
+            document_title = str(metadata.get("title", "")).strip()
+            document_author = str(metadata.get("author", "")).strip()
+            document_year = str(metadata.get("year", "")).strip()
+            chunks = self._build_partition_chunks(partitions)
+            self._qdrant_indexer.upsert_document_chunks(
+                bucket_name=bucket_name,
+                document_id=document_id,
+                file_path=object_name,
+                chunks=chunks,
+                partition_key=partition_key,
+                meta_key=meta_key,
+                document_title=document_title,
+                document_author=document_author,
+                document_year=document_year,
+            )
+            sections_count = self._safe_positive_int(state.get("sections_count"))
+            if sections_count is None:
+                sections_count = len(self._repository.get_document_sections(document_id))
+            self._set_stage_state(
+                document_id,
+                stage="processed",
+                stage_progress=100,
+                processing_state="processed",
+                partition_key=partition_key,
+                meta_key=meta_key,
+                partitions_count=len(partitions),
+                chunks_count=len(chunks),
+                sections_count=sections_count,
+                error="",
+            )
+            return self._build_stage_payload(
+                bucket_name=bucket_name,
+                object_name=object_name,
+                document_id=document_id,
+                etag=str(etag or "").strip(),
+                partition_key=partition_key,
+                meta_key=meta_key,
+            )
+        except Exception as exc:
+            self._set_stage_failed(document_id, stage="upsert", error=exc)
+            raise
+
     def partition_object(
         self,
         *,
@@ -637,78 +1048,25 @@ class IngestionService:
             ValueError: If the object payload is empty.
             Exception: Any downstream partitioning failure.
         """
-        file_bytes = self._read_object_bytes(bucket_name, object_name)
-        if not file_bytes:
-            raise ValueError(f"Object '{object_name}' in bucket '{bucket_name}' is empty.")
-
-        document_id, resolved_etag = self._resolve_document_identity(
+        partition_payload = self.partition_stage_object(
             bucket_name=bucket_name,
             object_name=object_name,
             etag=etag,
-            file_bytes=file_bytes,
         )
-
-        self._set_state(
-            document_id,
-            file_path=object_name,
-            processing_state="processing",
-            processing_progress=10,
-            error="",
+        meta_payload = self.meta_stage_object(
+            bucket_name=bucket_name,
+            object_name=object_name,
+            document_id=partition_payload["document_id"],
+            etag=partition_payload.get("etag", ""),
         )
-
-        try:
-            partitions = self._partition_client.partition_file(
-                file_name=PurePosixPath(object_name).name,
-                file_bytes=file_bytes,
-                content_type=infer_content_type(object_name),
-            )
-            partition_key = self._repository.set_partitions(bucket_name, document_id, partitions)
-            self._set_state(
-                document_id,
-                processing_state="processing",
-                processing_progress=50,
-                partition_key=partition_key,
-                partitions_count=len(partitions),
-                error="",
-            )
-
-            extracted_metadata = extract_metadata_from_partitions(
-                partitions=partitions,
-                file_path=object_name,
-                document_id=document_id,
-                pdf_metadata=extract_pdf_title_author(file_bytes),
-            )
-            meta_key = self._repository.set_metadata_for_location(
-                bucket_name=bucket_name,
-                object_name=object_name,
-                document_id=document_id,
-                metadata=extracted_metadata,
-            )
-            self._set_state(
-                document_id,
-                processing_state="processing",
-                processing_progress=60,
-                partition_key=partition_key,
-                meta_key=meta_key,
-                partitions_count=len(partitions),
-                error="",
-            )
-            return {
-                "bucket_name": bucket_name,
-                "object_name": object_name,
-                "document_id": document_id,
-                "etag": resolved_etag,
-                "partition_key": partition_key,
-                "meta_key": meta_key,
-            }
-        except Exception as exc:
-            self._set_state(
-                document_id,
-                processing_state="failed",
-                processing_progress=100,
-                error=str(exc),
-            )
-            raise
+        return {
+            "bucket_name": partition_payload["bucket_name"],
+            "object_name": partition_payload["object_name"],
+            "document_id": partition_payload["document_id"],
+            "etag": partition_payload.get("etag", ""),
+            "partition_key": partition_payload.get("partition_key", ""),
+            "meta_key": meta_payload.get("meta_key", ""),
+        }
 
     def chunk_object(
         self,
@@ -717,7 +1075,7 @@ class IngestionService:
         object_name: str,
         document_id: str,
     ) -> dict[str, str]:
-        """Run chunking and vector indexing for an already partitioned document.
+        """Run section, chunk, and upsert stages for a partitioned document.
 
         Args:
             bucket_name: Source bucket.
@@ -729,103 +1087,32 @@ class IngestionService:
 
         Raises:
             ValueError: If no partition payload is available for the document.
-            Exception: Any downstream chunking or indexing failure.
+            Exception: Any downstream section/chunk/upsert failure.
         """
-        try:
-            state = self._repository.get_state(document_id)
-            partition_key = state.get("partition_key", "")
-            if not partition_key:
-                raise ValueError(
-                    f"Document '{document_id}' has no partition_key; run partition stage first."
-                )
-
-            partitions = self._repository.get_partitions_by_key(partition_key)
-            if not partitions:
-                raise ValueError(
-                    "No partitions were found for document "
-                    f"'{document_id}' and key '{partition_key}'."
-                )
-
-            meta_key = state.get("meta_key", "")
-            resolved_meta_key, metadata = self._repository.get_document_metadata(
-                bucket_name, document_id
-            )
-            if not meta_key:
-                meta_key = resolved_meta_key
-            document_title = str(metadata.get("title", "")).strip()
-            document_author = str(metadata.get("author", "")).strip()
-            document_year = str(metadata.get("year", "")).strip()
-
-            self._set_state(
-                document_id,
-                processing_state="processing",
-                processing_progress=75,
-                partition_key=partition_key,
-                meta_key=meta_key,
-                partitions_count=len(partitions),
-                error="",
-            )
-
-            chunks = self._build_partition_chunks(partitions)
-            sections, chunk_sections = self._build_document_section_payload(
-                partition_key=partition_key,
-                chunks=chunks,
-            )
-            self._repository.set_document_sections(
-                document_id=document_id,
-                partition_key=partition_key,
-                sections=sections,
-                chunk_sections=chunk_sections,
-            )
-            self._set_state(
-                document_id,
-                processing_state="processing",
-                processing_progress=90,
-                partition_key=partition_key,
-                meta_key=meta_key,
-                partitions_count=len(partitions),
-                chunks_count=len(chunks),
-                sections_count=len(sections),
-                error="",
-            )
-
-            self._qdrant_indexer.upsert_document_chunks(
-                bucket_name=bucket_name,
-                document_id=document_id,
-                file_path=object_name,
-                chunks=chunks,
-                partition_key=partition_key,
-                meta_key=meta_key,
-                document_title=document_title,
-                document_author=document_author,
-                document_year=document_year,
-            )
-            self._set_state(
-                document_id,
-                processing_state="processed",
-                processing_progress=100,
-                partition_key=partition_key,
-                meta_key=meta_key,
-                partitions_count=len(partitions),
-                chunks_count=len(chunks),
-                sections_count=len(sections),
-                error="",
-            )
-            return {
-                "bucket_name": bucket_name,
-                "object_name": object_name,
-                "document_id": document_id,
-                "partition_key": partition_key,
-                "meta_key": meta_key,
-            }
-        except Exception as exc:
-            self._set_state(
-                document_id,
-                processing_state="failed",
-                processing_progress=100,
-                error=str(exc),
-            )
-            raise
+        section_payload = self.section_stage_object(
+            bucket_name=bucket_name,
+            object_name=object_name,
+            document_id=document_id,
+        )
+        chunk_payload = self.chunk_stage_object(
+            bucket_name=bucket_name,
+            object_name=object_name,
+            document_id=document_id,
+            etag=section_payload.get("etag", ""),
+        )
+        upsert_payload = self.upsert_stage_object(
+            bucket_name=bucket_name,
+            object_name=object_name,
+            document_id=document_id,
+            etag=chunk_payload.get("etag", ""),
+        )
+        return {
+            "bucket_name": upsert_payload["bucket_name"],
+            "object_name": upsert_payload["object_name"],
+            "document_id": upsert_payload["document_id"],
+            "partition_key": upsert_payload.get("partition_key", ""),
+            "meta_key": upsert_payload.get("meta_key", ""),
+        }
 
     def get_document_section(
         self,

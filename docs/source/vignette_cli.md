@@ -55,15 +55,12 @@ curl -sS -X POST \
   --data-binary "@$PDF_PATH"
 ```
 
-This stores the object in MinIO and queues a Celery task for:
-- Unstructured partition extraction (raw partition JSON persisted in Redis)
-- metadata extraction (PDF metadata + first-page DOI/ISBN/ISSN heuristics)
-- optional Crossref metadata enrichment (`update_meta=True` on upload- and scan-triggered tasks)
-  with existing Crossref rate limits preserved
-- deterministic section-aware chunking (`CHUNKING_STRATEGY`, `CHUNK_SIZE_CHARS`,
-  `CHUNK_NEW_AFTER_N_CHARS`, `CHUNK_COMBINE_TEXT_UNDER_N_CHARS`, `CHUNK_OVERLAP_CHARS`)
-- Redis section mapping persistence (`sections[]` + `chunk_sections[]` keyed by `section_id`)
-- Qdrant upsert (chunk text + `section_id` + `section_title` + `bounding_boxes`)
+This stores the object in MinIO and queues an atomic Celery chain:
+- `partition` (`partition_minio_object`)
+- `meta` (`meta_minio_object`, including optional Crossref enrichment)
+- `section` (`section_minio_object`)
+- `chunk` (`chunk_minio_object`)
+- `upsert` (`upsert_minio_object`)
 
 ## 5. Monitor processing from the API
 
@@ -78,7 +75,7 @@ If `jq` is installed, filter one record:
 ```bash
 curl -sS "$BASE_URL/collections/$BUCKET/documents" \
   | jq --arg doc "$DOC_ID" '.documents[] | select(.document_id == $doc) |
-    {document_id, processing_state, processing_progress, partitions_count, chunks_count, sections_count}'
+    {document_id, processing_state, processing_stage, processing_stage_progress, processing_progress, partitions_count, chunks_count, sections_count}'
 ```
 
 Wait until `processing_state` becomes `processed` (or inspect `error` if `failed`).
@@ -158,18 +155,23 @@ Tasks are defined in `src/mcp_evidencebase/tasks.py`:
 - `mcp_evidencebase.scan_minio_objects(bucket_name=None, update_meta=True)`: scans MinIO and
   enqueues `partition_minio_object` for objects that are new or have changed ETag.
 - `mcp_evidencebase.partition_minio_object(bucket_name, object_name, etag=None, update_meta=False)`:
-  performs partition + metadata extraction, optional Crossref metadata update, then enqueues
+  performs partition stage, then enqueues `meta_minio_object`.
+- `mcp_evidencebase.meta_minio_object(partition_payload)`: performs metadata stage (optional Crossref
+  enrichment), then enqueues `section_minio_object`.
+- `mcp_evidencebase.section_minio_object(meta_payload)`: performs section mapping stage, then enqueues
   `chunk_minio_object`.
-- `mcp_evidencebase.chunk_minio_object(partition_payload)`: performs chunking + Qdrant upsert.
+- `mcp_evidencebase.chunk_minio_object(section_payload)`: performs chunk stage, then enqueues
+  `upsert_minio_object`.
+- `mcp_evidencebase.upsert_minio_object(chunk_payload)`: performs vector upsert stage.
 - `mcp_evidencebase.process_minio_object(bucket_name, object_name, etag=None, update_meta=False)`:
-  backward-compatible wrapper that runs both stages inline.
+  backward-compatible wrapper that runs all stages inline.
 
 Current workflow shape:
 
-- The task pipeline is linear but stage-specific: partition first, then chunk/index.
-- `IngestionService` exposes `partition_object()` and `chunk_object()` independently, so chunking
-  strategy can evolve without coupling to Unstructured API partition calls.
-- Use stage-specific reruns when needed (for example re-chunk/re-index without re-partition).
+- The task pipeline is linear and atomic: `partition -> meta -> section -> chunk -> upsert`.
+- `IngestionService` exposes stage-level methods and compatibility wrappers.
+- Use stage-specific reruns when needed (for example re-run `upsert` after embedding/index tuning,
+  or re-run `section/chunk/upsert` after chunking strategy changes without re-partitioning).
 
 ## 11. Stop the stack
 

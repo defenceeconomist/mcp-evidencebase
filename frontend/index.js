@@ -25,7 +25,7 @@ import {
 } from "./js/table-ui.mjs";
 
 (function () {
-  window.__EVIDENCEBASE_UI_BUILD__ = "2026-02-19-search-parent-sections-d";
+  window.__EVIDENCEBASE_UI_BUILD__ = "2026-02-20-ingestion-stage-progress-a";
   const origin = window.location.origin;
   const apiBasePath = origin + "/api";
   const bucketList = document.getElementById("bucket-list");
@@ -134,6 +134,23 @@ import {
     required: { label: "Required", className: "bibtex-status-required" },
     recommended: { label: "Recommended", className: "bibtex-status-recommended" },
     optional: { label: "Optional", className: "bibtex-status-optional" },
+  };
+  const processingStageLabels = {
+    queued: "Queued",
+    partition: "Partition",
+    meta: "Metadata",
+    section: "Section",
+    chunk: "Chunk",
+    upsert: "Upsert",
+    processed: "Done",
+    failed: "Failed",
+  };
+  const processingStageRanges = {
+    partition: [0, 20],
+    meta: [20, 40],
+    section: [40, 60],
+    chunk: [60, 80],
+    upsert: [80, 100],
   };
 
   const getBibtexFieldLabel = (fieldName) => {
@@ -289,6 +306,100 @@ import {
       return "";
     }
     return String(value).trim();
+  };
+
+  const clampPercent = (value, fallback = 0) => {
+    const parsed = Number.parseInt(normalizeText(value), 10);
+    if (Number.isNaN(parsed)) {
+      return fallback;
+    }
+    return Math.min(100, Math.max(0, parsed));
+  };
+
+  const inferProcessingStageFromProgress = (processingProgress) => {
+    const percent = Number.isFinite(processingProgress)
+      ? Math.min(100, Math.max(0, processingProgress))
+      : 0;
+    if (percent <= 20) {
+      return "partition";
+    }
+    if (percent <= 40) {
+      return "meta";
+    }
+    if (percent <= 60) {
+      return "section";
+    }
+    if (percent <= 80) {
+      return "chunk";
+    }
+    return "upsert";
+  };
+
+  const normalizeProcessingStage = ({ rawStage, processingState, processingProgress }) => {
+    const normalizedState = normalizeText(processingState).toLowerCase();
+    const normalizedRawStage = normalizeText(rawStage).toLowerCase();
+    if (normalizedRawStage && Object.prototype.hasOwnProperty.call(processingStageLabels, normalizedRawStage)) {
+      return normalizedRawStage;
+    }
+    if (normalizedState === "processed") {
+      return "processed";
+    }
+    if (normalizedState === "failed") {
+      return "failed";
+    }
+    return inferProcessingStageFromProgress(processingProgress);
+  };
+
+  const normalizeProcessingStageProgress = ({
+    rawStageProgress,
+    processingStage,
+    processingProgress,
+  }) => {
+    const directStageProgress = clampPercent(rawStageProgress, -1);
+    if (directStageProgress >= 0) {
+      return directStageProgress;
+    }
+    if (processingStage === "processed" || processingStage === "failed") {
+      return 100;
+    }
+    const stageRange = processingStageRanges[processingStage];
+    if (!Array.isArray(stageRange) || stageRange.length !== 2) {
+      return 0;
+    }
+    const start = stageRange[0];
+    const end = stageRange[1];
+    const width = Math.max(1, end - start);
+    const normalizedProgress = Math.min(100, Math.max(0, processingProgress));
+    const stageProgress = Math.round(((normalizedProgress - start) / width) * 100);
+    return Math.min(100, Math.max(0, stageProgress));
+  };
+
+  const getProcessingStageLabel = (stageName) => {
+    const normalizedStageName = normalizeText(stageName).toLowerCase();
+    if (Object.prototype.hasOwnProperty.call(processingStageLabels, normalizedStageName)) {
+      return processingStageLabels[normalizedStageName];
+    }
+    return "Processing";
+  };
+
+  const createDocumentProgressBar = (record, { minWidth = "" } = {}) => {
+    const progressWrap = document.createElement("div");
+    progressWrap.className = "progress document-processing-progress";
+    if (minWidth) {
+      progressWrap.style.minWidth = minWidth;
+    }
+
+    const progressBar = document.createElement("div");
+    progressBar.className = "progress-bar progress-bar-striped progress-bar-animated";
+    progressBar.style.width = `${record.processing_progress}%`;
+    const stageLabel = getProcessingStageLabel(record.processing_stage);
+    const barLabel = `${stageLabel} ${record.processing_progress}%`;
+    progressBar.textContent = barLabel;
+    progressBar.setAttribute("aria-valuetext", barLabel);
+    progressBar.title = `Stage ${stageLabel} (${record.processing_stage_progress}%)`;
+
+    progressWrap.appendChild(progressBar);
+    return progressWrap;
   };
 
   const normalizeObjectPath = (value) => {
@@ -956,10 +1067,20 @@ import {
       processingStateSource === "processing" || processingStateSource === "failed"
         ? processingStateSource
         : "processed";
-    const rawProgress = Number.parseInt(normalizeText(rawDocument.processing_progress), 10);
-    const normalizedProcessingProgress = Number.isNaN(rawProgress)
-      ? 100
-      : Math.min(100, Math.max(0, rawProgress));
+    const normalizedProcessingProgress = clampPercent(
+      rawDocument.processing_progress,
+      normalizedProcessingState === "processing" ? 0 : 100
+    );
+    const normalizedProcessingStage = normalizeProcessingStage({
+      rawStage: rawDocument.processing_stage,
+      processingState: normalizedProcessingState,
+      processingProgress: normalizedProcessingProgress,
+    });
+    const normalizedProcessingStageProgress = normalizeProcessingStageProgress({
+      rawStageProgress: rawDocument.processing_stage_progress,
+      processingStage: normalizedProcessingStage,
+      processingProgress: normalizedProcessingProgress,
+    });
     const normalizedPartitionsCount = Number.parseInt(
       normalizeText(rawDocument.partitions_count),
       10
@@ -983,6 +1104,8 @@ import {
         rawDocument.document_type || rawDocument.entrytype || sourceBibtexFields.entrytype
       ),
       processing_state: normalizedProcessingState,
+      processing_stage: normalizedProcessingStage,
+      processing_stage_progress: normalizedProcessingStageProgress,
       processing_progress: normalizedProcessingProgress,
       partitions_count: Number.isNaN(normalizedPartitionsCount) ? 0 : normalizedPartitionsCount,
       chunks_count: Number.isNaN(normalizedChunksCount) ? 0 : normalizedChunksCount,
@@ -2168,16 +2291,7 @@ import {
     }
 
     if (record.processing_state === "processing") {
-      const progressWrap = document.createElement("div");
-      progressWrap.className = "progress";
-
-      const progressBar = document.createElement("div");
-      progressBar.className = "progress-bar progress-bar-striped progress-bar-animated";
-      progressBar.style.width = `${record.processing_progress}%`;
-      progressBar.textContent = `${record.processing_progress}%`;
-
-      progressWrap.appendChild(progressBar);
-      td.appendChild(progressWrap);
+      td.appendChild(createDocumentProgressBar(record));
       return td;
     }
 
@@ -2488,17 +2602,7 @@ import {
     cell.className = "text-nowrap";
 
     if (documentRecord.processing_state === "processing") {
-      const progressWrap = document.createElement("div");
-      progressWrap.className = "progress";
-      progressWrap.style.minWidth = "8rem";
-
-      const progressBar = document.createElement("div");
-      progressBar.className = "progress-bar progress-bar-striped progress-bar-animated";
-      progressBar.style.width = `${documentRecord.processing_progress}%`;
-      progressBar.textContent = `${documentRecord.processing_progress}%`;
-
-      progressWrap.appendChild(progressBar);
-      cell.appendChild(progressWrap);
+      cell.appendChild(createDocumentProgressBar(documentRecord, { minWidth: "10.5rem" }));
       return;
     }
 
@@ -3254,6 +3358,7 @@ import {
         });
         if (result.ok) {
           uploadedCount += 1;
+          await refreshDocuments({ silent: true, preserveSelection: true });
           continue;
         }
         failures.push(

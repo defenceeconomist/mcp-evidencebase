@@ -4,8 +4,11 @@ Task summary:
 
 - ``mcp_evidencebase.ping``: worker health probe.
 - ``mcp_evidencebase.scan_minio_objects``: scans buckets and enqueues changed objects.
-- ``mcp_evidencebase.partition_minio_object``: partition + metadata stage.
-- ``mcp_evidencebase.chunk_minio_object``: chunk + vector upsert stage.
+- ``mcp_evidencebase.partition_minio_object``: partition stage.
+- ``mcp_evidencebase.meta_minio_object``: metadata stage (+ optional Crossref update).
+- ``mcp_evidencebase.section_minio_object``: section mapping stage.
+- ``mcp_evidencebase.chunk_minio_object``: chunk stage.
+- ``mcp_evidencebase.upsert_minio_object``: vector upsert stage.
 - ``mcp_evidencebase.process_minio_object``: backward-compatible full pipeline wrapper.
 """
 
@@ -40,6 +43,23 @@ def _update_metadata_from_crossref(
             document_id,
             exc,
         )
+
+
+def _resolve_stage_payload(
+    payload: Mapping[str, Any],
+    *,
+    task_name: str,
+) -> tuple[str, str, str, str]:
+    """Resolve canonical stage payload fields from one mapping."""
+    bucket_name = str(payload.get("bucket_name", "")).strip()
+    object_name = str(payload.get("object_name", "")).strip()
+    document_id = str(payload.get("document_id", "")).strip()
+    etag = str(payload.get("etag", "")).strip()
+    if not bucket_name or not object_name or not document_id:
+        raise ValueError(
+            f"{task_name} requires bucket_name, object_name, and document_id."
+        )
+    return bucket_name, object_name, document_id, etag
 
 
 @app.task(name="mcp_evidencebase.ping")
@@ -100,29 +120,87 @@ def partition_minio_object(
     etag: str | None = None,
     update_meta: bool = False,
 ) -> dict[str, str]:
-    """Run partitioning and metadata extraction, then enqueue chunk/index stage.
+    """Run partition stage and enqueue metadata stage.
 
     Args:
         bucket_name: Source MinIO bucket.
         object_name: Source object path.
         etag: Optional object etag from scanner context.
-        update_meta: When ``True``, attempt Crossref metadata enrichment.
+        update_meta: When ``True``, request Crossref enrichment during metadata stage.
 
     Returns:
         Mapping containing stage payload with deterministic IDs and keys.
     """
     service = build_ingestion_service()
-    stage_payload = service.partition_object(
+    stage_payload = service.partition_stage_object(
         bucket_name=bucket_name,
         object_name=object_name,
+        etag=etag,
+    )
+    meta_payload: dict[str, Any] = {
+        "bucket_name": stage_payload.get("bucket_name", bucket_name),
+        "object_name": stage_payload.get("object_name", object_name),
+        "document_id": stage_payload.get("document_id", ""),
+        "etag": stage_payload.get("etag", ""),
+        "partition_key": stage_payload.get("partition_key", ""),
+        "meta_key": stage_payload.get("meta_key", ""),
+        "update_meta": bool(update_meta),
+    }
+    meta_minio_object.delay(meta_payload)
+    return stage_payload
+
+
+@app.task(
+    name="mcp_evidencebase.meta_minio_object",
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_jitter=True,
+    retry_kwargs={"max_retries": 3},
+)
+def meta_minio_object(partition_payload: Mapping[str, Any]) -> dict[str, str]:
+    """Run metadata stage, optionally enrich from Crossref, then enqueue section stage."""
+    bucket_name, object_name, document_id, etag = _resolve_stage_payload(
+        partition_payload,
+        task_name="meta_minio_object",
+    )
+    update_meta = bool(partition_payload.get("update_meta", False))
+    service = build_ingestion_service()
+    stage_payload = service.meta_stage_object(
+        bucket_name=bucket_name,
+        object_name=object_name,
+        document_id=document_id,
         etag=etag,
     )
     if update_meta:
         _update_metadata_from_crossref(
             service=service,
             bucket_name=bucket_name,
-            document_id=stage_payload["document_id"],
+            document_id=document_id,
         )
+    section_minio_object.delay(stage_payload)
+    return stage_payload
+
+
+@app.task(
+    name="mcp_evidencebase.section_minio_object",
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_jitter=True,
+    retry_kwargs={"max_retries": 3},
+)
+def section_minio_object(meta_payload: Mapping[str, Any]) -> dict[str, str]:
+    """Run section mapping stage and enqueue chunk stage."""
+    bucket_name, object_name, document_id, etag = _resolve_stage_payload(
+        meta_payload,
+        task_name="section_minio_object",
+    )
+    service = build_ingestion_service()
+    stage_payload = service.section_stage_object(
+        bucket_name=bucket_name,
+        object_name=object_name,
+        document_id=document_id,
+        etag=etag,
+    )
     chunk_minio_object.delay(stage_payload)
     return stage_payload
 
@@ -134,26 +212,49 @@ def partition_minio_object(
     retry_jitter=True,
     retry_kwargs={"max_retries": 3},
 )
-def chunk_minio_object(partition_payload: Mapping[str, str]) -> dict[str, str]:
-    """Run chunking and vector upsert for a previously partitioned document.
+def chunk_minio_object(section_payload: Mapping[str, Any]) -> dict[str, str]:
+    """Run chunk stage and enqueue vector upsert stage.
 
     Args:
-        partition_payload: Output payload produced by ``partition_minio_object``.
+        section_payload: Output payload produced by ``section_minio_object``.
 
     Returns:
         Mapping containing the processed bucket/object and deterministic ``document_id``.
     """
-    bucket_name = str(partition_payload.get("bucket_name", "")).strip()
-    object_name = str(partition_payload.get("object_name", "")).strip()
-    document_id = str(partition_payload.get("document_id", "")).strip()
-    if not bucket_name or not object_name or not document_id:
-        raise ValueError("chunk_minio_object requires bucket_name, object_name, and document_id.")
-
+    bucket_name, object_name, document_id, etag = _resolve_stage_payload(
+        section_payload,
+        task_name="chunk_minio_object",
+    )
     service = build_ingestion_service()
-    stage_payload = service.chunk_object(
+    stage_payload = service.chunk_stage_object(
         bucket_name=bucket_name,
         object_name=object_name,
         document_id=document_id,
+        etag=etag,
+    )
+    upsert_minio_object.delay(stage_payload)
+    return stage_payload
+
+
+@app.task(
+    name="mcp_evidencebase.upsert_minio_object",
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_jitter=True,
+    retry_kwargs={"max_retries": 3},
+)
+def upsert_minio_object(chunk_payload: Mapping[str, Any]) -> dict[str, str]:
+    """Run vector upsert stage for a previously chunked document."""
+    bucket_name, object_name, document_id, etag = _resolve_stage_payload(
+        chunk_payload,
+        task_name="upsert_minio_object",
+    )
+    service = build_ingestion_service()
+    stage_payload = service.upsert_stage_object(
+        bucket_name=bucket_name,
+        object_name=object_name,
+        document_id=document_id,
+        etag=etag,
     )
     return stage_payload
 
@@ -171,26 +272,45 @@ def process_minio_object(
     etag: str | None = None,
     update_meta: bool = False,
 ) -> dict[str, str]:
-    """Backward-compatible wrapper that runs both ingestion stages inline."""
+    """Backward-compatible wrapper that runs all ingestion stages inline."""
     service = build_ingestion_service()
-    stage_payload = service.partition_object(
+    partition_payload = service.partition_stage_object(
         bucket_name=bucket_name,
         object_name=object_name,
         etag=etag,
+    )
+    meta_payload = service.meta_stage_object(
+        bucket_name=bucket_name,
+        object_name=object_name,
+        document_id=partition_payload["document_id"],
+        etag=partition_payload.get("etag", ""),
     )
     if update_meta:
         _update_metadata_from_crossref(
             service=service,
             bucket_name=bucket_name,
-            document_id=stage_payload["document_id"],
+            document_id=partition_payload["document_id"],
         )
-    service.chunk_object(
+    service.section_stage_object(
         bucket_name=bucket_name,
         object_name=object_name,
-        document_id=stage_payload["document_id"],
+        document_id=partition_payload["document_id"],
+        etag=meta_payload.get("etag", ""),
+    )
+    service.chunk_stage_object(
+        bucket_name=bucket_name,
+        object_name=object_name,
+        document_id=partition_payload["document_id"],
+        etag=meta_payload.get("etag", ""),
+    )
+    service.upsert_stage_object(
+        bucket_name=bucket_name,
+        object_name=object_name,
+        document_id=partition_payload["document_id"],
+        etag=meta_payload.get("etag", ""),
     )
     return {
         "bucket_name": bucket_name,
         "object_name": object_name,
-        "document_id": stage_payload["document_id"],
+        "document_id": partition_payload["document_id"],
     }

@@ -80,6 +80,32 @@ class RedisDocumentRepository:
         except ValueError:
             return default
 
+    @staticmethod
+    def _infer_processing_stage(
+        *,
+        processing_state: str,
+        processing_progress: int,
+        stored_stage: str,
+    ) -> str:
+        """Infer a stage label when older state payloads do not include one."""
+        normalized_state = str(processing_state or "").strip().lower()
+        normalized_stage = str(stored_stage or "").strip().lower()
+        if normalized_stage:
+            return normalized_stage
+        if normalized_state == "processed":
+            return "processed"
+        if normalized_state == "failed":
+            return "failed"
+        if processing_progress <= 20:
+            return "partition"
+        if processing_progress <= 40:
+            return "meta"
+        if processing_progress <= 60:
+            return "section"
+        if processing_progress <= 80:
+            return "chunk"
+        return "upsert"
+
     def _sorted_set_members(self, key: str) -> list[str]:
         """Return deterministic sorted set members as strings."""
         values = [str(value) for value in self._redis.smembers(key)]
@@ -654,6 +680,17 @@ class RedisDocumentRepository:
         metadata: Mapping[str, str],
     ) -> dict[str, Any]:
         """Build one UI-facing document record."""
+        processing_state = state.get("processing_state", "processed")
+        processing_progress = self._safe_int(state.get("processing_progress"), 100)
+        processing_stage = self._infer_processing_stage(
+            processing_state=processing_state,
+            processing_progress=processing_progress,
+            stored_stage=state.get("processing_stage", ""),
+        )
+        processing_stage_progress = self._safe_int(
+            state.get("processing_stage_progress"),
+            100 if processing_stage in {"processed", "failed"} else 0,
+        )
         normalized_authors = _normalize_author_entries(metadata.get(AUTHORS_METADATA_FIELD, ""))
         record: dict[str, Any] = {
             "id": document_id,
@@ -662,10 +699,13 @@ class RedisDocumentRepository:
             "meta_key": meta_key,
             "file_path": file_path,
             "locations": object_names,
-            "processing_state": state.get("processing_state", "processed"),
-            "processing_progress": self._safe_int(state.get("processing_progress"), 100),
+            "processing_state": processing_state,
+            "processing_stage": processing_stage,
+            "processing_stage_progress": processing_stage_progress,
+            "processing_progress": processing_progress,
             "partitions_count": self._safe_int(state.get("partitions_count"), len(partitions)),
             "chunks_count": self._safe_int(state.get("chunks_count"), 0),
+            "sections_count": self._safe_int(state.get("sections_count"), 0),
             "partitions_tree": {"partitions": partitions},
             "chunks_tree": {"chunks": []},
             "error": state.get("error", ""),
@@ -680,4 +720,3 @@ class RedisDocumentRepository:
         for field_name in BIBTEX_FIELDS:
             record[field_name] = metadata.get(field_name, "")
         return record
-
