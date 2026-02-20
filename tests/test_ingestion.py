@@ -225,6 +225,7 @@ class RecordingQdrantIndexer:
         document_title: str | None = None,
         document_author: str | None = None,
         document_year: str | None = None,
+        citation_key: str | None = None,
     ) -> None:
         self.upsert_calls.append(
             {
@@ -237,6 +238,7 @@ class RecordingQdrantIndexer:
                 "document_title": document_title,
                 "document_author": document_author,
                 "document_year": document_year,
+                "citation_key": citation_key,
             }
         )
 
@@ -1139,6 +1141,7 @@ def test_chunk_object_reads_persisted_partitions_and_marks_processed() -> None:
     assert upsert_call["document_title"] == metadata.get("title", "")
     assert upsert_call["document_author"] == metadata.get("author", "")
     assert upsert_call["document_year"] == metadata.get("year", "")
+    assert upsert_call["citation_key"] == metadata.get("citation_key", "")
     assert upsert_call["chunks"]
 
     state = repository.get_state(partition_stage["document_id"])
@@ -1309,6 +1312,279 @@ def test_repository_defaults_citation_key_from_structured_authors() -> None:
 
     metadata = repository.get_metadata_by_key(meta_key)
     assert metadata["citation_key"] == "vanrossum2024the"
+
+
+def test_update_metadata_reindexes_vectors_when_citation_key_changes() -> None:
+    """Ensure citation key updates refresh Qdrant payloads for existing chunks."""
+    redis_client = FakeRedis()
+    repository = RedisDocumentRepository(redis_client, key_prefix="test")
+    qdrant_indexer = RecordingQdrantIndexer()
+    service = IngestionService(
+        minio_client=FakeMinioClient(b"%PDF-1.7 fake"),
+        repository=repository,
+        partition_client=FakePartitionClient([]),
+        qdrant_indexer=qdrant_indexer,  # type: ignore[arg-type]
+        chunk_size_chars=1200,
+        chunk_overlap_chars=150,
+    )
+    bucket_name = "research-raw"
+    document_id = "doc-citation-refresh"
+    object_name = "paper.pdf"
+
+    repository.add_document(bucket_name, document_id)
+    repository.mark_object(
+        bucket_name=bucket_name,
+        object_name=object_name,
+        document_id=document_id,
+        etag="etag-1",
+    )
+    partition_key = repository.set_partitions(
+        bucket_name,
+        document_id,
+        [{"text": "Chunk text for citation refresh.", "metadata": {"page_number": 1}}],
+    )
+    meta_key = repository.set_metadata_for_location(
+        bucket_name=bucket_name,
+        object_name=object_name,
+        document_id=document_id,
+        metadata={"title": "Paper Title", "citation_key": "oldkey2024paper"},
+    )
+    repository.set_state(
+        document_id,
+        {
+            "file_path": object_name,
+            "etag": "etag-1",
+            "partition_key": partition_key,
+            "meta_key": meta_key,
+            "processing_state": "processed",
+            "processing_stage": "processed",
+            "processing_stage_progress": 100,
+            "processing_progress": 100,
+            "partitions_count": 1,
+            "chunks_count": 1,
+        },
+    )
+
+    updated = service.update_metadata(
+        bucket_name=bucket_name,
+        document_id=document_id,
+        metadata={"citation_key": "newkey2024paper"},
+    )
+
+    assert updated["citation_key"] == "newkey2024paper"
+    assert len(qdrant_indexer.upsert_calls) == 1
+    call = qdrant_indexer.upsert_calls[0]
+    assert call["document_id"] == document_id
+    assert call["file_path"] == object_name
+    assert call["citation_key"] == "newkey2024paper"
+
+
+def test_update_metadata_reindexes_vectors_when_title_changes() -> None:
+    """Ensure title updates refresh Qdrant payloads for existing chunks."""
+    redis_client = FakeRedis()
+    repository = RedisDocumentRepository(redis_client, key_prefix="test")
+    qdrant_indexer = RecordingQdrantIndexer()
+    service = IngestionService(
+        minio_client=FakeMinioClient(b"%PDF-1.7 fake"),
+        repository=repository,
+        partition_client=FakePartitionClient([]),
+        qdrant_indexer=qdrant_indexer,  # type: ignore[arg-type]
+        chunk_size_chars=1200,
+        chunk_overlap_chars=150,
+    )
+    bucket_name = "research-raw"
+    document_id = "doc-citation-stable"
+    object_name = "paper.pdf"
+
+    repository.add_document(bucket_name, document_id)
+    repository.mark_object(
+        bucket_name=bucket_name,
+        object_name=object_name,
+        document_id=document_id,
+        etag="etag-1",
+    )
+    partition_key = repository.set_partitions(
+        bucket_name,
+        document_id,
+        [{"text": "Chunk text for stable citation key.", "metadata": {"page_number": 1}}],
+    )
+    meta_key = repository.set_metadata_for_location(
+        bucket_name=bucket_name,
+        object_name=object_name,
+        document_id=document_id,
+        metadata={"title": "Paper Title", "citation_key": "stablekey2024paper"},
+    )
+    repository.set_state(
+        document_id,
+        {
+            "file_path": object_name,
+            "etag": "etag-1",
+            "partition_key": partition_key,
+            "meta_key": meta_key,
+            "processing_state": "processed",
+            "processing_stage": "processed",
+            "processing_stage_progress": 100,
+            "processing_progress": 100,
+            "partitions_count": 1,
+            "chunks_count": 1,
+        },
+    )
+
+    updated = service.update_metadata(
+        bucket_name=bucket_name,
+        document_id=document_id,
+        metadata={"title": "Retitled Paper"},
+    )
+
+    assert updated["citation_key"] == "stablekey2024paper"
+    assert len(qdrant_indexer.upsert_calls) == 1
+    call = qdrant_indexer.upsert_calls[0]
+    assert call["document_id"] == document_id
+    assert call["file_path"] == object_name
+
+
+@pytest.mark.parametrize(
+    ("metadata_update", "expected_field", "expected_value"),
+    [
+        ({"author": "Smith, J."}, "document_author", "Smith, J."),
+        ({"year": "2025"}, "document_year", "2025"),
+    ],
+)
+def test_update_metadata_reindexes_vectors_when_author_or_year_changes(
+    metadata_update: dict[str, str],
+    expected_field: str,
+    expected_value: str,
+) -> None:
+    """Ensure author/year updates refresh Qdrant payloads for existing chunks."""
+    redis_client = FakeRedis()
+    repository = RedisDocumentRepository(redis_client, key_prefix="test")
+    qdrant_indexer = RecordingQdrantIndexer()
+    service = IngestionService(
+        minio_client=FakeMinioClient(b"%PDF-1.7 fake"),
+        repository=repository,
+        partition_client=FakePartitionClient([]),
+        qdrant_indexer=qdrant_indexer,  # type: ignore[arg-type]
+        chunk_size_chars=1200,
+        chunk_overlap_chars=150,
+    )
+    bucket_name = "research-raw"
+    document_id = "doc-author-year-refresh"
+    object_name = "paper.pdf"
+
+    repository.add_document(bucket_name, document_id)
+    repository.mark_object(
+        bucket_name=bucket_name,
+        object_name=object_name,
+        document_id=document_id,
+        etag="etag-1",
+    )
+    partition_key = repository.set_partitions(
+        bucket_name,
+        document_id,
+        [{"text": "Chunk text for author/year refresh.", "metadata": {"page_number": 1}}],
+    )
+    meta_key = repository.set_metadata_for_location(
+        bucket_name=bucket_name,
+        object_name=object_name,
+        document_id=document_id,
+        metadata={
+            "title": "Paper Title",
+            "author": "Doe, J.",
+            "year": "2024",
+            "citation_key": "stablekey2024paper",
+        },
+    )
+    repository.set_state(
+        document_id,
+        {
+            "file_path": object_name,
+            "etag": "etag-1",
+            "partition_key": partition_key,
+            "meta_key": meta_key,
+            "processing_state": "processed",
+            "processing_stage": "processed",
+            "processing_stage_progress": 100,
+            "processing_progress": 100,
+            "partitions_count": 1,
+            "chunks_count": 1,
+        },
+    )
+
+    service.update_metadata(
+        bucket_name=bucket_name,
+        document_id=document_id,
+        metadata=metadata_update,
+    )
+
+    assert len(qdrant_indexer.upsert_calls) == 1
+    call = qdrant_indexer.upsert_calls[0]
+    assert call[expected_field] == expected_value
+
+
+def test_update_metadata_does_not_reindex_when_non_indexed_metadata_changes() -> None:
+    """Ensure fields not persisted in Qdrant chunk payload don't force re-upsert."""
+    redis_client = FakeRedis()
+    repository = RedisDocumentRepository(redis_client, key_prefix="test")
+    qdrant_indexer = RecordingQdrantIndexer()
+    service = IngestionService(
+        minio_client=FakeMinioClient(b"%PDF-1.7 fake"),
+        repository=repository,
+        partition_client=FakePartitionClient([]),
+        qdrant_indexer=qdrant_indexer,  # type: ignore[arg-type]
+        chunk_size_chars=1200,
+        chunk_overlap_chars=150,
+    )
+    bucket_name = "research-raw"
+    document_id = "doc-nonindexed-stable"
+    object_name = "paper.pdf"
+
+    repository.add_document(bucket_name, document_id)
+    repository.mark_object(
+        bucket_name=bucket_name,
+        object_name=object_name,
+        document_id=document_id,
+        etag="etag-1",
+    )
+    partition_key = repository.set_partitions(
+        bucket_name,
+        document_id,
+        [{"text": "Chunk text for stable indexed metadata.", "metadata": {"page_number": 1}}],
+    )
+    meta_key = repository.set_metadata_for_location(
+        bucket_name=bucket_name,
+        object_name=object_name,
+        document_id=document_id,
+        metadata={
+            "title": "Paper Title",
+            "author": "Doe, J.",
+            "year": "2024",
+            "citation_key": "stablekey2024paper",
+        },
+    )
+    repository.set_state(
+        document_id,
+        {
+            "file_path": object_name,
+            "etag": "etag-1",
+            "partition_key": partition_key,
+            "meta_key": meta_key,
+            "processing_state": "processed",
+            "processing_stage": "processed",
+            "processing_stage_progress": 100,
+            "processing_progress": 100,
+            "partitions_count": 1,
+            "chunks_count": 1,
+        },
+    )
+
+    updated = service.update_metadata(
+        bucket_name=bucket_name,
+        document_id=document_id,
+        metadata={"journal": "Journal of Causal Methods"},
+    )
+
+    assert updated["journal"] == "Journal of Causal Methods"
+    assert qdrant_indexer.upsert_calls == []
 
 
 def test_repository_persists_structured_authors_metadata_field() -> None:
@@ -1632,6 +1908,7 @@ def test_qdrant_payload_contains_document_partition_meta_and_resolver_keys() -> 
         document_title="Paper Title",
         document_author="Author, A.",
         document_year="2024",
+        citation_key="doe2024paper",
     )
 
     assert len(qdrant.upsert_calls) == 1
@@ -1648,6 +1925,7 @@ def test_qdrant_payload_contains_document_partition_meta_and_resolver_keys() -> 
     assert point.payload["title"] == "Paper Title"
     assert point.payload["author"] == "Author, A."
     assert point.payload["year"] == "2024"
+    assert point.payload["citation_key"] == "doe2024paper"
     assert "document_key" not in point.payload
     assert point.payload["partition_key"] == "partition-hash"
     assert "meta_key" not in point.payload

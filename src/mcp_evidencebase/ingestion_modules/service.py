@@ -988,6 +988,7 @@ class IngestionService:
             document_title = str(metadata.get("title", "")).strip()
             document_author = str(metadata.get("author", "")).strip()
             document_year = str(metadata.get("year", "")).strip()
+            citation_key = str(metadata.get("citation_key", "")).strip()
             chunks = self._build_partition_chunks(partitions)
             self._qdrant_indexer.upsert_document_chunks(
                 bucket_name=bucket_name,
@@ -999,6 +1000,7 @@ class IngestionService:
                 document_title=document_title,
                 document_author=document_author,
                 document_year=document_year,
+                citation_key=citation_key,
             )
             sections_count = self._safe_positive_int(state.get("sections_count"))
             if sections_count is None:
@@ -1303,10 +1305,67 @@ class IngestionService:
         if "document_type" in normalized:
             normalized["document_type"] = normalized["document_type"] or "misc"
 
-        return self._repository.update_document_metadata(
+        _, existing_metadata = self._repository.get_document_metadata(bucket_name, document_id)
+
+        merged = self._repository.update_document_metadata(
             bucket_name=bucket_name,
             document_id=document_id,
             metadata=normalized,
+        )
+        if self._indexed_metadata_has_changed(
+            previous=existing_metadata,
+            current=merged,
+        ):
+            self._refresh_document_chunk_vectors(
+                bucket_name=bucket_name,
+                document_id=document_id,
+            )
+        return merged
+
+    @staticmethod
+    def _indexed_metadata_has_changed(
+        *,
+        previous: Mapping[str, Any],
+        current: Mapping[str, Any],
+    ) -> bool:
+        """Return whether Qdrant-indexed metadata fields changed."""
+        indexed_fields = ("citation_key", "title", "author", "year")
+        for field_name in indexed_fields:
+            if str(previous.get(field_name, "")).strip() != str(current.get(field_name, "")).strip():
+                return True
+        return False
+
+    def _refresh_document_chunk_vectors(
+        self,
+        *,
+        bucket_name: str,
+        document_id: str,
+    ) -> None:
+        """Re-upsert one document's vectors when metadata affecting payload changes."""
+        state = self._repository.get_state(document_id)
+        partition_key = str(state.get("partition_key", "")).strip()
+        if not partition_key:
+            return
+        partitions = self._repository.get_partitions_by_key(
+            partition_key,
+            document_id=document_id,
+        )
+        if not partitions:
+            return
+
+        object_name = str(state.get("file_path", "")).strip()
+        if not object_name:
+            object_names = self._repository.get_document_object_names(bucket_name, document_id)
+            if object_names:
+                object_name = object_names[0]
+        if not object_name:
+            return
+
+        self.upsert_stage_object(
+            bucket_name=bucket_name,
+            object_name=object_name,
+            document_id=document_id,
+            etag=state.get("etag", ""),
         )
 
     def resolve_document_object(

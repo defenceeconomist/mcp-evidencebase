@@ -401,6 +401,7 @@ class QdrantIndexer:
             "title": str(payload.get("title", "")),
             "author": str(payload.get("author", "")),
             "year": str(payload.get("year", "")),
+            "citation_key": str(payload.get("citation_key", "")),
             "file_path": file_path,
             "chunk_index": int(payload.get("chunk_index", 0) or 0),
             "section_id": section_id,
@@ -583,6 +584,7 @@ class QdrantIndexer:
         document_title: str | None = None,
         document_author: str | None = None,
         document_year: str | None = None,
+        citation_key: str | None = None,
     ) -> None:
         """Embed chunk text and upsert vectors into Qdrant."""
         if not chunks:
@@ -625,6 +627,7 @@ class QdrantIndexer:
         resolved_document_title = str(document_title or "").strip()
         resolved_document_author = str(document_author or "").strip()
         resolved_document_year = str(document_year or "").strip()
+        resolved_citation_key = str(citation_key or "").strip()
 
         points: list[qdrant_models.PointStruct] = []
         for index, (chunk, embedding) in enumerate(zip(indexable_chunks, embeddings, strict=False)):
@@ -739,6 +742,7 @@ class QdrantIndexer:
                 "title": resolved_document_title,
                 "author": resolved_document_author,
                 "year": resolved_document_year,
+                "citation_key": resolved_citation_key,
                 "partition_key": partition_key,
                 "minio_location": minio_location,
                 "resolver_url": resolver_url,
