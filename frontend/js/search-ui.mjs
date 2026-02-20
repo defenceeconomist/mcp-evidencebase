@@ -15,6 +15,20 @@ export const formatSearchPages = (pageStart, pageEnd) => {
   return String(end);
 };
 
+export const formatSearchPageLabel = (pageStart, pageEnd) => {
+  const start = Number.parseInt(pageStart, 10);
+  const end = Number.parseInt(pageEnd, 10);
+  const hasStart = Number.isFinite(start) && start > 0;
+  const hasEnd = Number.isFinite(end) && end > 0;
+  if (hasStart && hasEnd) {
+    return start === end ? "Page" : "Pages";
+  }
+  if (hasStart || hasEnd) {
+    return "Page";
+  }
+  return "Pages";
+};
+
 export const formatSearchTitle = (result, filenameFromPath, normalizeText) => {
   return (
     normalizeText(result.title) ||

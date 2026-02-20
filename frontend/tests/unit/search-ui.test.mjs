@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   formatSearchAuthorYear,
   formatSearchLocation,
+  formatSearchPageLabel,
   formatSearchPages,
   formatSearchTitle,
 } from "../../js/search-ui.mjs";
@@ -18,6 +19,13 @@ test("formatSearchPages handles ranges and missing values", () => {
   assert.equal(formatSearchPages(4, 4), "4");
   assert.equal(formatSearchPages(4, 7), "4-7");
   assert.equal(formatSearchPages(null, null), "n/a");
+});
+
+test("formatSearchPageLabel handles single pages and ranges", () => {
+  assert.equal(formatSearchPageLabel(4, 4), "Page");
+  assert.equal(formatSearchPageLabel(4, 7), "Pages");
+  assert.equal(formatSearchPageLabel(4, null), "Page");
+  assert.equal(formatSearchPageLabel(null, null), "Pages");
 });
 
 test("search formatting helpers provide robust fallbacks", () => {

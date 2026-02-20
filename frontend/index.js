@@ -10,6 +10,7 @@ import {
 import {
   formatSearchAuthorYear as formatSearchAuthorYearFromModule,
   formatSearchLocation as formatSearchLocationFromModule,
+  formatSearchPageLabel as formatSearchPageLabelFromModule,
   formatSearchPages as formatSearchPagesFromModule,
   formatSearchTitle as formatSearchTitleFromModule,
 } from "./js/search-ui.mjs";
@@ -1366,6 +1367,10 @@ import {
     return formatSearchPagesFromModule(pageStart, pageEnd);
   };
 
+  const formatSearchPageLabel = (pageStart, pageEnd) => {
+    return formatSearchPageLabelFromModule(pageStart, pageEnd);
+  };
+
   const formatSearchTitle = (result) => {
     return formatSearchTitleFromModule(result, filenameFromPath, normalizeText);
   };
@@ -1597,13 +1602,17 @@ import {
       section?.page_start ?? result?.page_start,
       section?.page_end ?? result?.page_end
     );
+    const pageLabel = formatSearchPageLabel(
+      section?.page_start ?? result?.page_start,
+      section?.page_end ?? result?.page_end
+    );
     const sectionText =
       normalizeText(section?.section_markdown || section?.section_text) ||
       resolveSearchResultParentSectionText(result) ||
       "Parent section text is unavailable for this chunk. Re-index this collection to populate parent sections.";
 
     searchSectionModalTitle.textContent = `Section: ${sectionTitle}`;
-    searchSectionModalSubtitle.textContent = `${formatSearchTitle(result)} | ${sectionIdentifier} | Pages: ${pages}`;
+    searchSectionModalSubtitle.textContent = `${formatSearchTitle(result)} | ${sectionIdentifier} | ${pageLabel}: ${pages}`;
     searchSectionModalBody.innerHTML = renderSectionMarkdownHtml(sectionText);
     searchSectionModalBody.querySelectorAll("a[href]").forEach((anchor) => {
       anchor.setAttribute("target", "_blank");
@@ -1732,7 +1741,7 @@ import {
 
       const sectionTitle = document.createElement("p");
       sectionTitle.className = "semantic-search-section-title";
-      sectionTitle.textContent = `Section: ${normalizeText(result.section_title) || "n/a"} | Pages: ${formatSearchPages(result.page_start, result.page_end)}`;
+      sectionTitle.textContent = `Section: ${normalizeText(result.section_title) || "n/a"} | ${formatSearchPageLabel(result.page_start, result.page_end)}: ${formatSearchPages(result.page_start, result.page_end)}`;
       body.appendChild(sectionTitle);
 
       const snippet = document.createElement("p");
