@@ -42,6 +42,7 @@ import {
   const uploadPdfButton = document.getElementById("upload-pdf-btn");
   const uploadPdfFolderButton = document.getElementById("upload-pdf-folder-btn");
   const fetchMetaButton = document.getElementById("fetch-meta-btn");
+  const updateCitationKeyButton = document.getElementById("update-citation-key-btn");
   const removeSelectedDocumentsButton = document.getElementById("remove-selected-docs-btn");
   const bulkFetchProgress = document.getElementById("bulk-fetch-progress");
   const bulkFetchProgressBar = document.getElementById("bulk-fetch-progress-bar");
@@ -55,6 +56,7 @@ import {
   const detailFieldsForm = document.getElementById("detail-fields-form");
   const detailSelectedDocument = document.getElementById("detail-selected-document");
   const detailFetchMetaButton = document.getElementById("detail-fetch-meta-btn");
+  const detailUpdateCitationKeyButton = document.getElementById("detail-update-citation-key-btn");
   const detailClearMetaButton = document.getElementById("detail-clear-meta-btn");
   const bulkViewContainer = document.getElementById("bulk-view-container");
   const documentHotWrapper = document.getElementById("document-hot-wrapper");
@@ -264,6 +266,7 @@ import {
   const metadataSaveTimers = new Map();
   const metadataSaveDelayMs = 650;
   let bulkFetchMetaInProgress = false;
+  let bulkCitationKeyUpdateInProgress = false;
   let semanticSearchResults = [];
   let searchSectionModalLoadToken = 0;
   let searchSectionNavigationState = {
@@ -847,13 +850,44 @@ import {
     return normalized;
   };
 
+  const normalizeBibtexFieldKey = (fieldName) => {
+    return normalizeText(fieldName)
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "");
+  };
+
+  const getBibtexFieldValueByAliases = (bibtexFieldsMap, aliases) => {
+    if (!bibtexFieldsMap || typeof bibtexFieldsMap !== "object") {
+      return "";
+    }
+
+    for (const alias of aliases) {
+      const directValue = normalizeText(bibtexFieldsMap[alias]);
+      if (directValue) {
+        return directValue;
+      }
+    }
+
+    const normalizedAliases = new Set(aliases.map((alias) => normalizeBibtexFieldKey(alias)));
+    for (const [fieldName, fieldValue] of Object.entries(bibtexFieldsMap)) {
+      if (!normalizedAliases.has(normalizeBibtexFieldKey(fieldName))) {
+        continue;
+      }
+      const normalizedFieldValue = normalizeText(fieldValue);
+      if (normalizedFieldValue) {
+        return normalizedFieldValue;
+      }
+    }
+    return "";
+  };
+
   const derivePublicationFromBibtex = (bibtexFieldsMap) => {
     return (
-      normalizeText(bibtexFieldsMap.journal) ||
-      normalizeText(bibtexFieldsMap.booktitle) ||
-      normalizeText(bibtexFieldsMap.publisher) ||
-      normalizeText(bibtexFieldsMap.institution) ||
-      normalizeText(bibtexFieldsMap.school) ||
+      getBibtexFieldValueByAliases(bibtexFieldsMap, ["journal"]) ||
+      getBibtexFieldValueByAliases(bibtexFieldsMap, ["booktitle", "book_title", "book title"]) ||
+      getBibtexFieldValueByAliases(bibtexFieldsMap, ["publisher"]) ||
+      getBibtexFieldValueByAliases(bibtexFieldsMap, ["institution"]) ||
+      getBibtexFieldValueByAliases(bibtexFieldsMap, ["school"]) ||
       ""
     );
   };
@@ -2701,19 +2735,26 @@ import {
       Boolean(getSelectedDocument()) || (Array.isArray(visibleDocuments) && visibleDocuments.length > 0);
     const actionsDisabled = !selectedBucketName || !hasActionTarget;
     const bulkSelectedCount = getBulkSelectedDocuments().length;
-    const bulkFetchDisabled = bulkFetchMetaInProgress || !selectedBucketName || bulkSelectedCount <= 0;
-    const bulkRemoveSelectedDisabled = !selectedBucketName || bulkSelectedCount <= 0;
+    const bulkMetaActionsDisabled =
+      bulkFetchMetaInProgress || bulkCitationKeyUpdateInProgress || !selectedBucketName || bulkSelectedCount <= 0;
+    const bulkRemoveSelectedDisabled = bulkCitationKeyUpdateInProgress || !selectedBucketName || bulkSelectedCount <= 0;
     if (removeDocumentButton) {
       removeDocumentButton.disabled = actionsDisabled;
     }
     if (fetchMetaButton) {
-      fetchMetaButton.disabled = bulkFetchDisabled;
+      fetchMetaButton.disabled = bulkMetaActionsDisabled;
+    }
+    if (updateCitationKeyButton) {
+      updateCitationKeyButton.disabled = bulkMetaActionsDisabled;
     }
     if (removeSelectedDocumentsButton) {
       removeSelectedDocumentsButton.disabled = bulkRemoveSelectedDisabled;
     }
     if (detailFetchMetaButton) {
       detailFetchMetaButton.disabled = actionsDisabled;
+    }
+    if (detailUpdateCitationKeyButton) {
+      detailUpdateCitationKeyButton.disabled = actionsDisabled;
     }
     if (detailClearMetaButton) {
       detailClearMetaButton.disabled = actionsDisabled;
@@ -3603,6 +3644,105 @@ import {
     window.alert(summaryLines.join("\n"));
   };
 
+  const updateCitationKeysForBulkSelectedDocuments = async () => {
+    if (!selectedBucketName) {
+      window.alert("Select a collection first.");
+      return;
+    }
+    if (bulkFetchMetaInProgress || bulkCitationKeyUpdateInProgress) {
+      return;
+    }
+    const selectedRecords = getBulkSelectedDocuments();
+    if (selectedRecords.length <= 0) {
+      window.alert("Select at least one record in Bulk Edit.");
+      return;
+    }
+    const selectedCount = selectedRecords.length;
+    if (
+      !window.confirm(
+        `Update citation key for ${selectedCount} selected record${selectedCount === 1 ? "" : "s"}?` +
+          "\nThis uses the author+year+title-word format and saves each record."
+      )
+    ) {
+      return;
+    }
+
+    bulkCitationKeyUpdateInProgress = true;
+    updateRemoveDocumentButtonState();
+    let updatedCount = 0;
+    let unchangedCount = 0;
+    let failedCount = 0;
+    let processedCount = 0;
+    const failureMessages = [];
+
+    setBulkFetchProgress(0, selectedCount);
+    try {
+      for (const record of selectedRecords) {
+        try {
+          const fileName = filenameFromPath(record?.file_path);
+          const pendingSaveSuccessful = await flushPendingMetadataSaveForRecord(record);
+          if (!pendingSaveSuccessful) {
+            failedCount += 1;
+            failureMessages.push(`${fileName}: could not save pending metadata edits.`);
+            continue;
+          }
+
+          const previousCitationKey = normalizeText(record.citation_key);
+          const nextCitationKey = buildDefaultCitationKeyForRecord(record);
+          if (!nextCitationKey) {
+            failedCount += 1;
+            failureMessages.push(`${fileName}: could not build a citation key from current metadata.`);
+            continue;
+          }
+          if (nextCitationKey === previousCitationKey) {
+            unchangedCount += 1;
+            continue;
+          }
+
+          record.citation_key = nextCitationKey;
+          const saveSuccessful = await persistDocumentMetadata(record, { silent: true });
+          if (saveSuccessful) {
+            updatedCount += 1;
+          } else {
+            record.citation_key = previousCitationKey;
+            failedCount += 1;
+            failureMessages.push(`${fileName}: could not save updated citation key.`);
+          }
+        } finally {
+          processedCount += 1;
+          setBulkFetchProgress(processedCount, selectedCount);
+        }
+      }
+
+      if (updatedCount > 0) {
+        await refreshDocuments({ silent: true, preserveSelection: true });
+      }
+    } finally {
+      bulkCitationKeyUpdateInProgress = false;
+      resetBulkFetchProgress();
+      updateRemoveDocumentButtonState();
+    }
+
+    const summaryLines = [
+      "Citation key update finished.",
+      `Selected records: ${selectedCount}`,
+      `Updated records: ${updatedCount}`,
+      `Already up to date: ${unchangedCount}`,
+      `Failed: ${failedCount}`,
+    ];
+    if (failureMessages.length > 0) {
+      summaryLines.push("");
+      summaryLines.push("Failures:");
+      failureMessages.slice(0, 5).forEach((failureMessage) => {
+        summaryLines.push(`- ${failureMessage}`);
+      });
+      if (failureMessages.length > 5) {
+        summaryLines.push(`- ...and ${failureMessages.length - 5} more`);
+      }
+    }
+    window.alert(summaryLines.join("\n"));
+  };
+
   const fetchSelectedDocumentMetadata = async () => {
     if (!selectedBucketName) {
       window.alert("Select a collection first.");
@@ -3675,6 +3815,53 @@ import {
         window.alert(`Crossref metadata fetched. No metadata fields changed.${citationKeySuffix}`);
       }
     }
+  };
+
+  const updateCitationKeyForSelectedDocument = async () => {
+    if (!selectedBucketName) {
+      window.alert("Select a collection first.");
+      return;
+    }
+    const selectedDocument = getActionTargetDocument();
+    if (!selectedDocument) {
+      window.alert("Select a document first.");
+      return;
+    }
+    const fileName = filenameFromPath(selectedDocument.file_path);
+    const currentCitationKey = normalizeText(selectedDocument.citation_key);
+    const nextCitationKey = buildDefaultCitationKeyForRecord(selectedDocument);
+    if (!nextCitationKey) {
+      window.alert(`Could not build a citation key for '${fileName}' from the current metadata.`);
+      return;
+    }
+    if (nextCitationKey === currentCitationKey) {
+      window.alert(`Citation key for '${fileName}' is already up to date.`);
+      return;
+    }
+    if (
+      !window.confirm(
+        `Update citation key for '${fileName}'?\nCurrent: ${currentCitationKey || "(empty)"}\nNew: ${nextCitationKey}`
+      )
+    ) {
+      return;
+    }
+
+    const pendingSaveSuccessful = await flushPendingMetadataSaveForRecord(selectedDocument);
+    if (!pendingSaveSuccessful) {
+      window.alert(`Could not save pending metadata edits for '${fileName}'.`);
+      return;
+    }
+
+    selectedDocument.citation_key = nextCitationKey;
+    const saveSuccessful = await persistDocumentMetadata(selectedDocument, { silent: true });
+    if (!saveSuccessful) {
+      selectedDocument.citation_key = currentCitationKey;
+      window.alert(`Could not save updated citation key for '${fileName}'.`);
+      return;
+    }
+
+    await refreshDocuments({ silent: true, preserveSelection: true });
+    window.alert(`Citation key updated to '${nextCitationKey}'.`);
   };
 
   const clearDocumentMetadata = (record) => {
@@ -3877,8 +4064,14 @@ import {
   fetchMetaButton?.addEventListener("click", () => {
     void fetchMissingMetadataForAllRecords();
   });
+  updateCitationKeyButton?.addEventListener("click", () => {
+    void updateCitationKeysForBulkSelectedDocuments();
+  });
   detailFetchMetaButton?.addEventListener("click", () => {
     void fetchSelectedDocumentMetadata();
+  });
+  detailUpdateCitationKeyButton?.addEventListener("click", () => {
+    void updateCitationKeyForSelectedDocument();
   });
   detailClearMetaButton?.addEventListener("click", () => {
     void clearSelectedDocumentMetadata();
