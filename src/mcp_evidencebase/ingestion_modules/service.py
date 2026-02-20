@@ -135,6 +135,14 @@ class IngestionService:
         qdrant_indexer: QdrantIndexer,
         chunk_size_chars: int,
         chunk_overlap_chars: int,
+        chunk_exclude_element_types: tuple[str, ...] | None = None,
+        chunking_strategy: str = "by_title",
+        chunk_new_after_n_chars: int = 1500,
+        chunk_combine_text_under_n_chars: int = 500,
+        chunk_include_title_text: bool = False,
+        chunk_image_text_mode: str = "placeholder",
+        chunk_paragraph_break_strategy: str = "text",
+        chunk_preserve_page_breaks: bool = True,
     ) -> None:
         """Construct ingestion service dependencies.
 
@@ -145,6 +153,14 @@ class IngestionService:
             qdrant_indexer: Qdrant index adapter for chunk embeddings.
             chunk_size_chars: Maximum chunk size for text chunking.
             chunk_overlap_chars: Overlap size for adjacent chunks.
+            chunk_exclude_element_types: Optional deny-list of raw element types.
+            chunking_strategy: Chunking strategy (by_title, none).
+            chunk_new_after_n_chars: Soft chunk split target size.
+            chunk_combine_text_under_n_chars: Threshold for merging tiny chunks.
+            chunk_include_title_text: Include title elements in chunk text.
+            chunk_image_text_mode: Image text mode (placeholder, ocr, exclude).
+            chunk_paragraph_break_strategy: Paragraph strategy (text, coordinates).
+            chunk_preserve_page_breaks: Preserve paragraph breaks on page changes.
         """
         self._minio_client = minio_client
         self._repository = repository
@@ -152,10 +168,43 @@ class IngestionService:
         self._qdrant_indexer = qdrant_indexer
         self._chunk_size_chars = chunk_size_chars
         self._chunk_overlap_chars = chunk_overlap_chars
+        self._chunk_exclude_element_types = (
+            tuple(chunk_exclude_element_types)
+            if chunk_exclude_element_types
+            else None
+        )
+        self._chunking_strategy = str(chunking_strategy or "by_title").strip().lower() or "by_title"
+        self._chunk_new_after_n_chars = max(1, int(chunk_new_after_n_chars))
+        self._chunk_combine_text_under_n_chars = max(0, int(chunk_combine_text_under_n_chars))
+        self._chunk_include_title_text = bool(chunk_include_title_text)
+        self._chunk_image_text_mode = str(chunk_image_text_mode or "placeholder").strip().lower()
+        self._chunk_paragraph_break_strategy = (
+            str(chunk_paragraph_break_strategy or "text").strip().lower() or "text"
+        )
+        self._chunk_preserve_page_breaks = bool(chunk_preserve_page_breaks)
 
     def _set_state(self, document_id: str, **values: Any) -> None:
         """Convenience wrapper for repository state updates."""
         self._repository.set_state(document_id, values)
+
+    def _build_partition_chunks(
+        self,
+        partitions: list[dict[str, Any]] | list[Mapping[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Build chunk records with configured chunking options."""
+        return build_partition_chunks(
+            partitions,
+            chunk_size_chars=self._chunk_size_chars,
+            chunk_overlap_chars=self._chunk_overlap_chars,
+            chunking_strategy=self._chunking_strategy,
+            chunk_new_after_n_chars=self._chunk_new_after_n_chars,
+            chunk_combine_text_under_n_chars=self._chunk_combine_text_under_n_chars,
+            exclude_element_types=self._chunk_exclude_element_types,
+            include_title_text=self._chunk_include_title_text,
+            image_text_mode=self._chunk_image_text_mode,
+            paragraph_break_strategy=self._chunk_paragraph_break_strategy,
+            preserve_page_breaks=self._chunk_preserve_page_breaks,
+        )
 
     @staticmethod
     def _safe_positive_int(value: Any) -> int | None:
@@ -389,11 +438,7 @@ class IngestionService:
             normalized_partitions = [
                 {str(key): value for key, value in partition.items()} for partition in partitions
             ]
-            chunks = build_partition_chunks(
-                normalized_partitions,
-                chunk_size_chars=self._chunk_size_chars,
-                chunk_overlap_chars=self._chunk_overlap_chars,
-            )
+            chunks = self._build_partition_chunks(normalized_partitions)
             record["chunks_tree"] = {"chunks": chunks}
         return records
 
@@ -721,11 +766,7 @@ class IngestionService:
                 error="",
             )
 
-            chunks = build_partition_chunks(
-                partitions,
-                chunk_size_chars=self._chunk_size_chars,
-                chunk_overlap_chars=self._chunk_overlap_chars,
-            )
+            chunks = self._build_partition_chunks(partitions)
             sections, chunk_sections = self._build_document_section_payload(
                 partition_key=partition_key,
                 chunks=chunks,
@@ -889,11 +930,7 @@ class IngestionService:
                 f"'{normalized_document_id}' and key '{partition_key}'."
             )
 
-        chunks = build_partition_chunks(
-            partitions,
-            chunk_size_chars=self._chunk_size_chars,
-            chunk_overlap_chars=self._chunk_overlap_chars,
-        )
+        chunks = self._build_partition_chunks(partitions)
         sections, chunk_sections = self._build_document_section_payload(
             partition_key=partition_key,
             chunks=chunks,

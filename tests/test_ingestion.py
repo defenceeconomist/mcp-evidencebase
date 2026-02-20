@@ -382,6 +382,31 @@ def test_build_ingestion_settings_supports_unstructured_timeout_override() -> No
     assert fallback_default.unstructured_timeout_seconds == 300.0
 
 
+def test_build_ingestion_settings_supports_chunking_element_overrides() -> None:
+    """Confirm chunking element filters and text controls are parsed from env."""
+    settings = build_ingestion_settings(
+        {
+            "CHUNK_EXCLUDE_ELEMENT_TYPES": "header,footer",
+            "CHUNKING_STRATEGY": "by_title",
+            "CHUNK_NEW_AFTER_N_CHARS": "2000",
+            "CHUNK_COMBINE_TEXT_UNDER_N_CHARS": "500",
+            "CHUNK_INCLUDE_TITLE_TEXT": "true",
+            "CHUNK_IMAGE_TEXT_MODE": "ocr",
+            "CHUNK_PARAGRAPH_BREAK_STRATEGY": "text",
+            "CHUNK_PRESERVE_PAGE_BREAKS": "false",
+        }
+    )
+
+    assert settings.chunk_exclude_element_types == ("header", "footer")
+    assert settings.chunking_strategy == "by_title"
+    assert settings.chunk_new_after_n_chars == 2000
+    assert settings.chunk_combine_text_under_n_chars == 500
+    assert settings.chunk_include_title_text is True
+    assert settings.chunk_image_text_mode == "ocr"
+    assert settings.chunk_paragraph_break_strategy == "text"
+    assert settings.chunk_preserve_page_breaks is False
+
+
 def test_unstructured_partition_client_wraps_read_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     """Ensure read timeouts raise a clear TimeoutError with tuning guidance."""
 

@@ -60,8 +60,10 @@ This stores the object in MinIO and queues a Celery task for:
 - metadata extraction (PDF metadata + first-page DOI/ISBN/ISSN heuristics)
 - optional Crossref metadata enrichment (`update_meta=True` on upload- and scan-triggered tasks)
   with existing Crossref rate limits preserved
-- chunking with overlap (`CHUNK_SIZE_CHARS`, `CHUNK_OVERLAP_CHARS`) using internal chunk logic
-- Qdrant upsert (chunk text + `page_numbers` + `bounding_boxes`)
+- deterministic section-aware chunking (`CHUNKING_STRATEGY`, `CHUNK_SIZE_CHARS`,
+  `CHUNK_NEW_AFTER_N_CHARS`, `CHUNK_COMBINE_TEXT_UNDER_N_CHARS`, `CHUNK_OVERLAP_CHARS`)
+- Redis section mapping persistence (`sections[]` + `chunk_sections[]` keyed by `section_id`)
+- Qdrant upsert (chunk text + `section_id` + `section_title` + `bounding_boxes`)
 
 ## 5. Monitor processing from the API
 
@@ -76,10 +78,16 @@ If `jq` is installed, filter one record:
 ```bash
 curl -sS "$BASE_URL/collections/$BUCKET/documents" \
   | jq --arg doc "$DOC_ID" '.documents[] | select(.document_id == $doc) |
-    {document_id, processing_state, processing_progress, partitions_count, chunks_count}'
+    {document_id, processing_state, processing_progress, partitions_count, chunks_count, sections_count}'
 ```
 
 Wait until `processing_state` becomes `processed` (or inspect `error` if `failed`).
+
+Inspect persisted section mappings:
+
+```bash
+curl -sS "$BASE_URL/collections/$BUCKET/documents/$DOC_ID/sections"
+```
 
 ## 6. Update metadata
 

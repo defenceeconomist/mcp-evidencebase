@@ -354,7 +354,34 @@ def test_chunking_parent_section_text_prefers_table_html_and_image_markdown() ->
 
     parent_text = str(methods_chunks[0]["metadata"].get("parent_section_text", ""))
     assert "<table>" in parent_text
-    assert "![Microscope image](https://example.com/figure.png)" in parent_text
+    assert "![Image](https://example.com/figure.png)" in parent_text
+    assert "Microscope image" not in parent_text
+
+
+def test_chunking_image_ocr_stays_searchable_while_section_text_uses_placeholder() -> None:
+    elements = [
+        _element(text="Methods", element_id="title-methods", element_type="Title", page_number=1),
+        _element(
+            text="Diagram OCR text to keep searchable.",
+            element_id="img1",
+            element_type="Image",
+            page_number=1,
+        ),
+    ]
+
+    chunks = chunk_unstructured_elements(
+        elements,
+        max_characters=1000,
+        new_after_n_chars=800,
+        combine_under_n_chars=0,
+        image_text_mode="ocr",
+    )
+
+    image_chunk = next(chunk for chunk in chunks if chunk.get("type") == "image")
+    assert image_chunk["text"] == "Diagram OCR text to keep searchable."
+    parent_text = str(image_chunk.get("metadata", {}).get("parent_section_text", ""))
+    assert parent_text == "**Image unavailable**"
+    assert "Diagram OCR text to keep searchable." not in parent_text
 
 
 def test_chunking_excludes_uncategorized_text() -> None:
@@ -384,3 +411,114 @@ def test_chunking_excludes_uncategorized_text() -> None:
     merged_text = "\n".join(str(chunk["text"]) for chunk in chunks)
     assert "Parser noise that should not be indexed." not in merged_text
     assert "Keep this narrative block." in merged_text
+
+
+def test_chunking_parent_section_text_avoids_spurious_paragraph_breaks() -> None:
+    elements = [
+        _element(text="Methods", element_id="title-methods", element_type="Title", page_number=1),
+        _element(
+            text="This wrapped line continues",
+            element_id="m1",
+            page_number=1,
+            coordinates={
+                "points": [[40, 100], [560, 100], [560, 112], [40, 112]],
+                "layout_width": 612,
+                "layout_height": 792,
+            },
+        ),
+        _element(
+            text="the same paragraph without a real break.",
+            element_id="m2",
+            page_number=1,
+            coordinates={
+                "points": [[40, 114], [560, 114], [560, 126], [40, 126]],
+                "layout_width": 612,
+                "layout_height": 792,
+            },
+        ),
+    ]
+
+    chunks = chunk_unstructured_elements(
+        elements,
+        max_characters=40,
+        new_after_n_chars=30,
+        combine_under_n_chars=0,
+    )
+
+    methods_chunks = [
+        chunk for chunk in chunks if chunk.get("metadata", {}).get("section_title") == "Methods"
+    ]
+    assert len(methods_chunks) >= 2
+    parent_text = str(methods_chunks[0]["metadata"].get("parent_section_text", ""))
+    assert "continues the same paragraph" in parent_text
+    assert "\n\nthe same paragraph" not in parent_text
+
+
+def test_chunking_parent_section_text_keeps_page_break_paragraphs() -> None:
+    elements = [
+        _element(text="Methods", element_id="title-methods", element_type="Title", page_number=1),
+        _element(
+            text="First paragraph on the methods page.",
+            element_id="m1",
+            page_number=1,
+        ),
+        _element(
+            text="Second paragraph starts on the next page.",
+            element_id="m2",
+            page_number=2,
+        ),
+    ]
+
+    chunks = chunk_unstructured_elements(
+        elements,
+        max_characters=500,
+        new_after_n_chars=400,
+        combine_under_n_chars=0,
+    )
+
+    methods_chunks = [
+        chunk for chunk in chunks if chunk.get("metadata", {}).get("section_title") == "Methods"
+    ]
+    assert methods_chunks
+    parent_text = str(methods_chunks[0]["metadata"].get("parent_section_text", ""))
+    assert "First paragraph on the methods page.\n\nSecond paragraph starts on the next page." in parent_text
+
+
+def test_chunking_element_inclusion_is_configurable() -> None:
+    elements = [
+        _element(text="Methods", element_id="title-methods", element_type="Title", page_number=1),
+        _element(
+            text="Parser output that was previously dropped.",
+            element_id="u1",
+            element_type="UncategorizedText",
+            page_number=1,
+        ),
+        _element(
+            text="Image OCR text should be searchable.",
+            element_id="img1",
+            element_type="Image",
+            page_number=1,
+            metadata_extra={"image_url": "https://example.com/figure.png"},
+        ),
+    ]
+
+    chunks = chunk_unstructured_elements(
+        elements,
+        max_characters=2000,
+        new_after_n_chars=1500,
+        combine_under_n_chars=0,
+        exclude_element_types="header,footer,pageheader,pagefooter",
+        include_title_text=True,
+        image_text_mode="ocr",
+    )
+
+    merged_text = "\n".join(str(chunk["text"]) for chunk in chunks)
+    assert "Methods" in merged_text
+    assert "Parser output that was previously dropped." in merged_text
+    assert "Image OCR text should be searchable." in merged_text
+    methods_chunks = [
+        chunk for chunk in chunks if chunk.get("metadata", {}).get("section_title") == "Methods"
+    ]
+    assert methods_chunks
+    parent_text = str(methods_chunks[0]["metadata"].get("parent_section_text", ""))
+    assert "Methods" not in parent_text

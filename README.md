@@ -425,24 +425,32 @@ Stage details:
    limiter:
    public pool concurrency `1`, global `5 req/s`, single-record `5 req/s`, list-query `1 req/s`.
 5. Chunk partitions with structure-aware deterministic chunking (`chunk_unstructured_elements`):
-   - title-aware: `Title` elements create hard section boundaries and update `section_title`,
-   - element-first: full elements are appended in order and joined with `\n\n` (semantic boundaries kept),
-   - table-safe: `Table` elements are emitted as standalone `type="table"` chunks,
+   - section strategy (`CHUNKING_STRATEGY`):
+     - `by_title` (default): each `Title` element creates a section boundary,
+     - `none`: titles do not create boundaries (single running section).
+   - element-aware assembly:
+     - narrative elements are appended in order with paragraph-aware joins,
+     - `Table` elements are emitted as standalone `type="table"` chunks,
+     - image handling is configurable via `CHUNK_IMAGE_TEXT_MODE` (`placeholder` | `ocr` | `exclude`).
    - size controls:
      - hard cap: `max_characters` (wired from `CHUNK_SIZE_CHARS`),
-     - soft split target: `new_after_n_chars` (defaults to 1500, clamped to hard cap),
-     - undersized merge threshold: `combine_under_n_chars` (default 500),
-     - overlap: `overlap_chars` (wired from `CHUNK_OVERLAP_CHARS`) only for internal splits of one oversized element,
+     - soft split target: `new_after_n_chars` (wired from `CHUNK_NEW_AFTER_N_CHARS`, clamped to hard cap),
+     - undersized merge threshold: `combine_under_n_chars` (wired from `CHUNK_COMBINE_TEXT_UNDER_N_CHARS`),
+     - overlap: `overlap_chars` (wired from `CHUNK_OVERLAP_CHARS`) only for internal splits of one oversized element.
    - deterministic IDs and traces:
      - each chunk has deterministic `chunk_id`,
-     - each chunk keeps `metadata` (`page_start`, `page_end`, `section_title`, plus `source_id`/`filename` when present),
+     - each chunk keeps `metadata` (`page_start`, `page_end`, `section_title`, `section_index`, plus `filename` when present),
+     - each chunk is annotated with parent section metadata (`parent_section_id`, `parent_section_index`, `parent_section_title`, `parent_section_text`),
      - each chunk keeps `orig_elements` trace records (`element_id`, `type/category`, `page_number`,
        `coordinates`, `text_len`),
      - compatibility fields `chunk_index`, `page_numbers`, and `bounding_boxes` are retained.
-6. Embed chunks and upsert vectors into bucket-specific Qdrant collection:
+6. Persist section/chunk mapping in Redis (`document:<document_hash>:sections`):
+   - `sections`: section-level payloads (`section_id`, `section_index`, `section_title`, section text/markdown, page range, chunk references),
+   - `chunk_sections`: per-chunk mapping (`chunk_index`, `chunk_id`, `section_id`).
+7. Embed chunks and upsert vectors into bucket-specific Qdrant collection:
    - dense semantic vector (`FASTEMBED_MODEL`),
    - sparse keyword vector (`FASTEMBED_KEYWORD_MODEL`, default `Qdrant/bm25`).
-7. Hybrid search fuses semantic and keyword ranks using weighted reciprocal rank fusion.
+8. Hybrid search fuses semantic and keyword ranks using weighted reciprocal rank fusion.
 
 Chunking is internal to `IngestionService` and does not call Unstructured APIs. This allows
 future chunking strategy changes without changing the partition stage.
@@ -501,14 +509,22 @@ QDRANT_URL=http://qdrant:6333
 QDRANT_COLLECTION_PREFIX=evidencebase
 UNSTRUCTURED_API_URL=https://api.unstructuredapp.io/general/v0/general
 UNSTRUCTURED_API_KEY=<your-unstructured-api-key>
-UNSTRUCTURED_STRATEGY=auto
+UNSTRUCTURED_STRATEGY=hi_res
 UNSTRUCTURED_TIMEOUT_SECONDS=300
 FASTEMBED_MODEL=BAAI/bge-small-en-v1.5
 FASTEMBED_KEYWORD_MODEL=Qdrant/bm25
 HF_HOME=/model-cache/huggingface
 FASTEMBED_CACHE_PATH=/model-cache/fastembed
-CHUNK_SIZE_CHARS=1200
-CHUNK_OVERLAP_CHARS=150
+CHUNK_SIZE_CHARS=3000
+CHUNK_OVERLAP_CHARS=0
+CHUNKING_STRATEGY=by_title
+CHUNK_NEW_AFTER_N_CHARS=2000
+CHUNK_COMBINE_TEXT_UNDER_N_CHARS=500
+CHUNK_EXCLUDE_ELEMENT_TYPES=header,footer,pageheader,pagefooter,page-header,page-footer,uncategorizedtext,uncategorized_text
+CHUNK_INCLUDE_TITLE_TEXT=false
+CHUNK_IMAGE_TEXT_MODE=placeholder
+CHUNK_PARAGRAPH_BREAK_STRATEGY=text
+CHUNK_PRESERVE_PAGE_BREAKS=true
 MINIO_SCAN_INTERVAL_SECONDS=15
 # Required because cloudflared starts with docker compose up.
 CLOUDFLARE_TUNNEL_TOKEN=<your-cloudflare-tunnel-token>
@@ -525,6 +541,7 @@ Redis keys (prefix default: `evidencebase`):
 - `document:<document_hash>` processing state/progress hash
 - `document:<document_hash>:sources` source locations set (`bucket/object`)
 - `document:<document_hash>:partition` partition payload JSON (`partition_key` stored in state hash)
+- `document:<document_hash>:sections` section/chunk mapping payload (`sections`, `chunk_sections`, `partition_key`)
 - `source:<bucket>/<object>` source mapping (`document_id`, `etag`, `resolver_url`)
 - `source:<bucket>/<object>:meta` source-scoped normalized metadata
 - `source:bucket:<bucket>` set of source locations in bucket
@@ -533,14 +550,15 @@ Qdrant point payload fields include:
 
 - `document_id`
 - `partition_key`
-- `meta_key`
+- `title`, `author`, `year`
 - `resolver_url` (`docs://bucket/object.ext?page=`)
 - `minio_location`, `chunk_index`, `chunk_id`, `chunk_type`, `text`
-- `section_title`, `page_start`, `page_end`
-- `source_id`, `filename`
-- `page_numbers` (chunk source pages)
+- `section_id`, `section_title`, `page_start`, `page_end`, `filename`
 - `bounding_boxes` (chunk source coordinates + page references)
 - `orig_elements` (trace records for PDF deep-linking/bbox follow-up)
+
+Search results are hydrated from Redis section mappings (when available) to include:
+`parent_section_id`, `parent_section_index`, `parent_section_title`, and `parent_section_text`.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
