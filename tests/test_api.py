@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-import os
 from minio.error import S3Error
 
 from mcp_evidencebase.api import app, get_bucket_service, get_ingestion_service
@@ -402,8 +402,13 @@ def test_gpt_search_returns_results_with_bearer_auth(
                 "document_id": "doc-1",
                 "file_path": "paper.pdf",
                 "text": "Causal inference content",
-                "source_material_url": "/api/collections/research-raw/documents/resolve?file_path=paper.pdf",
-                "resolver_link_url": "/resolver.html?bucket=research-raw&file_path=paper.pdf&page=3",
+                "source_material_url": (
+                    "/api/collections/research-raw/documents/resolve"
+                    "?file_path=paper.pdf"
+                ),
+                "resolver_link_url": (
+                    "/resolver.html?bucket=research-raw&file_path=paper.pdf&page=3"
+                ),
                 "resolver_url": "docs://research-raw/paper.pdf?page=3",
             }
         ]
@@ -419,6 +424,7 @@ def test_gpt_search_returns_results_with_bearer_auth(
             "limit": 5,
             "mode": "hybrid",
             "rrf_k": 80,
+            "use_staged_retrieval": False,
         },
     )
 
@@ -461,8 +467,13 @@ def test_gpt_search_honors_links_base_url_override(
             {
                 "id": "chunk-1",
                 "score": 0.91,
-                "source_material_url": "/api/collections/research-raw/documents/resolve?file_path=paper.pdf",
-                "resolver_link_url": "/resolver.html?bucket=research-raw&file_path=paper.pdf&page=3",
+                "source_material_url": (
+                    "/api/collections/research-raw/documents/resolve"
+                    "?file_path=paper.pdf"
+                ),
+                "resolver_link_url": (
+                    "/resolver.html?bucket=research-raw&file_path=paper.pdf&page=3"
+                ),
                 "resolver_url": "docs://research-raw/paper.pdf?page=3",
             }
         ]
@@ -472,7 +483,11 @@ def test_gpt_search_honors_links_base_url_override(
     response = client.post(
         "/gpt/search",
         headers={"Authorization": "Bearer supersecret"},
-        json={"bucket_name": "research-raw", "query": "offsets"},
+        json={
+            "bucket_name": "research-raw",
+            "query": "offsets",
+            "use_staged_retrieval": False,
+        },
     )
 
     assert response.status_code == 200
@@ -507,8 +522,13 @@ def test_gpt_search_honors_links_base_url_override_without_scheme(
             {
                 "id": "chunk-1",
                 "score": 0.91,
-                "source_material_url": "/api/collections/research-raw/documents/resolve?file_path=paper.pdf",
-                "resolver_link_url": "/resolver.html?bucket=research-raw&file_path=paper.pdf&page=3",
+                "source_material_url": (
+                    "/api/collections/research-raw/documents/resolve"
+                    "?file_path=paper.pdf"
+                ),
+                "resolver_link_url": (
+                    "/resolver.html?bucket=research-raw&file_path=paper.pdf&page=3"
+                ),
                 "resolver_url": "docs://research-raw/paper.pdf?page=3",
             }
         ]
@@ -518,7 +538,11 @@ def test_gpt_search_honors_links_base_url_override_without_scheme(
     response = client.post(
         "/gpt/search",
         headers={"Authorization": "Bearer supersecret"},
-        json={"bucket_name": "research-raw", "query": "offsets"},
+        json={
+            "bucket_name": "research-raw",
+            "query": "offsets",
+            "use_staged_retrieval": False,
+        },
     )
 
     assert response.status_code == 200
@@ -541,6 +565,170 @@ def test_gpt_search_honors_links_base_url_override_without_scheme(
     )
 
 
+def test_gpt_search_staged_retrieval_returns_section_citations(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Assert default staged GPT search returns section-level citations with chunk anchors."""
+    monkeypatch.setenv("GPT_ACTIONS_API_KEY", "supersecret")
+    service = FakeIngestionService(
+        search_results=[
+            {
+                "id": "chunk-1",
+                "score": 0.91,
+                "document_id": "doc-1",
+                "section_id": "section-42",
+                "section_title": "Methods",
+                "parent_section_id": "section-42",
+                "file_path": "paper.pdf",
+                "text": (
+                    "Industrial participation obligations and offsets in "
+                    "UK defence procurement."
+                ),
+                "source_material_url": (
+                    "/api/collections/research-raw/documents/resolve"
+                    "?file_path=paper.pdf"
+                ),
+                "resolver_link_url": (
+                    "/resolver.html?bucket=research-raw&file_path=paper.pdf&page=3"
+                ),
+                "resolver_url": "docs://research-raw/paper.pdf?page=3",
+            }
+        ]
+    )
+    _override_ingestion_service(service)
+
+    response = client.post(
+        "/gpt/search",
+        headers={"Authorization": "Bearer supersecret"},
+        json={
+            "bucket_name": "research-raw",
+            "query": "UK offsets programme 2020",
+            "minimal_response": False,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["query"] == "UK offsets programme 2020"
+    assert len(payload["query_variants"]) >= 3
+    assert payload["hard_filters"]["countries"] == ["uk"]
+    assert payload["hard_filters"]["years"] == [2020]
+    assert payload["citations"] == [
+        {
+            "document_id": "doc-1",
+            "section_id": "section-42",
+            "chunk_ids": ["chunk-1"],
+        }
+    ]
+    assert payload["results"][0]["chunk_ids_used"] == ["chunk-1"]
+    assert payload["results"][0]["section_id"] == "section-42"
+    assert payload["results"][0]["parent_section_title"] == "Methods"
+    assert (
+        payload["results"][0]["source_material_url"]
+        == "http://testserver/api/collections/research-raw/documents/resolve?file_path=paper.pdf"
+    )
+    assert service.search_calls
+    assert len(service.search_calls) >= 3
+    assert all(call[2] == 75 for call in service.search_calls)
+
+
+def test_gpt_search_defaults_to_minimal_response_shape(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Assert GPT search returns compact fields by default to reduce payload size."""
+    monkeypatch.setenv("GPT_ACTIONS_API_KEY", "supersecret")
+    service = FakeIngestionService(
+        search_results=[
+            {
+                "id": "chunk-1",
+                "score": 0.91,
+                "document_id": "doc-1",
+                "file_path": "paper.pdf",
+                "text": "Causal inference content",
+                "source_material_url": (
+                    "/api/collections/research-raw/documents/resolve"
+                    "?file_path=paper.pdf"
+                ),
+                "resolver_link_url": (
+                    "/resolver.html?bucket=research-raw&file_path=paper.pdf&page=3"
+                ),
+                "resolver_url": "docs://research-raw/paper.pdf?page=3",
+            }
+        ]
+    )
+    _override_ingestion_service(service)
+
+    response = client.post(
+        "/gpt/search",
+        headers={"Authorization": "Bearer supersecret"},
+        json={
+            "bucket_name": "research-raw",
+            "query": "causal inference",
+            "use_staged_retrieval": False,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert set(payload.keys()) == {"bucket_name", "query", "mode", "limit", "rrf_k", "results"}
+    assert "hard_filters" not in payload
+    assert "stage_stats" not in payload
+    assert "query_variants" not in payload
+    assert "citations" not in payload
+
+    result = payload["results"][0]
+    assert set(result.keys()) == {
+        "id",
+        "score",
+        "document_id",
+        "source_material_url",
+        "resolver_link_url",
+        "resolver_url",
+        "resolver_reference",
+        "text",
+    }
+    assert result["resolver_url"] == (
+        "http://testserver/resolver.html?bucket=research-raw&file_path=paper.pdf&page=3"
+    )
+
+
+def test_gpt_search_minimal_response_truncates_text_with_parameter(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Assert minimal response text is trimmed according to minimal_result_text_chars."""
+    monkeypatch.setenv("GPT_ACTIONS_API_KEY", "supersecret")
+    service = FakeIngestionService(
+        search_results=[
+            {
+                "id": "chunk-1",
+                "score": 0.91,
+                "document_id": "doc-1",
+                "text": "x" * 300,
+            }
+        ]
+    )
+    _override_ingestion_service(service)
+
+    response = client.post(
+        "/gpt/search",
+        headers={"Authorization": "Bearer supersecret"},
+        json={
+            "bucket_name": "research-raw",
+            "query": "causal inference",
+            "use_staged_retrieval": False,
+            "minimal_result_text_chars": 20,
+        },
+    )
+
+    assert response.status_code == 200
+    text_snippet = response.json()["results"][0]["text"]
+    assert len(text_snippet) == 25
+    assert text_snippet.endswith("...")
+
+
 def test_gpt_search_rejects_invalid_mode(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
@@ -557,6 +745,7 @@ def test_gpt_search_rejects_invalid_mode(
             "bucket_name": "research-raw",
             "query": "causal inference",
             "mode": "invalid",
+            "use_staged_retrieval": False,
         },
     )
 
@@ -580,7 +769,7 @@ def test_gpt_search_uses_single_bucket_when_bucket_name_omitted(
     response = client.post(
         "/gpt/search",
         headers={"Authorization": "Bearer supersecret"},
-        json={"query": "offsets"},
+        json={"query": "offsets", "use_staged_retrieval": False},
     )
 
     assert response.status_code == 200
@@ -634,11 +823,20 @@ def test_gpt_openapi_exposes_ping_operation_with_bearer_auth_security(
     assert "GptSearchResponse" in payload["components"]["schemas"]
     assert "GptSearchResult" in payload["components"]["schemas"]
     assert payload["components"]["schemas"]["GptSearchRequest"]["required"] == ["query"]
+    request_schema = payload["components"]["schemas"]["GptSearchRequest"]
+    assert request_schema["properties"]["use_staged_retrieval"]["type"] == "boolean"
+    assert request_schema["properties"]["query_variant_limit"]["type"] == "integer"
+    assert request_schema["properties"]["wide_limit_per_variant"]["type"] == "integer"
+    assert request_schema["properties"]["minimal_response"]["type"] == "boolean"
+    assert request_schema["properties"]["minimal_result_text_chars"]["type"] == "integer"
     result_schema = payload["components"]["schemas"]["GptSearchResult"]
     assert result_schema["properties"]["source_material_url"]["type"] == "string"
     assert result_schema["properties"]["resolver_link_url"]["type"] == "string"
     assert result_schema["properties"]["resolver_url"]["type"] == "string"
     assert result_schema["properties"]["resolver_reference"]["type"] == "string"
+    assert result_schema["properties"]["chunk_ids_used"]["type"] == "array"
+    response_schema = payload["components"]["schemas"]["GptSearchResponse"]
+    assert response_schema["properties"]["citations"]["type"] == "array"
     assert payload["components"]["securitySchemes"]["BearerAuth"] == {
         "type": "http",
         "scheme": "bearer",

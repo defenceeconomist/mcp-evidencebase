@@ -403,6 +403,8 @@ curl -sS -X POST "https://open.heley.uk/api/gpt/search" \
 ```
 
 `bucket_name` is optional for GPT search. If exactly one bucket exists, it is auto-selected.
+`minimal_response` defaults to `true` to keep GPT payloads small; set `minimal_response=false`
+when you need full retrieval diagnostics and expanded section fields.
 
 ### Ingestion Pipeline: Atomic Stages
 

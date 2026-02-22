@@ -11,7 +11,8 @@ from mcp_evidencebase.api_modules.deps import get_ingestion_service, require_gpt
 from mcp_evidencebase.api_modules.models import GptSearchRequest
 from mcp_evidencebase.api_modules.services import (
     build_gpt_openapi_document,
-    perform_collection_search,
+    perform_gpt_collection_search,
+    prepare_minimal_gpt_search_response,
     prepare_gpt_search_response,
     resolve_gpt_links_base_url,
     resolve_gpt_search_bucket_name,
@@ -50,16 +51,30 @@ def gpt_search(
         bucket_name=payload.bucket_name,
         service=service,
     )
-    search_payload = perform_collection_search(
+    search_payload = perform_gpt_collection_search(
         bucket_name=resolved_bucket_name,
         query=payload.query,
         limit=payload.limit,
         mode=payload.mode,
         rrf_k=payload.rrf_k,
         service=service,
+        use_staged_retrieval=payload.use_staged_retrieval,
+        query_variant_limit=payload.query_variant_limit,
+        wide_limit_per_variant=payload.wide_limit_per_variant,
+        section_shortlist_limit=payload.section_shortlist_limit,
+        max_section_text_chars=payload.max_section_text_chars,
     )
     links_base_url = resolve_gpt_links_base_url(request)
-    return prepare_gpt_search_response(search_payload, links_base_url=links_base_url)
+    response_payload = prepare_gpt_search_response(
+        search_payload,
+        links_base_url=links_base_url,
+    )
+    if payload.minimal_response:
+        return prepare_minimal_gpt_search_response(
+            response_payload,
+            max_result_text_chars=payload.minimal_result_text_chars,
+        )
+    return response_payload
 
 
 @router.get("/gpt/openapi.json", include_in_schema=False)
