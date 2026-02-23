@@ -14,8 +14,8 @@
     <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="Reference" href="reference.html" />
-    <link rel="prev" title="Evidence Base" href="readme.html" />
+    <link rel="next" title="GPT Actions API" href="gpt_actions.html" />
+    <link rel="prev" title="About The Project" href="readme.html" />
    
   <link rel="stylesheet" href="_static/custom.css" type="text/css" />
   
@@ -81,11 +81,13 @@ compose stack.</p>
 <span class="w">  </span>--data-binary<span class="w"> </span><span class="s2">&quot;@</span><span class="nv">$PDF_PATH</span><span class="s2">&quot;</span>
 </pre></div>
 </div>
-<p>This stores the object in MinIO and queues a Celery task for:</p>
+<p>This stores the object in MinIO and queues an atomic Celery chain:</p>
 <ul class="simple">
-<li><p>Unstructured partition extraction</p></li>
-<li><p>metadata extraction</p></li>
-<li><p>chunking and Qdrant upsert</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">partition</span></code> (<code class="docutils literal notranslate"><span class="pre">partition_minio_object</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">meta</span></code> (<code class="docutils literal notranslate"><span class="pre">meta_minio_object</span></code>, including optional Crossref enrichment)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">section</span></code> (<code class="docutils literal notranslate"><span class="pre">section_minio_object</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">chunk</span></code> (<code class="docutils literal notranslate"><span class="pre">chunk_minio_object</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">upsert</span></code> (<code class="docutils literal notranslate"><span class="pre">upsert_minio_object</span></code>)</p></li>
 </ul>
 </section>
 <section id="monitor-processing-from-the-api">
@@ -97,10 +99,14 @@ compose stack.</p>
 <p>If <code class="docutils literal notranslate"><span class="pre">jq</span></code> is installed, filter one record:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$BASE_URL</span><span class="s2">/collections/</span><span class="nv">$BUCKET</span><span class="s2">/documents&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span>--arg<span class="w"> </span>doc<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$DOC_ID</span><span class="s2">&quot;</span><span class="w"> </span><span class="s1">&#39;.documents[] | select(.document_id == $doc) |</span>
-<span class="s1">    {document_id, processing_state, processing_progress, partitions_count, chunks_count}&#39;</span>
+<span class="s1">    {document_id, processing_state, processing_stage, processing_stage_progress, processing_progress, partitions_count, chunks_count, sections_count}&#39;</span>
 </pre></div>
 </div>
 <p>Wait until <code class="docutils literal notranslate"><span class="pre">processing_state</span></code> becomes <code class="docutils literal notranslate"><span class="pre">processed</span></code> (or inspect <code class="docutils literal notranslate"><span class="pre">error</span></code> if <code class="docutils literal notranslate"><span class="pre">failed</span></code>).</p>
+<p>Inspect persisted section mappings:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$BASE_URL</span><span class="s2">/collections/</span><span class="nv">$BUCKET</span><span class="s2">/documents/</span><span class="nv">$DOC_ID</span><span class="s2">/sections&quot;</span>
+</pre></div>
+</div>
 </section>
 <section id="update-metadata">
 <h2>6. Update metadata<a class="headerlink" href="#update-metadata" title="Link to this heading">¶</a></h2>
@@ -117,6 +123,10 @@ compose stack.</p>
 <span class="s1">  }&#39;</span>
 </pre></div>
 </div>
+<p>Fetch metadata from Crossref (DOI -&gt; ISBN -&gt; ISSN -&gt; title, high-confidence only):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$BASE_URL</span><span class="s2">/collections/</span><span class="nv">$BUCKET</span><span class="s2">/documents/</span><span class="nv">$DOC_ID</span><span class="s2">/metadata/fetch&quot;</span>
+</pre></div>
+</div>
 </section>
 <section id="trigger-an-on-demand-scan-optional">
 <h2>7. Trigger an on-demand scan (optional)<a class="headerlink" href="#trigger-an-on-demand-scan-optional" title="Link to this heading">¶</a></h2>
@@ -125,8 +135,23 @@ compose stack.</p>
 </pre></div>
 </div>
 </section>
+<section id="run-hybrid-search">
+<h2>8. Run hybrid search<a class="headerlink" href="#run-hybrid-search" title="Link to this heading">¶</a></h2>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$BASE_URL</span><span class="s2">/collections/</span><span class="nv">$BUCKET</span><span class="s2">/search?query=causal%20inference&amp;mode=hybrid&amp;limit=5&amp;rrf_k=80&quot;</span>
+</pre></div>
+</div>
+<p>You can also run the same flow from the package CLI:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-m<span class="w"> </span>mcp_evidencebase<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--search-bucket<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$BUCKET</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--search-query<span class="w"> </span><span class="s2">&quot;causal inference&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--search-mode<span class="w"> </span>hybrid<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--search-limit<span class="w"> </span><span class="m">5</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--search-rrf-k<span class="w"> </span><span class="m">80</span>
+</pre></div>
+</div>
+</section>
 <section id="delete-document-and-bucket">
-<h2>8. Delete document and bucket<a class="headerlink" href="#delete-document-and-bucket" title="Link to this heading">¶</a></h2>
+<h2>9. Delete document and bucket<a class="headerlink" href="#delete-document-and-bucket" title="Link to this heading">¶</a></h2>
 <p>Delete the document by <code class="docutils literal notranslate"><span class="pre">document_id</span></code>:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>DELETE<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$BASE_URL</span><span class="s2">/collections/</span><span class="nv">$BUCKET</span><span class="s2">/documents/</span><span class="nv">$DOC_ID</span><span class="s2">&quot;</span>
 </pre></div>
@@ -136,8 +161,35 @@ compose stack.</p>
 </pre></div>
 </div>
 </section>
+<section id="celery-task-reference">
+<h2>10. Celery task reference<a class="headerlink" href="#celery-task-reference" title="Link to this heading">¶</a></h2>
+<p>Tasks are defined in <code class="docutils literal notranslate"><span class="pre">src/mcp_evidencebase/tasks.py</span></code>:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">mcp_evidencebase.ping</span></code>: simple worker health task.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">mcp_evidencebase.scan_minio_objects(bucket_name=None,</span> <span class="pre">update_meta=True)</span></code>: scans MinIO and
+enqueues <code class="docutils literal notranslate"><span class="pre">partition_minio_object</span></code> for objects that are new or have changed ETag.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">mcp_evidencebase.partition_minio_object(bucket_name,</span> <span class="pre">object_name,</span> <span class="pre">etag=None,</span> <span class="pre">update_meta=False)</span></code>:
+performs partition stage, then enqueues <code class="docutils literal notranslate"><span class="pre">meta_minio_object</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">mcp_evidencebase.meta_minio_object(partition_payload)</span></code>: performs metadata stage (optional Crossref
+enrichment), then enqueues <code class="docutils literal notranslate"><span class="pre">section_minio_object</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">mcp_evidencebase.section_minio_object(meta_payload)</span></code>: performs section mapping stage, then enqueues
+<code class="docutils literal notranslate"><span class="pre">chunk_minio_object</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">mcp_evidencebase.chunk_minio_object(section_payload)</span></code>: performs chunk stage, then enqueues
+<code class="docutils literal notranslate"><span class="pre">upsert_minio_object</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">mcp_evidencebase.upsert_minio_object(chunk_payload)</span></code>: performs vector upsert stage.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">mcp_evidencebase.process_minio_object(bucket_name,</span> <span class="pre">object_name,</span> <span class="pre">etag=None,</span> <span class="pre">update_meta=False)</span></code>:
+backward-compatible wrapper that runs all stages inline.</p></li>
+</ul>
+<p>Current workflow shape:</p>
+<ul class="simple">
+<li><p>The task pipeline is linear and atomic: <code class="docutils literal notranslate"><span class="pre">partition</span> <span class="pre">-&gt;</span> <span class="pre">meta</span> <span class="pre">-&gt;</span> <span class="pre">section</span> <span class="pre">-&gt;</span> <span class="pre">chunk</span> <span class="pre">-&gt;</span> <span class="pre">upsert</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">IngestionService</span></code> exposes stage-level methods and compatibility wrappers.</p></li>
+<li><p>Use stage-specific reruns when needed (for example re-run <code class="docutils literal notranslate"><span class="pre">upsert</span></code> after embedding/index tuning,
+or re-run <code class="docutils literal notranslate"><span class="pre">section/chunk/upsert</span></code> after chunking strategy changes without re-partitioning).</p></li>
+</ul>
+</section>
 <section id="stop-the-stack">
-<h2>9. Stop the stack<a class="headerlink" href="#stop-the-stack" title="Link to this heading">¶</a></h2>
+<h2>11. Stop the stack<a class="headerlink" href="#stop-the-stack" title="Link to this heading">¶</a></h2>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docker<span class="w"> </span>compose<span class="w"> </span>down
 </pre></div>
 </div>
@@ -172,7 +224,15 @@ compose stack.</p>
 <script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
 <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
 <ul class="current">
-<li class="toctree-l1"><a class="reference internal" href="readme.html">Evidence Base</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html">About The Project</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html#getting-started">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html#usage">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html#project-structure">Project Structure</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html#roadmap">Roadmap</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html#contributing">Contributing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html#license">License</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html#contact">Contact</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html#acknowledgments">Acknowledgments</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Command-Line Vignette: End-To-End Workflow</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="#start-the-stack">1. Start the stack</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#set-workflow-variables">2. Set workflow variables</a></li>
@@ -181,10 +241,13 @@ compose stack.</p>
 <li class="toctree-l2"><a class="reference internal" href="#monitor-processing-from-the-api">5. Monitor processing from the API</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#update-metadata">6. Update metadata</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#trigger-an-on-demand-scan-optional">7. Trigger an on-demand scan (optional)</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#delete-document-and-bucket">8. Delete document and bucket</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#stop-the-stack">9. Stop the stack</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#run-hybrid-search">8. Run hybrid search</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#delete-document-and-bucket">9. Delete document and bucket</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#celery-task-reference">10. Celery task reference</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#stop-the-stack">11. Stop the stack</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="gpt_actions.html">GPT Actions API</a></li>
 <li class="toctree-l1"><a class="reference internal" href="reference.html">Reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="tests.html">Tests</a></li>
 </ul>
@@ -193,8 +256,8 @@ compose stack.</p>
 <h3>Related Topics</h3>
 <ul>
   <li><a href="index.html">Documentation overview</a><ul>
-      <li>Previous: <a href="readme.html" title="previous chapter">Evidence Base</a></li>
-      <li>Next: <a href="reference.html" title="next chapter">Reference</a></li>
+      <li>Previous: <a href="readme.html" title="previous chapter">About The Project</a></li>
+      <li>Next: <a href="gpt_actions.html" title="next chapter">GPT Actions API</a></li>
   </ul></li>
 </ul>
 </div>

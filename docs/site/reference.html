@@ -15,7 +15,7 @@
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
     <link rel="next" title="Tests" href="tests.html" />
-    <link rel="prev" title="Command-Line Vignette: End-To-End Workflow" href="vignette_cli.html" />
+    <link rel="prev" title="GPT Actions API" href="gpt_actions.html" />
    
   <link rel="stylesheet" href="_static/custom.css" type="text/css" />
   
@@ -288,68 +288,16 @@
 <section id="module-mcp_evidencebase.api">
 <span id="api-module"></span><h2>API Module<a class="headerlink" href="#module-mcp_evidencebase.api" title="Link to this heading">¶</a></h2>
 <p>FastAPI application for bucket and document ingestion operations.</p>
-<p>The module exposes endpoints used by the dashboard and command-line workflows.</p>
-<dl class="py class">
-<dt class="sig sig-object py" id="mcp_evidencebase.api.BucketCreateRequest">
-<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">mcp_evidencebase.api.</span></span><span class="sig-name descname"><span class="pre">BucketCreateRequest</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">bucket_name</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#mcp_evidencebase.api.BucketCreateRequest" title="Link to this definition">¶</a></dt>
-<dd><p>Payload for creating a MinIO bucket.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>bucket_name</strong> (<em>str</em>)</p>
-</dd>
-</dl>
-<dl class="py attribute">
-<dt class="sig sig-object py" id="mcp_evidencebase.api.BucketCreateRequest.model_config">
-<span class="sig-name descname"><span class="pre">model_config</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">{}</span></span><a class="headerlink" href="#mcp_evidencebase.api.BucketCreateRequest.model_config" title="Link to this definition">¶</a></dt>
-<dd><p>Configuration for the model, should be a dictionary conforming to [<cite>ConfigDict</cite>][pydantic.config.ConfigDict].</p>
-</dd></dl>
-
-</dd></dl>
-
-<dl class="py class">
-<dt class="sig sig-object py" id="mcp_evidencebase.api.MetadataUpdateRequest">
-<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">mcp_evidencebase.api.</span></span><span class="sig-name descname"><span class="pre">MetadataUpdateRequest</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">metadata</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#mcp_evidencebase.api.MetadataUpdateRequest" title="Link to this definition">¶</a></dt>
-<dd><p>Payload for updating document metadata fields.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>metadata</strong> (<em>dict</em><em>[</em><em>str</em><em>, </em><em>str</em><em>]</em>)</p>
-</dd>
-</dl>
-<dl class="py attribute">
-<dt class="sig sig-object py" id="mcp_evidencebase.api.MetadataUpdateRequest.model_config">
-<span class="sig-name descname"><span class="pre">model_config</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">{}</span></span><a class="headerlink" href="#mcp_evidencebase.api.MetadataUpdateRequest.model_config" title="Link to this definition">¶</a></dt>
-<dd><p>Configuration for the model, should be a dictionary conforming to [<cite>ConfigDict</cite>][pydantic.config.ConfigDict].</p>
-</dd></dl>
-
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="mcp_evidencebase.api.get_minio_settings">
-<span class="sig-prename descclassname"><span class="pre">mcp_evidencebase.api.</span></span><span class="sig-name descname"><span class="pre">get_minio_settings</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#mcp_evidencebase.api.get_minio_settings" title="Link to this definition">¶</a></dt>
-<dd><p>Resolve MinIO connection settings.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Returns<span class="colon">:</span></dt>
-<dd class="field-odd"><p>MinIO settings built from environment variables.</p>
-</dd>
-<dt class="field-even">Return type<span class="colon">:</span></dt>
-<dd class="field-even"><p><a class="reference internal" href="#mcp_evidencebase.minio_settings.MinioSettings" title="mcp_evidencebase.minio_settings.MinioSettings"><em>MinioSettings</em></a></p>
-</dd>
-</dl>
-</dd></dl>
-
 <dl class="py function">
 <dt class="sig sig-object py" id="mcp_evidencebase.api.get_bucket_service">
 <span class="sig-prename descclassname"><span class="pre">mcp_evidencebase.api.</span></span><span class="sig-name descname"><span class="pre">get_bucket_service</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">settings</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#mcp_evidencebase.api.get_bucket_service" title="Link to this definition">¶</a></dt>
 <dd><p>Resolve bucket service dependency.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>settings</strong> (<em>Annotated</em><em>[</em><a class="reference internal" href="#mcp_evidencebase.minio_settings.MinioSettings" title="mcp_evidencebase.minio_settings.MinioSettings"><em>MinioSettings</em></a><em>, </em><em>Depends</em><em>(</em><em>dependency=~mcp_evidencebase.api.get_minio_settings</em><em>, </em><em>use_cache=True</em><em>, </em><em>scope=None</em><em>)</em><em>]</em>) – Resolved MinIO settings dependency.</p>
+<dd class="field-odd"><p><strong>settings</strong> (<em>Annotated</em><em>[</em><a class="reference internal" href="#mcp_evidencebase.minio_settings.MinioSettings" title="mcp_evidencebase.minio_settings.MinioSettings"><em>MinioSettings</em></a><em>, </em><em>Depends</em><em>(</em><em>dependency=~mcp_evidencebase.api_modules.deps.get_minio_settings</em><em>, </em><em>use_cache=True</em><em>, </em><em>scope=None</em><em>)</em><em>]</em>)</p>
 </dd>
-<dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>Bucket service configured with the current MinIO settings.</p>
-</dd>
-<dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><a class="reference internal" href="#mcp_evidencebase.bucket_service.BucketService" title="mcp_evidencebase.bucket_service.BucketService"><em>BucketService</em></a></p>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference internal" href="#mcp_evidencebase.bucket_service.BucketService" title="mcp_evidencebase.bucket_service.BucketService"><em>BucketService</em></a></p>
 </dd>
 </dl>
 </dd></dl>
@@ -359,198 +307,8 @@
 <span class="sig-prename descclassname"><span class="pre">mcp_evidencebase.api.</span></span><span class="sig-name descname"><span class="pre">get_ingestion_service</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#mcp_evidencebase.api.get_ingestion_service" title="Link to this definition">¶</a></dt>
 <dd><p>Resolve document ingestion service dependency.</p>
 <dl class="field-list simple">
-<dt class="field-odd">Returns<span class="colon">:</span></dt>
-<dd class="field-odd"><p>Fully configured ingestion service.</p>
-</dd>
-<dt class="field-even">Return type<span class="colon">:</span></dt>
-<dd class="field-even"><p><a class="reference internal" href="#mcp_evidencebase.ingestion.IngestionService" title="mcp_evidencebase.ingestion.IngestionService"><em>IngestionService</em></a></p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="mcp_evidencebase.api.healthz">
-<span class="sig-prename descclassname"><span class="pre">mcp_evidencebase.api.</span></span><span class="sig-name descname"><span class="pre">healthz</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#mcp_evidencebase.api.healthz" title="Link to this definition">¶</a></dt>
-<dd><p>Return API readiness status.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Returns<span class="colon">:</span></dt>
-<dd class="field-odd"><p>Dictionary with a static <code class="docutils literal notranslate"><span class="pre">ok</span></code> status string.</p>
-</dd>
-<dt class="field-even">Return type<span class="colon">:</span></dt>
-<dd class="field-even"><p>dict[str, str]</p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="mcp_evidencebase.api.get_buckets">
-<span class="sig-prename descclassname"><span class="pre">mcp_evidencebase.api.</span></span><span class="sig-name descname"><span class="pre">get_buckets</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">service</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#mcp_evidencebase.api.get_buckets" title="Link to this definition">¶</a></dt>
-<dd><p>List all MinIO buckets.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>service</strong> (<em>Annotated</em><em>[</em><a class="reference internal" href="#mcp_evidencebase.bucket_service.BucketService" title="mcp_evidencebase.bucket_service.BucketService"><em>BucketService</em></a><em>, </em><em>Depends</em><em>(</em><em>dependency=~mcp_evidencebase.api.get_bucket_service</em><em>, </em><em>use_cache=True</em><em>, </em><em>scope=None</em><em>)</em><em>]</em>) – Bucket service dependency.</p>
-</dd>
-<dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>Response containing bucket names.</p>
-</dd>
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>dict[str, list[str]]</p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="mcp_evidencebase.api.create_bucket">
-<span class="sig-prename descclassname"><span class="pre">mcp_evidencebase.api.</span></span><span class="sig-name descname"><span class="pre">create_bucket</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">payload</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">service</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ingestion_service</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#mcp_evidencebase.api.create_bucket" title="Link to this definition">¶</a></dt>
-<dd><p>Create a bucket and ensure its paired Qdrant collection exists.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>payload</strong> (<a class="reference internal" href="#mcp_evidencebase.api.BucketCreateRequest" title="mcp_evidencebase.api.BucketCreateRequest"><em>BucketCreateRequest</em></a>) – Request body containing bucket name.</p></li>
-<li><p><strong>service</strong> (<em>Annotated</em><em>[</em><a class="reference internal" href="#mcp_evidencebase.bucket_service.BucketService" title="mcp_evidencebase.bucket_service.BucketService"><em>BucketService</em></a><em>, </em><em>Depends</em><em>(</em><em>dependency=~mcp_evidencebase.api.get_bucket_service</em><em>, </em><em>use_cache=True</em><em>, </em><em>scope=None</em><em>)</em><em>]</em>) – Bucket service dependency.</p></li>
-<li><p><strong>ingestion_service</strong> (<em>Annotated</em><em>[</em><a class="reference internal" href="#mcp_evidencebase.ingestion.IngestionService" title="mcp_evidencebase.ingestion.IngestionService"><em>IngestionService</em></a><em>, </em><em>Depends</em><em>(</em><em>dependency=~mcp_evidencebase.api.get_ingestion_service</em><em>, </em><em>use_cache=True</em><em>, </em><em>scope=None</em><em>)</em><em>]</em>) – Ingestion service dependency.</p></li>
-</ul>
-</dd>
-<dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>Bucket name and creation/sync flags.</p>
-</dd>
-<dt class="field-odd">Raises<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>HTTPException</strong> – <code class="docutils literal notranslate"><span class="pre">400</span></code> for invalid bucket input or MinIO errors.</p></li>
-<li><p><strong>HTTPException</strong> – <code class="docutils literal notranslate"><span class="pre">502</span></code> when Qdrant collection sync fails.</p></li>
-</ul>
-</dd>
-<dt class="field-even">Return type<span class="colon">:</span></dt>
-<dd class="field-even"><p>dict[str, bool | str]</p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="mcp_evidencebase.api.delete_bucket">
-<span class="sig-prename descclassname"><span class="pre">mcp_evidencebase.api.</span></span><span class="sig-name descname"><span class="pre">delete_bucket</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">bucket_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">service</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ingestion_service</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#mcp_evidencebase.api.delete_bucket" title="Link to this definition">¶</a></dt>
-<dd><p>Delete a bucket and remove its paired Qdrant collection.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>bucket_name</strong> (<em>str</em>) – Bucket path parameter.</p></li>
-<li><p><strong>service</strong> (<em>Annotated</em><em>[</em><a class="reference internal" href="#mcp_evidencebase.bucket_service.BucketService" title="mcp_evidencebase.bucket_service.BucketService"><em>BucketService</em></a><em>, </em><em>Depends</em><em>(</em><em>dependency=~mcp_evidencebase.api.get_bucket_service</em><em>, </em><em>use_cache=True</em><em>, </em><em>scope=None</em><em>)</em><em>]</em>) – Bucket service dependency.</p></li>
-<li><p><strong>ingestion_service</strong> (<em>Annotated</em><em>[</em><a class="reference internal" href="#mcp_evidencebase.ingestion.IngestionService" title="mcp_evidencebase.ingestion.IngestionService"><em>IngestionService</em></a><em>, </em><em>Depends</em><em>(</em><em>dependency=~mcp_evidencebase.api.get_ingestion_service</em><em>, </em><em>use_cache=True</em><em>, </em><em>scope=None</em><em>)</em><em>]</em>) – Ingestion service dependency.</p></li>
-</ul>
-</dd>
-<dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>Bucket name and removal/sync flags.</p>
-</dd>
-<dt class="field-odd">Raises<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>HTTPException</strong> – <code class="docutils literal notranslate"><span class="pre">400</span></code> for invalid bucket input or MinIO errors.</p></li>
-<li><p><strong>HTTPException</strong> – <code class="docutils literal notranslate"><span class="pre">502</span></code> when Qdrant collection sync fails.</p></li>
-</ul>
-</dd>
-<dt class="field-even">Return type<span class="colon">:</span></dt>
-<dd class="field-even"><p>dict[str, bool | str]</p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="mcp_evidencebase.api.get_documents">
-<span class="sig-prename descclassname"><span class="pre">mcp_evidencebase.api.</span></span><span class="sig-name descname"><span class="pre">get_documents</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">bucket_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">service</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#mcp_evidencebase.api.get_documents" title="Link to this definition">¶</a></dt>
-<dd><p>List document records for one bucket.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>bucket_name</strong> (<em>str</em>) – Bucket path parameter.</p></li>
-<li><p><strong>service</strong> (<em>Annotated</em><em>[</em><a class="reference internal" href="#mcp_evidencebase.ingestion.IngestionService" title="mcp_evidencebase.ingestion.IngestionService"><em>IngestionService</em></a><em>, </em><em>Depends</em><em>(</em><em>dependency=~mcp_evidencebase.api.get_ingestion_service</em><em>, </em><em>use_cache=True</em><em>, </em><em>scope=None</em><em>)</em><em>]</em>) – Ingestion service dependency.</p></li>
-</ul>
-</dd>
-<dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>Bucket name and document records.</p>
-</dd>
-<dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>dict[str, <em>Any</em>]</p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="mcp_evidencebase.api.upload_document">
-<span class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">mcp_evidencebase.api.</span></span><span class="sig-name descname"><span class="pre">upload_document</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">bucket_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">file_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">request</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">service</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#mcp_evidencebase.api.upload_document" title="Link to this definition">¶</a></dt>
-<dd><p>Upload one document and enqueue background processing.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>bucket_name</strong> (<em>str</em>) – Bucket path parameter.</p></li>
-<li><p><strong>file_name</strong> (<em>str</em>) – Object name query parameter.</p></li>
-<li><p><strong>request</strong> (<em>Request</em>) – Request body containing raw file bytes.</p></li>
-<li><p><strong>service</strong> (<em>Annotated</em><em>[</em><a class="reference internal" href="#mcp_evidencebase.ingestion.IngestionService" title="mcp_evidencebase.ingestion.IngestionService"><em>IngestionService</em></a><em>, </em><em>Depends</em><em>(</em><em>dependency=~mcp_evidencebase.api.get_ingestion_service</em><em>, </em><em>use_cache=True</em><em>, </em><em>scope=None</em><em>)</em><em>]</em>) – Ingestion service dependency.</p></li>
-</ul>
-</dd>
-<dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>Upload result including queue status and optional Celery task ID.</p>
-</dd>
-<dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>dict[str, <em>Any</em>]</p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="mcp_evidencebase.api.trigger_bucket_scan">
-<span class="sig-prename descclassname"><span class="pre">mcp_evidencebase.api.</span></span><span class="sig-name descname"><span class="pre">trigger_bucket_scan</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">bucket_name</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#mcp_evidencebase.api.trigger_bucket_scan" title="Link to this definition">¶</a></dt>
-<dd><p>Enqueue an on-demand bucket scan task.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>bucket_name</strong> (<em>str</em>) – Bucket path parameter.</p>
-</dd>
-<dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>Queue status, optional task ID, and queue error details.</p>
-</dd>
-<dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>dict[str, <em>Any</em>]</p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="mcp_evidencebase.api.update_document_metadata">
-<span class="sig-prename descclassname"><span class="pre">mcp_evidencebase.api.</span></span><span class="sig-name descname"><span class="pre">update_document_metadata</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">bucket_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">document_id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">payload</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">service</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#mcp_evidencebase.api.update_document_metadata" title="Link to this definition">¶</a></dt>
-<dd><p>Update normalized metadata for a document.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>bucket_name</strong> (<em>str</em>) – Bucket path parameter.</p></li>
-<li><p><strong>document_id</strong> (<em>str</em>) – Canonical document hash.</p></li>
-<li><p><strong>payload</strong> (<a class="reference internal" href="#mcp_evidencebase.api.MetadataUpdateRequest" title="mcp_evidencebase.api.MetadataUpdateRequest"><em>MetadataUpdateRequest</em></a>) – Metadata update payload.</p></li>
-<li><p><strong>service</strong> (<em>Annotated</em><em>[</em><a class="reference internal" href="#mcp_evidencebase.ingestion.IngestionService" title="mcp_evidencebase.ingestion.IngestionService"><em>IngestionService</em></a><em>, </em><em>Depends</em><em>(</em><em>dependency=~mcp_evidencebase.api.get_ingestion_service</em><em>, </em><em>use_cache=True</em><em>, </em><em>scope=None</em><em>)</em><em>]</em>) – Ingestion service dependency.</p></li>
-</ul>
-</dd>
-<dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>Updated metadata payload.</p>
-</dd>
-<dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>dict[str, <em>Any</em>]</p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="mcp_evidencebase.api.delete_document">
-<span class="sig-prename descclassname"><span class="pre">mcp_evidencebase.api.</span></span><span class="sig-name descname"><span class="pre">delete_document</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">bucket_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">document_id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">service</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#mcp_evidencebase.api.delete_document" title="Link to this definition">¶</a></dt>
-<dd><p>Delete a document while retaining Redis partition payload.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>bucket_name</strong> (<em>str</em>) – Bucket path parameter.</p></li>
-<li><p><strong>document_id</strong> (<em>str</em>) – Canonical document hash.</p></li>
-<li><p><strong>service</strong> (<em>Annotated</em><em>[</em><a class="reference internal" href="#mcp_evidencebase.ingestion.IngestionService" title="mcp_evidencebase.ingestion.IngestionService"><em>IngestionService</em></a><em>, </em><em>Depends</em><em>(</em><em>dependency=~mcp_evidencebase.api.get_ingestion_service</em><em>, </em><em>use_cache=True</em><em>, </em><em>scope=None</em><em>)</em><em>]</em>) – Ingestion service dependency.</p></li>
-</ul>
-</dd>
-<dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>Removal status and retention behavior flags.</p>
-</dd>
-<dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>dict[str, <em>Any</em>]</p>
+<dd class="field-odd"><p><a class="reference internal" href="#mcp_evidencebase.ingestion.IngestionService" title="mcp_evidencebase.ingestion_modules.service.IngestionService"><em>IngestionService</em></a></p>
 </dd>
 </dl>
 </dd></dl>
@@ -560,7 +318,7 @@
 <h2>Ingestion Models And Service<a class="headerlink" href="#ingestion-models-and-service" title="Link to this heading">¶</a></h2>
 <dl class="py class">
 <dt class="sig sig-object py" id="mcp_evidencebase.ingestion.IngestionSettings">
-<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">mcp_evidencebase.ingestion.</span></span><span class="sig-name descname"><span class="pre">IngestionSettings</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">minio</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">redis_url</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">redis_prefix</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">qdrant_url</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">qdrant_api_key</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">qdrant_collection_prefix</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">unstructured_api_url</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">unstructured_api_key</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">unstructured_strategy</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fastembed_model</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk_size_chars</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk_overlap_chars</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">scan_interval_seconds</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#mcp_evidencebase.ingestion.IngestionSettings" title="Link to this definition">¶</a></dt>
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">mcp_evidencebase.ingestion.</span></span><span class="sig-name descname"><span class="pre">IngestionSettings</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">minio</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">redis_url</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">redis_prefix</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">qdrant_url</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">qdrant_api_key</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">qdrant_collection_prefix</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">unstructured_api_url</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">unstructured_api_key</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">unstructured_strategy</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">unstructured_timeout_seconds</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fastembed_model</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fastembed_keyword_model</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk_size_chars</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk_overlap_chars</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk_exclude_element_types</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunking_strategy</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk_new_after_n_chars</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk_combine_text_under_n_chars</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk_include_title_text</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk_image_text_mode</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk_paragraph_break_strategy</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk_preserve_page_breaks</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">scan_interval_seconds</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#mcp_evidencebase.ingestion.IngestionSettings" title="Link to this definition">¶</a></dt>
 <dd><p>Runtime settings for document ingestion components.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
@@ -574,9 +332,19 @@
 <li><p><strong>unstructured_api_url</strong> (<em>str</em>)</p></li>
 <li><p><strong>unstructured_api_key</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
 <li><p><strong>unstructured_strategy</strong> (<em>str</em>)</p></li>
+<li><p><strong>unstructured_timeout_seconds</strong> (<em>float</em>)</p></li>
 <li><p><strong>fastembed_model</strong> (<em>str</em>)</p></li>
+<li><p><strong>fastembed_keyword_model</strong> (<em>str</em>)</p></li>
 <li><p><strong>chunk_size_chars</strong> (<em>int</em>)</p></li>
 <li><p><strong>chunk_overlap_chars</strong> (<em>int</em>)</p></li>
+<li><p><strong>chunk_exclude_element_types</strong> (<em>tuple</em><em>[</em><em>str</em><em>, </em><em>...</em><em>] </em><em>| </em><em>None</em>)</p></li>
+<li><p><strong>chunking_strategy</strong> (<em>str</em>)</p></li>
+<li><p><strong>chunk_new_after_n_chars</strong> (<em>int</em>)</p></li>
+<li><p><strong>chunk_combine_text_under_n_chars</strong> (<em>int</em>)</p></li>
+<li><p><strong>chunk_include_title_text</strong> (<em>bool</em>)</p></li>
+<li><p><strong>chunk_image_text_mode</strong> (<em>str</em>)</p></li>
+<li><p><strong>chunk_paragraph_break_strategy</strong> (<em>str</em>)</p></li>
+<li><p><strong>chunk_preserve_page_breaks</strong> (<em>bool</em>)</p></li>
 <li><p><strong>scan_interval_seconds</strong> (<em>int</em>)</p></li>
 </ul>
 </dd>
@@ -585,10 +353,12 @@
 
 <dl class="py class">
 <dt class="sig sig-object py" id="mcp_evidencebase.ingestion.IngestionService">
-<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">mcp_evidencebase.ingestion.</span></span><span class="sig-name descname"><span class="pre">IngestionService</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">minio_client</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">repository</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">partition_client</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">qdrant_indexer</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk_size_chars</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk_overlap_chars</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#mcp_evidencebase.ingestion.IngestionService" title="Link to this definition">¶</a></dt>
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">mcp_evidencebase.ingestion.</span></span><span class="sig-name descname"><span class="pre">IngestionService</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">minio_client</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">repository</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">partition_client</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">qdrant_indexer</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk_size_chars</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk_overlap_chars</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk_exclude_element_types</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunking_strategy</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'by_title'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk_new_after_n_chars</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1500</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk_combine_text_under_n_chars</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">500</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk_include_title_text</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk_image_text_mode</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'placeholder'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk_paragraph_break_strategy</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'text'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk_preserve_page_breaks</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#mcp_evidencebase.ingestion.IngestionService" title="Link to this definition">¶</a></dt>
 <dd><p>High-level ingestion operations shared by API handlers and Celery tasks.</p>
 <p>The service coordinates MinIO object storage, Unstructured partitioning,
-Redis state/metadata persistence, and Qdrant vector indexing.</p>
+Redis state/metadata persistence, and Qdrant vector indexing. Atomic
+stage methods are provided for partition, metadata, section mapping,
+chunking, and vector upsert workflows.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
@@ -598,6 +368,14 @@ Redis state/metadata persistence, and Qdrant vector indexing.</p>
 <li><p><strong>qdrant_indexer</strong> (<em>QdrantIndexer</em>)</p></li>
 <li><p><strong>chunk_size_chars</strong> (<em>int</em>)</p></li>
 <li><p><strong>chunk_overlap_chars</strong> (<em>int</em>)</p></li>
+<li><p><strong>chunk_exclude_element_types</strong> (<em>tuple</em><em>[</em><em>str</em><em>, </em><em>...</em><em>] </em><em>| </em><em>None</em>)</p></li>
+<li><p><strong>chunking_strategy</strong> (<em>str</em>)</p></li>
+<li><p><strong>chunk_new_after_n_chars</strong> (<em>int</em>)</p></li>
+<li><p><strong>chunk_combine_text_under_n_chars</strong> (<em>int</em>)</p></li>
+<li><p><strong>chunk_include_title_text</strong> (<em>bool</em>)</p></li>
+<li><p><strong>chunk_image_text_mode</strong> (<em>str</em>)</p></li>
+<li><p><strong>chunk_paragraph_break_strategy</strong> (<em>str</em>)</p></li>
+<li><p><strong>chunk_preserve_page_breaks</strong> (<em>bool</em>)</p></li>
 </ul>
 </dd>
 </dl>
@@ -732,7 +510,9 @@ Redis state/metadata persistence, and Qdrant vector indexing.</p>
 <dl class="py method">
 <dt class="sig sig-object py" id="mcp_evidencebase.ingestion.IngestionService.process_object">
 <span class="sig-name descname"><span class="pre">process_object</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">bucket_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">object_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">etag</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#mcp_evidencebase.ingestion.IngestionService.process_object" title="Link to this definition">¶</a></dt>
-<dd><p>Process one MinIO object into partitions, metadata, and vectors.</p>
+<dd><p>Process one MinIO object through partition and chunk stages.</p>
+<p>This compatibility wrapper runs <code class="docutils literal notranslate"><span class="pre">partition_object()</span></code> then
+<code class="docutils literal notranslate"><span class="pre">chunk_object()</span></code> in sequence.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
@@ -757,6 +537,220 @@ Redis state/metadata persistence, and Qdrant vector indexing.</p>
 </dd></dl>
 
 <dl class="py method">
+<dt class="sig sig-object py" id="mcp_evidencebase.ingestion.IngestionService.partition_stage_object">
+<span class="sig-name descname"><span class="pre">partition_stage_object</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">bucket_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">object_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">etag</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#mcp_evidencebase.ingestion.IngestionService.partition_stage_object" title="Link to this definition">¶</a></dt>
+<dd><p>Run only Unstructured partition extraction for one object.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>bucket_name</strong> (<em>str</em>)</p></li>
+<li><p><strong>object_name</strong> (<em>str</em>)</p></li>
+<li><p><strong>etag</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>dict[str, str]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="mcp_evidencebase.ingestion.IngestionService.meta_stage_object">
+<span class="sig-name descname"><span class="pre">meta_stage_object</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">bucket_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">object_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">document_id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">etag</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#mcp_evidencebase.ingestion.IngestionService.meta_stage_object" title="Link to this definition">¶</a></dt>
+<dd><p>Run only metadata extraction/persistence for a partitioned document.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>bucket_name</strong> (<em>str</em>)</p></li>
+<li><p><strong>object_name</strong> (<em>str</em>)</p></li>
+<li><p><strong>document_id</strong> (<em>str</em>)</p></li>
+<li><p><strong>etag</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>dict[str, str]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="mcp_evidencebase.ingestion.IngestionService.section_stage_object">
+<span class="sig-name descname"><span class="pre">section_stage_object</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">bucket_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">object_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">document_id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">etag</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#mcp_evidencebase.ingestion.IngestionService.section_stage_object" title="Link to this definition">¶</a></dt>
+<dd><p>Build and persist section/chunk-section mapping for one document.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>bucket_name</strong> (<em>str</em>)</p></li>
+<li><p><strong>object_name</strong> (<em>str</em>)</p></li>
+<li><p><strong>document_id</strong> (<em>str</em>)</p></li>
+<li><p><strong>etag</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>dict[str, str]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="mcp_evidencebase.ingestion.IngestionService.chunk_stage_object">
+<span class="sig-name descname"><span class="pre">chunk_stage_object</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">bucket_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">object_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">document_id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">etag</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#mcp_evidencebase.ingestion.IngestionService.chunk_stage_object" title="Link to this definition">¶</a></dt>
+<dd><p>Build chunk payload for one document and persist chunk-level progress.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>bucket_name</strong> (<em>str</em>)</p></li>
+<li><p><strong>object_name</strong> (<em>str</em>)</p></li>
+<li><p><strong>document_id</strong> (<em>str</em>)</p></li>
+<li><p><strong>etag</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>dict[str, str]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="mcp_evidencebase.ingestion.IngestionService.upsert_stage_object">
+<span class="sig-name descname"><span class="pre">upsert_stage_object</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">bucket_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">object_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">document_id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">etag</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#mcp_evidencebase.ingestion.IngestionService.upsert_stage_object" title="Link to this definition">¶</a></dt>
+<dd><p>Embed and upsert chunks for one document into Qdrant.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>bucket_name</strong> (<em>str</em>)</p></li>
+<li><p><strong>object_name</strong> (<em>str</em>)</p></li>
+<li><p><strong>document_id</strong> (<em>str</em>)</p></li>
+<li><p><strong>etag</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>dict[str, str]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="mcp_evidencebase.ingestion.IngestionService.partition_object">
+<span class="sig-name descname"><span class="pre">partition_object</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">bucket_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">object_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">etag</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#mcp_evidencebase.ingestion.IngestionService.partition_object" title="Link to this definition">¶</a></dt>
+<dd><p>Run partitioning and metadata extraction for one MinIO object.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>bucket_name</strong> (<em>str</em>) – Source bucket.</p></li>
+<li><p><strong>object_name</strong> (<em>str</em>) – Source object path.</p></li>
+<li><p><strong>etag</strong> (<em>str</em><em> | </em><em>None</em>) – Optional object ETag from scanner context.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Stage payload containing bucket/object IDs and partition metadata keys.</p>
+</dd>
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>ValueError</strong> – If the object payload is empty.</p></li>
+<li><p><strong>Exception</strong> – Any downstream partitioning failure.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>dict[str, str]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="mcp_evidencebase.ingestion.IngestionService.chunk_object">
+<span class="sig-name descname"><span class="pre">chunk_object</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">bucket_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">object_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">document_id</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#mcp_evidencebase.ingestion.IngestionService.chunk_object" title="Link to this definition">¶</a></dt>
+<dd><p>Run section, chunk, and upsert stages for a partitioned document.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>bucket_name</strong> (<em>str</em>) – Source bucket.</p></li>
+<li><p><strong>object_name</strong> (<em>str</em>) – Source object path.</p></li>
+<li><p><strong>document_id</strong> (<em>str</em>) – Canonical document hash to chunk/index.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Stage payload containing bucket/object IDs and persisted key references.</p>
+</dd>
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>ValueError</strong> – If no partition payload is available for the document.</p></li>
+<li><p><strong>Exception</strong> – Any downstream section/chunk/upsert failure.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>dict[str, str]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="mcp_evidencebase.ingestion.IngestionService.get_document_section">
+<span class="sig-name descname"><span class="pre">get_document_section</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">bucket_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">document_id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">section_id</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#mcp_evidencebase.ingestion.IngestionService.get_document_section" title="Link to this definition">¶</a></dt>
+<dd><p>Return one section mapping record for a document.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>bucket_name</strong> (<em>str</em>)</p></li>
+<li><p><strong>document_id</strong> (<em>str</em>)</p></li>
+<li><p><strong>section_id</strong> (<em>str</em>)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>dict[str, <em>Any</em>]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="mcp_evidencebase.ingestion.IngestionService.list_document_sections">
+<span class="sig-name descname"><span class="pre">list_document_sections</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">bucket_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">document_id</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#mcp_evidencebase.ingestion.IngestionService.list_document_sections" title="Link to this definition">¶</a></dt>
+<dd><p>Return all section mapping records for a document.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>bucket_name</strong> (<em>str</em>)</p></li>
+<li><p><strong>document_id</strong> (<em>str</em>)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>list[dict[str, <em>Any</em>]]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="mcp_evidencebase.ingestion.IngestionService.rebuild_document_section_mapping">
+<span class="sig-name descname"><span class="pre">rebuild_document_section_mapping</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">bucket_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">document_id</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#mcp_evidencebase.ingestion.IngestionService.rebuild_document_section_mapping" title="Link to this definition">¶</a></dt>
+<dd><p>Rebuild and persist section mapping for one document from stored partitions.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>bucket_name</strong> (<em>str</em>)</p></li>
+<li><p><strong>document_id</strong> (<em>str</em>)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>dict[str, <em>Any</em>]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="mcp_evidencebase.ingestion.IngestionService.rebuild_bucket_section_mappings">
+<span class="sig-name descname"><span class="pre">rebuild_bucket_section_mappings</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">bucket_name</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#mcp_evidencebase.ingestion.IngestionService.rebuild_bucket_section_mappings" title="Link to this definition">¶</a></dt>
+<dd><p>Rebuild section mappings for all documents in one bucket.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>bucket_name</strong> (<em>str</em>)</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>dict[str, <em>Any</em>]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
 <dt class="sig sig-object py" id="mcp_evidencebase.ingestion.IngestionService.update_metadata">
 <span class="sig-name descname"><span class="pre">update_metadata</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">bucket_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">document_id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">metadata</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#mcp_evidencebase.ingestion.IngestionService.update_metadata" title="Link to this definition">¶</a></dt>
 <dd><p>Upsert BibTeX-style metadata for a document.</p>
@@ -765,7 +759,7 @@ Redis state/metadata persistence, and Qdrant vector indexing.</p>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>bucket_name</strong> (<em>str</em>) – Bucket containing document sources.</p></li>
 <li><p><strong>document_id</strong> (<em>str</em>) – Canonical document hash.</p></li>
-<li><p><strong>metadata</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>str</em><em>]</em>) – Partial metadata update payload.</p></li>
+<li><p><strong>metadata</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em>) – Partial metadata update payload.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
@@ -773,6 +767,43 @@ Redis state/metadata persistence, and Qdrant vector indexing.</p>
 </dd>
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
 <dd class="field-odd"><p>dict[str, str]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="mcp_evidencebase.ingestion.IngestionService.resolve_document_object">
+<span class="sig-name descname"><span class="pre">resolve_document_object</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">bucket_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">object_name</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#mcp_evidencebase.ingestion.IngestionService.resolve_document_object" title="Link to this definition">¶</a></dt>
+<dd><p>Read one object from MinIO for resolver delivery.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>bucket_name</strong> (<em>str</em>) – Source bucket name.</p></li>
+<li><p><strong>object_name</strong> (<em>str</em>) – Object path within the bucket.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Tuple of object bytes and detected content type.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>tuple[bytes, str]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="mcp_evidencebase.ingestion.IngestionService.fetch_metadata_from_crossref">
+<span class="sig-name descname"><span class="pre">fetch_metadata_from_crossref</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">bucket_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">document_id</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#mcp_evidencebase.ingestion.IngestionService.fetch_metadata_from_crossref" title="Link to this definition">¶</a></dt>
+<dd><p>Fetch and persist document metadata from Crossref with confidence gating.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>bucket_name</strong> (<em>str</em>)</p></li>
+<li><p><strong>document_id</strong> (<em>str</em>)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>dict[str, <em>Any</em>]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -798,6 +829,37 @@ Redis state/metadata persistence, and Qdrant vector indexing.</p>
 </dl>
 </dd></dl>
 
+<dl class="py method">
+<dt class="sig sig-object py" id="mcp_evidencebase.ingestion.IngestionService.purge_datastores">
+<span class="sig-name descname"><span class="pre">purge_datastores</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#mcp_evidencebase.ingestion.IngestionService.purge_datastores" title="Link to this definition">¶</a></dt>
+<dd><p>Purge Redis and Qdrant data for this application prefix.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>dict[str, int]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="mcp_evidencebase.ingestion.IngestionService.search_documents">
+<span class="sig-name descname"><span class="pre">search_documents</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">bucket_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">query</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">limit</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mode</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'hybrid'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rrf_k</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">60</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#mcp_evidencebase.ingestion.IngestionService.search_documents" title="Link to this definition">¶</a></dt>
+<dd><p>Search indexed chunks for one bucket using semantic/keyword/hybrid retrieval.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>bucket_name</strong> (<em>str</em>)</p></li>
+<li><p><strong>query</strong> (<em>str</em>)</p></li>
+<li><p><strong>limit</strong> (<em>int</em>)</p></li>
+<li><p><strong>mode</strong> (<em>str</em>)</p></li>
+<li><p><strong>rrf_k</strong> (<em>int</em>)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>list[dict[str, <em>Any</em>]]</p>
+</dd>
+</dl>
+</dd></dl>
+
 </dd></dl>
 
 <dl class="py function">
@@ -812,7 +874,7 @@ Redis state/metadata persistence, and Qdrant vector indexing.</p>
 <dd class="field-even"><p>Parsed ingestion settings with defaults for unset variables.</p>
 </dd>
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><a class="reference internal" href="#mcp_evidencebase.ingestion.IngestionSettings" title="mcp_evidencebase.ingestion.IngestionSettings"><em>IngestionSettings</em></a></p>
+<dd class="field-odd"><p><a class="reference internal" href="#mcp_evidencebase.ingestion.IngestionSettings" title="mcp_evidencebase.ingestion_modules.wiring.IngestionSettings"><em>IngestionSettings</em></a></p>
 </dd>
 </dl>
 </dd></dl>
@@ -823,13 +885,13 @@ Redis state/metadata persistence, and Qdrant vector indexing.</p>
 <dd><p>Build a fully configured ingestion service.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>settings</strong> (<a class="reference internal" href="#mcp_evidencebase.ingestion.IngestionSettings" title="mcp_evidencebase.ingestion.IngestionSettings"><em>IngestionSettings</em></a><em> | </em><em>None</em>) – Optional precomputed settings object.</p>
+<dd class="field-odd"><p><strong>settings</strong> (<a class="reference internal" href="#mcp_evidencebase.ingestion.IngestionSettings" title="mcp_evidencebase.ingestion_modules.wiring.IngestionSettings"><em>IngestionSettings</em></a><em> | </em><em>None</em>) – Optional precomputed settings object.</p>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
 <dd class="field-even"><p>Ready-to-use ingestion service with MinIO, Redis, and Qdrant clients.</p>
 </dd>
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><a class="reference internal" href="#mcp_evidencebase.ingestion.IngestionService" title="mcp_evidencebase.ingestion.IngestionService"><em>IngestionService</em></a></p>
+<dd class="field-odd"><p><a class="reference internal" href="#mcp_evidencebase.ingestion.IngestionService" title="mcp_evidencebase.ingestion_modules.service.IngestionService"><em>IngestionService</em></a></p>
 </dd>
 </dl>
 </dd></dl>
@@ -837,7 +899,18 @@ Redis state/metadata persistence, and Qdrant vector indexing.</p>
 </section>
 <section id="module-mcp_evidencebase.tasks">
 <span id="tasks-and-worker-app"></span><h2>Tasks And Worker App<a class="headerlink" href="#module-mcp_evidencebase.tasks" title="Link to this heading">¶</a></h2>
-<p>Celery tasks for document ingestion.</p>
+<p>Celery tasks for asynchronous ingestion workflow.</p>
+<p>Task summary:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">mcp_evidencebase.ping</span></code>: worker health probe.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">mcp_evidencebase.scan_minio_objects</span></code>: scans buckets and enqueues changed objects.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">mcp_evidencebase.partition_minio_object</span></code>: partition stage.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">mcp_evidencebase.meta_minio_object</span></code>: metadata stage (+ optional Crossref update).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">mcp_evidencebase.section_minio_object</span></code>: section mapping stage.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">mcp_evidencebase.chunk_minio_object</span></code>: chunk stage.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">mcp_evidencebase.upsert_minio_object</span></code>: vector upsert stage.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">mcp_evidencebase.process_minio_object</span></code>: backward-compatible full pipeline wrapper.</p></li>
+</ul>
 <p id="module-mcp_evidencebase.celery_app">Celery application configuration.</p>
 </section>
 </section>
@@ -870,8 +943,17 @@ Redis state/metadata persistence, and Qdrant vector indexing.</p>
 <script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
 <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
 <ul class="current">
-<li class="toctree-l1"><a class="reference internal" href="readme.html">Evidence Base</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html">About The Project</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html#getting-started">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html#usage">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html#project-structure">Project Structure</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html#roadmap">Roadmap</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html#contributing">Contributing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html#license">License</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html#contact">Contact</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html#acknowledgments">Acknowledgments</a></li>
 <li class="toctree-l1"><a class="reference internal" href="vignette_cli.html">Command-Line Vignette: End-To-End Workflow</a></li>
+<li class="toctree-l1"><a class="reference internal" href="gpt_actions.html">GPT Actions API</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Reference</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="#module-mcp_evidencebase.cli">CLI Module</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#module-mcp_evidencebase.core">Core Module</a></li>
@@ -889,7 +971,7 @@ Redis state/metadata persistence, and Qdrant vector indexing.</p>
 <h3>Related Topics</h3>
 <ul>
   <li><a href="index.html">Documentation overview</a><ul>
-      <li>Previous: <a href="vignette_cli.html" title="previous chapter">Command-Line Vignette: End-To-End Workflow</a></li>
+      <li>Previous: <a href="gpt_actions.html" title="previous chapter">GPT Actions API</a></li>
       <li>Next: <a href="tests.html" title="next chapter">Tests</a></li>
   </ul></li>
 </ul>

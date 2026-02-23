@@ -1,28 +1,28 @@
 {
   "filters": {
-    "untracked": 15,
-    "total": 15,
-    "passed": 15,
+    "untracked": 2,
+    "total": 2,
+    "passed": 2,
     "marker_counts": {
-      "area_ingestion": 15
+      "area_ingestion": 2
     }
   },
   "results": [
     {
-      "test": "test_chunking_title_creates_section_boundary",
-      "nodeid": "tests/test_chunking.py::test_chunking_title_creates_section_boundary",
+      "test": "test_build_ingestion_settings_supports_unstructured_timeout_override",
+      "nodeid": "tests/test_ingestion.py::test_build_ingestion_settings_supports_unstructured_timeout_override",
       "status": "passed",
-      "duration": 0.0007009159890003502,
+      "duration": 0.00016620894894003868,
       "trace": null,
       "error": null,
       "markers": [
         "area_ingestion"
       ],
-      "file": "tests/test_chunking.py",
-      "line": 44,
+      "file": "tests/test_ingestion.py",
+      "line": 368,
       "stdout": "",
       "stderr": "",
-      "timestamp": "2026-02-20T08:18:00.399306Z",
+      "timestamp": "2026-02-23T08:44:41.688071Z",
       "screenshot": "screenshots",
       "logs": [],
       "worker": "main",
@@ -30,293 +30,20 @@
       "flaky": false
     },
     {
-      "test": "test_chunking_annotates_parent_section_metadata",
-      "nodeid": "tests/test_chunking.py::test_chunking_annotates_parent_section_metadata",
+      "test": "test_unstructured_partition_client_wraps_read_timeout",
+      "nodeid": "tests/test_ingestion.py::test_unstructured_partition_client_wraps_read_timeout",
       "status": "passed",
-      "duration": 9.9874974694103e-05,
+      "duration": 0.0001740830484777689,
       "trace": null,
       "error": null,
       "markers": [
         "area_ingestion"
       ],
-      "file": "tests/test_chunking.py",
-      "line": 76,
+      "file": "tests/test_ingestion.py",
+      "line": 405,
       "stdout": "",
       "stderr": "",
-      "timestamp": "2026-02-20T08:18:00.399890Z",
-      "screenshot": "screenshots",
-      "logs": [],
-      "worker": "main",
-      "links": [],
-      "flaky": false
-    },
-    {
-      "test": "test_chunking_size_limits_respected",
-      "nodeid": "tests/test_chunking.py::test_chunking_size_limits_respected",
-      "status": "passed",
-      "duration": 0.00014791602734476328,
-      "trace": null,
-      "error": null,
-      "markers": [
-        "area_ingestion"
-      ],
-      "file": "tests/test_chunking.py",
-      "line": 127,
-      "stdout": "",
-      "stderr": "",
-      "timestamp": "2026-02-20T08:18:00.400281Z",
-      "screenshot": "screenshots",
-      "logs": [],
-      "worker": "main",
-      "links": [],
-      "flaky": false
-    },
-    {
-      "test": "test_chunking_tables_are_isolated",
-      "nodeid": "tests/test_chunking.py::test_chunking_tables_are_isolated",
-      "status": "passed",
-      "duration": 9.870802750810981e-05,
-      "trace": null,
-      "error": null,
-      "markers": [
-        "area_ingestion"
-      ],
-      "file": "tests/test_chunking.py",
-      "line": 151,
-      "stdout": "",
-      "stderr": "",
-      "timestamp": "2026-02-20T08:18:00.400602Z",
-      "screenshot": "screenshots",
-      "logs": [],
-      "worker": "main",
-      "links": [],
-      "flaky": false
-    },
-    {
-      "test": "test_chunking_small_chunk_merging",
-      "nodeid": "tests/test_chunking.py::test_chunking_small_chunk_merging",
-      "status": "passed",
-      "duration": 0.00018974998965859413,
-      "trace": null,
-      "error": null,
-      "markers": [
-        "area_ingestion"
-      ],
-      "file": "tests/test_chunking.py",
-      "line": 174,
-      "stdout": "",
-      "stderr": "",
-      "timestamp": "2026-02-20T08:18:00.401013Z",
-      "screenshot": "screenshots",
-      "logs": [],
-      "worker": "main",
-      "links": [],
-      "flaky": false
-    },
-    {
-      "test": "test_chunking_chunk_id_is_deterministic",
-      "nodeid": "tests/test_chunking.py::test_chunking_chunk_id_is_deterministic",
-      "status": "passed",
-      "duration": 0.00011108303442597389,
-      "trace": null,
-      "error": null,
-      "markers": [
-        "area_ingestion"
-      ],
-      "file": "tests/test_chunking.py",
-      "line": 193,
-      "stdout": "",
-      "stderr": "",
-      "timestamp": "2026-02-20T08:18:00.401344Z",
-      "screenshot": "screenshots",
-      "logs": [],
-      "worker": "main",
-      "links": [],
-      "flaky": false
-    },
-    {
-      "test": "test_chunking_oversized_split_overlap_is_internal_only",
-      "nodeid": "tests/test_chunking.py::test_chunking_oversized_split_overlap_is_internal_only",
-      "status": "passed",
-      "duration": 0.00019275001250207424,
-      "trace": null,
-      "error": null,
-      "markers": [
-        "area_ingestion"
-      ],
-      "file": "tests/test_chunking.py",
-      "line": 206,
-      "stdout": "",
-      "stderr": "",
-      "timestamp": "2026-02-20T08:18:00.401749Z",
-      "screenshot": "screenshots",
-      "logs": [],
-      "worker": "main",
-      "links": [],
-      "flaky": false
-    },
-    {
-      "test": "test_chunking_page_range_metadata_is_correct",
-      "nodeid": "tests/test_chunking.py::test_chunking_page_range_metadata_is_correct",
-      "status": "passed",
-      "duration": 0.00011995801469311118,
-      "trace": null,
-      "error": null,
-      "markers": [
-        "area_ingestion"
-      ],
-      "file": "tests/test_chunking.py",
-      "line": 244,
-      "stdout": "",
-      "stderr": "",
-      "timestamp": "2026-02-20T08:18:00.402081Z",
-      "screenshot": "screenshots",
-      "logs": [],
-      "worker": "main",
-      "links": [],
-      "flaky": false
-    },
-    {
-      "test": "test_chunking_excludes_headers_footers_and_parser_noise",
-      "nodeid": "tests/test_chunking.py::test_chunking_excludes_headers_footers_and_parser_noise",
-      "status": "passed",
-      "duration": 0.00012341700494289398,
-      "trace": null,
-      "error": null,
-      "markers": [
-        "area_ingestion"
-      ],
-      "file": "tests/test_chunking.py",
-      "line": 275,
-      "stdout": "",
-      "stderr": "",
-      "timestamp": "2026-02-20T08:18:00.402414Z",
-      "screenshot": "screenshots",
-      "logs": [],
-      "worker": "main",
-      "links": [],
-      "flaky": false
-    },
-    {
-      "test": "test_chunking_parent_section_text_prefers_table_html_and_image_markdown",
-      "nodeid": "tests/test_chunking.py::test_chunking_parent_section_text_prefers_table_html_and_image_markdown",
-      "status": "passed",
-      "duration": 8.45409813337028e-05,
-      "trace": null,
-      "error": null,
-      "markers": [
-        "area_ingestion"
-      ],
-      "file": "tests/test_chunking.py",
-      "line": 322,
-      "stdout": "",
-      "stderr": "",
-      "timestamp": "2026-02-20T08:18:00.402712Z",
-      "screenshot": "screenshots",
-      "logs": [],
-      "worker": "main",
-      "links": [],
-      "flaky": false
-    },
-    {
-      "test": "test_chunking_image_ocr_stays_searchable_while_section_text_uses_placeholder",
-      "nodeid": "tests/test_chunking.py::test_chunking_image_ocr_stays_searchable_while_section_text_uses_placeholder",
-      "status": "passed",
-      "duration": 6.741599645465612e-05,
-      "trace": null,
-      "error": null,
-      "markers": [
-        "area_ingestion"
-      ],
-      "file": "tests/test_chunking.py",
-      "line": 360,
-      "stdout": "",
-      "stderr": "",
-      "timestamp": "2026-02-20T08:18:00.402986Z",
-      "screenshot": "screenshots",
-      "logs": [],
-      "worker": "main",
-      "links": [],
-      "flaky": false
-    },
-    {
-      "test": "test_chunking_excludes_uncategorized_text",
-      "nodeid": "tests/test_chunking.py::test_chunking_excludes_uncategorized_text",
-      "status": "passed",
-      "duration": 6.624998059123755e-05,
-      "trace": null,
-      "error": null,
-      "markers": [
-        "area_ingestion"
-      ],
-      "file": "tests/test_chunking.py",
-      "line": 386,
-      "stdout": "",
-      "stderr": "",
-      "timestamp": "2026-02-20T08:18:00.403264Z",
-      "screenshot": "screenshots",
-      "logs": [],
-      "worker": "main",
-      "links": [],
-      "flaky": false
-    },
-    {
-      "test": "test_chunking_parent_section_text_avoids_spurious_paragraph_breaks",
-      "nodeid": "tests/test_chunking.py::test_chunking_parent_section_text_avoids_spurious_paragraph_breaks",
-      "status": "passed",
-      "duration": 9.758298983797431e-05,
-      "trace": null,
-      "error": null,
-      "markers": [
-        "area_ingestion"
-      ],
-      "file": "tests/test_chunking.py",
-      "line": 415,
-      "stdout": "",
-      "stderr": "",
-      "timestamp": "2026-02-20T08:18:00.403570Z",
-      "screenshot": "screenshots",
-      "logs": [],
-      "worker": "main",
-      "links": [],
-      "flaky": false
-    },
-    {
-      "test": "test_chunking_parent_section_text_keeps_page_break_paragraphs",
-      "nodeid": "tests/test_chunking.py::test_chunking_parent_section_text_keeps_page_break_paragraphs",
-      "status": "passed",
-      "duration": 6.720901001244783e-05,
-      "trace": null,
-      "error": null,
-      "markers": [
-        "area_ingestion"
-      ],
-      "file": "tests/test_chunking.py",
-      "line": 456,
-      "stdout": "",
-      "stderr": "",
-      "timestamp": "2026-02-20T08:18:00.403845Z",
-      "screenshot": "screenshots",
-      "logs": [],
-      "worker": "main",
-      "links": [],
-      "flaky": false
-    },
-    {
-      "test": "test_chunking_element_inclusion_is_configurable",
-      "nodeid": "tests/test_chunking.py::test_chunking_element_inclusion_is_configurable",
-      "status": "passed",
-      "duration": 0.000196124950889498,
-      "trace": null,
-      "error": null,
-      "markers": [
-        "area_ingestion"
-      ],
-      "file": "tests/test_chunking.py",
-      "line": 486,
-      "stdout": "",
-      "stderr": "",
-      "timestamp": "2026-02-20T08:18:00.404255Z",
+      "timestamp": "2026-02-23T08:44:41.688680Z",
       "screenshot": "screenshots",
       "logs": [],
       "worker": "main",

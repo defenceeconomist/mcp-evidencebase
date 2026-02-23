@@ -39,6 +39,7 @@
  | <a href="#C"><strong>C</strong></a>
  | <a href="#D"><strong>D</strong></a>
  | <a href="#E"><strong>E</strong></a>
+ | <a href="#F"><strong>F</strong></a>
  | <a href="#G"><strong>G</strong></a>
  | <a href="#H"><strong>H</strong></a>
  | <a href="#I"><strong>I</strong></a>
@@ -63,8 +64,6 @@
 <h2 id="B">B</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="reference.html#mcp_evidencebase.api.BucketCreateRequest">BucketCreateRequest (class in mcp_evidencebase.api)</a>
-</li>
       <li><a href="reference.html#mcp_evidencebase.bucket_service.BucketService">BucketService (class in mcp_evidencebase.bucket_service)</a>
 </li>
       <li><a href="reference.html#mcp_evidencebase.ingestion.build_ingestion_service">build_ingestion_service() (in module mcp_evidencebase.ingestion)</a>
@@ -83,34 +82,28 @@
 <h2 id="C">C</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="reference.html#mcp_evidencebase.api.create_bucket">create_bucket() (in module mcp_evidencebase.api)</a>
-
-      <ul>
-        <li><a href="reference.html#mcp_evidencebase.bucket_service.BucketService.create_bucket">(mcp_evidencebase.bucket_service.BucketService method)</a>
+      <li><a href="reference.html#mcp_evidencebase.ingestion.IngestionService.chunk_object">chunk_object() (mcp_evidencebase.ingestion.IngestionService method)</a>
 </li>
-      </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="reference.html#mcp_evidencebase.ingestion.IngestionService.chunk_stage_object">chunk_stage_object() (mcp_evidencebase.ingestion.IngestionService method)</a>
+</li>
+      <li><a href="reference.html#mcp_evidencebase.bucket_service.BucketService.create_bucket">create_bucket() (mcp_evidencebase.bucket_service.BucketService method)</a>
+</li>
   </ul></td>
 </tr></table>
 
 <h2 id="D">D</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="reference.html#mcp_evidencebase.api.delete_bucket">delete_bucket() (in module mcp_evidencebase.api)</a>
-
-      <ul>
-        <li><a href="reference.html#mcp_evidencebase.bucket_service.BucketService.delete_bucket">(mcp_evidencebase.bucket_service.BucketService method)</a>
+      <li><a href="reference.html#mcp_evidencebase.bucket_service.BucketService.delete_bucket">delete_bucket() (mcp_evidencebase.bucket_service.BucketService method)</a>
 </li>
-      </ul></li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="reference.html#mcp_evidencebase.ingestion.IngestionService.delete_bucket_qdrant_collection">delete_bucket_qdrant_collection() (mcp_evidencebase.ingestion.IngestionService method)</a>
 </li>
-      <li><a href="reference.html#mcp_evidencebase.api.delete_document">delete_document() (in module mcp_evidencebase.api)</a>
-
-      <ul>
-        <li><a href="reference.html#mcp_evidencebase.ingestion.IngestionService.delete_document">(mcp_evidencebase.ingestion.IngestionService method)</a>
+      <li><a href="reference.html#mcp_evidencebase.ingestion.IngestionService.delete_document">delete_document() (mcp_evidencebase.ingestion.IngestionService method)</a>
 </li>
-      </ul></li>
   </ul></td>
 </tr></table>
 
@@ -122,20 +115,24 @@
   </ul></td>
 </tr></table>
 
+<h2 id="F">F</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="reference.html#mcp_evidencebase.ingestion.IngestionService.fetch_metadata_from_crossref">fetch_metadata_from_crossref() (mcp_evidencebase.ingestion.IngestionService method)</a>
+</li>
+  </ul></td>
+</tr></table>
+
 <h2 id="G">G</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="reference.html#mcp_evidencebase.api.get_bucket_service">get_bucket_service() (in module mcp_evidencebase.api)</a>
 </li>
-      <li><a href="reference.html#mcp_evidencebase.api.get_buckets">get_buckets() (in module mcp_evidencebase.api)</a>
-</li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="reference.html#mcp_evidencebase.api.get_documents">get_documents() (in module mcp_evidencebase.api)</a>
+      <li><a href="reference.html#mcp_evidencebase.ingestion.IngestionService.get_document_section">get_document_section() (mcp_evidencebase.ingestion.IngestionService method)</a>
 </li>
       <li><a href="reference.html#mcp_evidencebase.api.get_ingestion_service">get_ingestion_service() (in module mcp_evidencebase.api)</a>
-</li>
-      <li><a href="reference.html#mcp_evidencebase.api.get_minio_settings">get_minio_settings() (in module mcp_evidencebase.api)</a>
 </li>
   </ul></td>
 </tr></table>
@@ -144,10 +141,6 @@
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="reference.html#mcp_evidencebase.core.healthcheck">healthcheck() (in module mcp_evidencebase.core)</a>
-</li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="reference.html#mcp_evidencebase.api.healthz">healthz() (in module mcp_evidencebase.api)</a>
 </li>
   </ul></td>
 </tr></table>
@@ -177,6 +170,8 @@
       </ul></li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="reference.html#mcp_evidencebase.ingestion.IngestionService.list_document_sections">list_document_sections() (mcp_evidencebase.ingestion.IngestionService method)</a>
+</li>
       <li><a href="reference.html#mcp_evidencebase.ingestion.IngestionService.list_documents">list_documents() (mcp_evidencebase.ingestion.IngestionService method)</a>
 </li>
       <li><a href="reference.html#mcp_evidencebase.core.list_minio_buckets">list_minio_buckets() (in module mcp_evidencebase.core)</a>
@@ -240,16 +235,10 @@
         <li><a href="reference.html#module-mcp_evidencebase.tasks">module</a>
 </li>
       </ul></li>
-      <li><a href="reference.html#mcp_evidencebase.api.MetadataUpdateRequest">MetadataUpdateRequest (class in mcp_evidencebase.api)</a>
+      <li><a href="reference.html#mcp_evidencebase.ingestion.IngestionService.meta_stage_object">meta_stage_object() (mcp_evidencebase.ingestion.IngestionService method)</a>
 </li>
       <li><a href="reference.html#mcp_evidencebase.minio_settings.MinioSettings">MinioSettings (class in mcp_evidencebase.minio_settings)</a>
 </li>
-      <li><a href="reference.html#mcp_evidencebase.api.BucketCreateRequest.model_config">model_config (mcp_evidencebase.api.BucketCreateRequest attribute)</a>
-
-      <ul>
-        <li><a href="reference.html#mcp_evidencebase.api.MetadataUpdateRequest.model_config">(mcp_evidencebase.api.MetadataUpdateRequest attribute)</a>
-</li>
-      </ul></li>
       <li>
     module
 
@@ -283,7 +272,15 @@
 <h2 id="P">P</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="reference.html#mcp_evidencebase.ingestion.IngestionService.partition_object">partition_object() (mcp_evidencebase.ingestion.IngestionService method)</a>
+</li>
+      <li><a href="reference.html#mcp_evidencebase.ingestion.IngestionService.partition_stage_object">partition_stage_object() (mcp_evidencebase.ingestion.IngestionService method)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="reference.html#mcp_evidencebase.ingestion.IngestionService.process_object">process_object() (mcp_evidencebase.ingestion.IngestionService method)</a>
+</li>
+      <li><a href="reference.html#mcp_evidencebase.ingestion.IngestionService.purge_datastores">purge_datastores() (mcp_evidencebase.ingestion.IngestionService method)</a>
 </li>
   </ul></td>
 </tr></table>
@@ -291,7 +288,15 @@
 <h2 id="R">R</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="reference.html#mcp_evidencebase.ingestion.IngestionService.rebuild_bucket_section_mappings">rebuild_bucket_section_mappings() (mcp_evidencebase.ingestion.IngestionService method)</a>
+</li>
+      <li><a href="reference.html#mcp_evidencebase.ingestion.IngestionService.rebuild_document_section_mapping">rebuild_document_section_mapping() (mcp_evidencebase.ingestion.IngestionService method)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="reference.html#mcp_evidencebase.core.remove_minio_bucket">remove_minio_bucket() (in module mcp_evidencebase.core)</a>
+</li>
+      <li><a href="reference.html#mcp_evidencebase.ingestion.IngestionService.resolve_document_object">resolve_document_object() (mcp_evidencebase.ingestion.IngestionService method)</a>
 </li>
   </ul></td>
 </tr></table>
@@ -299,6 +304,12 @@
 <h2 id="S">S</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="reference.html#mcp_evidencebase.ingestion.IngestionService.search_documents">search_documents() (mcp_evidencebase.ingestion.IngestionService method)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="reference.html#mcp_evidencebase.ingestion.IngestionService.section_stage_object">section_stage_object() (mcp_evidencebase.ingestion.IngestionService method)</a>
+</li>
       <li><a href="reference.html#mcp_evidencebase.bucket_service.BucketService.settings">settings (mcp_evidencebase.bucket_service.BucketService attribute)</a>
 </li>
   </ul></td>
@@ -310,27 +321,19 @@
       <li><a href="reference.html#mcp_evidencebase.minio_settings.to_bool">to_bool() (in module mcp_evidencebase.minio_settings)</a>
 </li>
   </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="reference.html#mcp_evidencebase.api.trigger_bucket_scan">trigger_bucket_scan() (in module mcp_evidencebase.api)</a>
-</li>
-  </ul></td>
 </tr></table>
 
 <h2 id="U">U</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="reference.html#mcp_evidencebase.api.update_document_metadata">update_document_metadata() (in module mcp_evidencebase.api)</a>
-</li>
       <li><a href="reference.html#mcp_evidencebase.ingestion.IngestionService.update_metadata">update_metadata() (mcp_evidencebase.ingestion.IngestionService method)</a>
 </li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="reference.html#mcp_evidencebase.api.upload_document">upload_document() (in module mcp_evidencebase.api)</a>
-
-      <ul>
-        <li><a href="reference.html#mcp_evidencebase.ingestion.IngestionService.upload_document">(mcp_evidencebase.ingestion.IngestionService method)</a>
+      <li><a href="reference.html#mcp_evidencebase.ingestion.IngestionService.upload_document">upload_document() (mcp_evidencebase.ingestion.IngestionService method)</a>
 </li>
-      </ul></li>
+      <li><a href="reference.html#mcp_evidencebase.ingestion.IngestionService.upsert_stage_object">upsert_stage_object() (mcp_evidencebase.ingestion.IngestionService method)</a>
+</li>
   </ul></td>
 </tr></table>
 
@@ -363,8 +366,17 @@
 <script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
 <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="readme.html">Evidence Base</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html">About The Project</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html#getting-started">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html#usage">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html#project-structure">Project Structure</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html#roadmap">Roadmap</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html#contributing">Contributing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html#license">License</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html#contact">Contact</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html#acknowledgments">Acknowledgments</a></li>
 <li class="toctree-l1"><a class="reference internal" href="vignette_cli.html">Command-Line Vignette: End-To-End Workflow</a></li>
+<li class="toctree-l1"><a class="reference internal" href="gpt_actions.html">GPT Actions API</a></li>
 <li class="toctree-l1"><a class="reference internal" href="reference.html">Reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="tests.html">Tests</a></li>
 </ul>

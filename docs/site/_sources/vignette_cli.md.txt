@@ -55,10 +55,12 @@ curl -sS -X POST \
   --data-binary "@$PDF_PATH"
 ```
 
-This stores the object in MinIO and queues a Celery task for:
-- Unstructured partition extraction
-- metadata extraction
-- chunking and Qdrant upsert
+This stores the object in MinIO and queues an atomic Celery chain:
+- `partition` (`partition_minio_object`)
+- `meta` (`meta_minio_object`, including optional Crossref enrichment)
+- `section` (`section_minio_object`)
+- `chunk` (`chunk_minio_object`)
+- `upsert` (`upsert_minio_object`)
 
 ## 5. Monitor processing from the API
 
@@ -73,10 +75,16 @@ If `jq` is installed, filter one record:
 ```bash
 curl -sS "$BASE_URL/collections/$BUCKET/documents" \
   | jq --arg doc "$DOC_ID" '.documents[] | select(.document_id == $doc) |
-    {document_id, processing_state, processing_progress, partitions_count, chunks_count}'
+    {document_id, processing_state, processing_stage, processing_stage_progress, processing_progress, partitions_count, chunks_count, sections_count}'
 ```
 
 Wait until `processing_state` becomes `processed` (or inspect `error` if `failed`).
+
+Inspect persisted section mappings:
+
+```bash
+curl -sS "$BASE_URL/collections/$BUCKET/documents/$DOC_ID/sections"
+```
 
 ## 6. Update metadata
 
@@ -94,6 +102,12 @@ curl -sS -X PUT "$BASE_URL/collections/$BUCKET/documents/$DOC_ID/metadata" \
   }'
 ```
 
+Fetch metadata from Crossref (DOI -> ISBN -> ISSN -> title, high-confidence only):
+
+```bash
+curl -sS -X POST "$BASE_URL/collections/$BUCKET/documents/$DOC_ID/metadata/fetch"
+```
+
 ## 7. Trigger an on-demand scan (optional)
 
 Use this when files are dropped into MinIO outside the upload API.
@@ -102,7 +116,24 @@ Use this when files are dropped into MinIO outside the upload API.
 curl -sS -X POST "$BASE_URL/collections/$BUCKET/scan"
 ```
 
-## 8. Delete document and bucket
+## 8. Run hybrid search
+
+```bash
+curl -sS "$BASE_URL/collections/$BUCKET/search?query=causal%20inference&mode=hybrid&limit=5&rrf_k=80"
+```
+
+You can also run the same flow from the package CLI:
+
+```bash
+python -m mcp_evidencebase \
+  --search-bucket "$BUCKET" \
+  --search-query "causal inference" \
+  --search-mode hybrid \
+  --search-limit 5 \
+  --search-rrf-k 80
+```
+
+## 9. Delete document and bucket
 
 Delete the document by `document_id`:
 
@@ -116,7 +147,33 @@ Delete the bucket:
 curl -sS -X DELETE "$BASE_URL/buckets/$BUCKET"
 ```
 
-## 9. Stop the stack
+## 10. Celery task reference
+
+Tasks are defined in `src/mcp_evidencebase/tasks.py`:
+
+- `mcp_evidencebase.ping`: simple worker health task.
+- `mcp_evidencebase.scan_minio_objects(bucket_name=None, update_meta=True)`: scans MinIO and
+  enqueues `partition_minio_object` for objects that are new or have changed ETag.
+- `mcp_evidencebase.partition_minio_object(bucket_name, object_name, etag=None, update_meta=False)`:
+  performs partition stage, then enqueues `meta_minio_object`.
+- `mcp_evidencebase.meta_minio_object(partition_payload)`: performs metadata stage (optional Crossref
+  enrichment), then enqueues `section_minio_object`.
+- `mcp_evidencebase.section_minio_object(meta_payload)`: performs section mapping stage, then enqueues
+  `chunk_minio_object`.
+- `mcp_evidencebase.chunk_minio_object(section_payload)`: performs chunk stage, then enqueues
+  `upsert_minio_object`.
+- `mcp_evidencebase.upsert_minio_object(chunk_payload)`: performs vector upsert stage.
+- `mcp_evidencebase.process_minio_object(bucket_name, object_name, etag=None, update_meta=False)`:
+  backward-compatible wrapper that runs all stages inline.
+
+Current workflow shape:
+
+- The task pipeline is linear and atomic: `partition -> meta -> section -> chunk -> upsert`.
+- `IngestionService` exposes stage-level methods and compatibility wrappers.
+- Use stage-specific reruns when needed (for example re-run `upsert` after embedding/index tuning,
+  or re-run `section/chunk/upsert` after chunking strategy changes without re-partitioning).
+
+## 11. Stop the stack
 
 ```bash
 docker compose down

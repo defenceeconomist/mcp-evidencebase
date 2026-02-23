@@ -7,5 +7,6 @@ mcp-evidencebase Documentation
 
    readme
    vignette_cli
+   gpt_actions
    reference
    tests

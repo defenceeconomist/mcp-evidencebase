@@ -5,7 +5,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Evidence Base &#8212; mcp-evidencebase 0.1.0 documentation</title>
+    <title>About The Project &#8212; mcp-evidencebase 0.1.0 documentation</title>
     <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=5ecbeea2" />
     <link rel="stylesheet" type="text/css" href="_static/basic.css?v=b08954a9" />
     <link rel="stylesheet" type="text/css" href="_static/alabaster.css?v=27fed22d" />
@@ -33,81 +33,233 @@
 
           <div class="body" role="main">
             
-  <section id="evidence-base">
-<h1>Evidence Base<a class="headerlink" href="#evidence-base" title="Link to this heading">¶</a></h1>
-<p>Manage evidence base metadata, semantic search, and GPT summaries.</p>
-<section id="project-layout">
-<h2>Project layout<a class="headerlink" href="#project-layout" title="Link to this heading">¶</a></h2>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>.
-├── deploy/
-│   └── nginx/
-│       └── default.conf
-├── docker-compose.yml
-├── frontend/
-│   ├── Dockerfile
-│   ├── index.html
-│   └── package.json
-├── pyproject.toml
-├── src/
-│   └── mcp_evidencebase/
-│       ├── __init__.py
-│       ├── __main__.py
-│       ├── cli.py
-│       └── core.py
-└── tests/
-    ├── test_cli.py
-    └── test_core.py
+  <p><a id="readme-top"></a></p>
+<!-- PROJECT SHIELDS -->
+<p><a class="reference external" href="https://github.com/defenceeconomist/mcp-evidencebase/graphs/contributors"><img alt="Contributors" src="https://img.shields.io/github/contributors/defenceeconomist/mcp-evidencebase.svg?style=for-the-badge" /></a>
+<a class="reference external" href="https://github.com/defenceeconomist/mcp-evidencebase/network/members"><img alt="Forks" src="https://img.shields.io/github/forks/defenceeconomist/mcp-evidencebase.svg?style=for-the-badge" /></a>
+<a class="reference external" href="https://github.com/defenceeconomist/mcp-evidencebase/stargazers"><img alt="Stargazers" src="https://img.shields.io/github/stars/defenceeconomist/mcp-evidencebase.svg?style=for-the-badge" /></a>
+<a class="reference external" href="https://github.com/defenceeconomist/mcp-evidencebase/issues"><img alt="Issues" src="https://img.shields.io/github/issues/defenceeconomist/mcp-evidencebase.svg?style=for-the-badge" /></a></p>
+<!-- PROJECT LOGO -->
+<br />
+<div align="center">
+  <h3 align="center">Evidence Base</h3>
+  <p align="center">
+    Evidence ingestion, metadata management, and semantic retrieval over MinIO, Redis, and Qdrant.
+    <br />
+    <a href="https://github.com/defenceeconomist/mcp-evidencebase"><strong>Explore the repo »</strong></a>
+    <br />
+    <br />
+    <a href="https://github.com/defenceeconomist/mcp-evidencebase/issues/new?labels=bug">Report Bug</a>
+    ·
+    <a href="https://github.com/defenceeconomist/mcp-evidencebase/issues/new?labels=enhancement">Request Feature</a>
+  </p>
+</div>
+<!-- TABLE OF CONTENTS -->
+<details>
+  <summary>Table of Contents</summary>
+  <ol>
+    <li>
+      <a href="#about-the-project">About The Project</a>
+      <ul>
+        <li><a href="#built-with">Built With</a></li>
+      </ul>
+    </li>
+    <li>
+      <a href="#getting-started">Getting Started</a>
+      <ul>
+        <li><a href="#prerequisites">Prerequisites</a></li>
+        <li><a href="#installation">Installation</a></li>
+      </ul>
+    </li>
+    <li><a href="#usage">Usage</a></li>
+    <li><a href="#project-structure">Project Structure</a></li>
+    <li><a href="#roadmap">Roadmap</a></li>
+    <li><a href="#contributing">Contributing</a></li>
+    <li><a href="#license">License</a></li>
+    <li><a href="#contact">Contact</a></li>
+    <li><a href="#acknowledgments">Acknowledgments</a></li>
+  </ol>
+</details>
+<section id="about-the-project">
+<h1>About The Project<a class="headerlink" href="#about-the-project" title="Link to this heading">¶</a></h1>
+<p>Evidence Base is a Python-first stack for:</p>
+<ul class="simple">
+<li><p>bucket and document management through a FastAPI service,</p></li>
+<li><p>asynchronous ingestion and processing via Celery,</p></li>
+<li><p>partition and metadata state in Redis,</p></li>
+<li><p>embedding/chunk retrieval in Qdrant,</p></li>
+<li><p>unified operations UI/docs behind an NGINX proxy.</p></li>
+</ul>
+<p>The repository includes local Docker orchestration, Sphinx documentation, API/CLI examples, and automated test reporting with grouped summaries and coverage.</p>
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+<section id="built-with">
+<h2>Built With<a class="headerlink" href="#built-with" title="Link to this heading">¶</a></h2>
+<ul class="simple">
+<li><p><a class="reference external" href="https://www.python.org/">Python</a></p></li>
+<li><p><a class="reference external" href="https://fastapi.tiangolo.com/">FastAPI</a></p></li>
+<li><p><a class="reference external" href="https://docs.celeryq.dev/">Celery</a></p></li>
+<li><p><a class="reference external" href="https://min.io/">MinIO</a></p></li>
+<li><p><a class="reference external" href="https://redis.io/">Redis</a></p></li>
+<li><p><a class="reference external" href="https://qdrant.tech/">Qdrant</a></p></li>
+<li><p><a class="reference external" href="https://www.sphinx-doc.org/">Sphinx</a></p></li>
+<li><p><a class="reference external" href="https://docs.docker.com/compose/">Docker Compose</a></p></li>
+</ul>
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+</section>
+</section>
+<section id="getting-started">
+<h1>Getting Started<a class="headerlink" href="#getting-started" title="Link to this heading">¶</a></h1>
+<section id="prerequisites">
+<h2>Prerequisites<a class="headerlink" href="#prerequisites" title="Link to this heading">¶</a></h2>
+<ul class="simple">
+<li><p>Python 3.10+</p></li>
+<li><p>Docker + Docker Compose</p></li>
+<li><p>Optional: <code class="docutils literal notranslate"><span class="pre">jq</span></code> for easier API response filtering</p></li>
+</ul>
+</section>
+<section id="installation">
+<h2>Installation<a class="headerlink" href="#installation" title="Link to this heading">¶</a></h2>
+<ol class="arabic">
+<li><p>Clone the repo.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/defenceeconomist/mcp-evidencebase.git
+<span class="nb">cd</span><span class="w"> </span>mcp-evidencebase
 </pre></div>
 </div>
-</section>
-<section id="quickstart">
-<h2>Quickstart<a class="headerlink" href="#quickstart" title="Link to this heading">¶</a></h2>
+</li>
+<li><p>Create a virtual environment.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-m<span class="w"> </span>venv<span class="w"> </span>.venv
 <span class="nb">source</span><span class="w"> </span>.venv/bin/activate
-python<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">&quot;.[dev]&quot;</span>
 </pre></div>
 </div>
-<p>Run checks:</p>
+</li>
+<li><p>Install development dependencies.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">&quot;.[dev]&quot;</span>
+</pre></div>
+</div>
+</li>
+<li><p>Verify local tooling.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>ruff<span class="w"> </span>check<span class="w"> </span>.
 mypy<span class="w"> </span>.
 pytest
 </pre></div>
 </div>
-<p>Run the CLI:</p>
+</li>
+</ol>
+</section>
+<section id="ui-e2e-test-playwright">
+<h2>UI E2E Test (Playwright)<a class="headerlink" href="#ui-e2e-test-playwright" title="Link to this heading">¶</a></h2>
+<p>Run the frontend Playwright test:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">cd</span><span class="w"> </span>frontend
+npm<span class="w"> </span>install
+npx<span class="w"> </span>playwright<span class="w"> </span>install<span class="w"> </span>chromium
+npm<span class="w"> </span>run<span class="w"> </span>test:e2e
+</pre></div>
+</div>
+<p>The test serves the static UI and mocks <code class="docutils literal notranslate"><span class="pre">/api/*</span></code> responses, so it does not require the full Docker stack.</p>
+<p>Optional live datastore integration tests (MinIO/Redis/Qdrant):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">MCP_EVIDENCEBASE_RUN_LIVE_INTEGRATION</span><span class="o">=</span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
+pytest<span class="w"> </span>-m<span class="w"> </span>integration_live<span class="w"> </span>tests/test_live_datastores_integration.py
+</pre></div>
+</div>
+<p>Configure live endpoints with <code class="docutils literal notranslate"><span class="pre">MCP_EVIDENCEBASE_LIVE_*</span></code> variables (or fall back to
+<code class="docutils literal notranslate"><span class="pre">MINIO_ENDPOINT</span></code>, <code class="docutils literal notranslate"><span class="pre">REDIS_URL</span></code>, and <code class="docutils literal notranslate"><span class="pre">QDRANT_URL</span></code>).</p>
+<p>Run live integration tests inside Docker Compose (recommended, same network as
+MinIO/Redis/Qdrant):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># 1) Start only required datastores (avoids cloudflared dependency).</span>
+docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>-d<span class="w"> </span>minio<span class="w"> </span>redis<span class="w"> </span>qdrant
+
+<span class="c1"># 2) Run pytest in a one-off api container on the compose network.</span>
+<span class="c1">#    Use compose service hostnames for live endpoints.</span>
+docker<span class="w"> </span>compose<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>--no-deps<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-v<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$PWD</span><span class="s2">:/app&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-e<span class="w"> </span><span class="nv">MCP_EVIDENCEBASE_RUN_LIVE_INTEGRATION</span><span class="o">=</span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-e<span class="w"> </span><span class="nv">MCP_EVIDENCEBASE_LIVE_MINIO_ENDPOINT</span><span class="o">=</span>minio:9000<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-e<span class="w"> </span><span class="nv">MCP_EVIDENCEBASE_LIVE_REDIS_URL</span><span class="o">=</span>redis://redis:6379/2<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-e<span class="w"> </span><span class="nv">MCP_EVIDENCEBASE_LIVE_QDRANT_URL</span><span class="o">=</span>http://qdrant:6333<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>api<span class="w"> </span>sh<span class="w"> </span>-lc<span class="w"> </span><span class="s1">&#39;python -m pip install -e &quot;.[dev]&quot; &amp;&amp; pytest -m integration_live tests/test_live_datastores_integration.py&#39;</span>
+</pre></div>
+</div>
+<p>This uses service-hostnames from <code class="docutils literal notranslate"><span class="pre">docker-compose.yml</span></code> (<code class="docutils literal notranslate"><span class="pre">minio</span></code>, <code class="docutils literal notranslate"><span class="pre">redis</span></code>, <code class="docutils literal notranslate"><span class="pre">qdrant</span></code>)
+without exposing datastore ports to localhost.</p>
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+</section>
+</section>
+<section id="usage">
+<h1>Usage<a class="headerlink" href="#usage" title="Link to this heading">¶</a></h1>
+<section id="cli">
+<h2>CLI<a class="headerlink" href="#cli" title="Link to this heading">¶</a></h2>
+<p>Run the package healthcheck:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-m<span class="w"> </span>mcp_evidencebase<span class="w"> </span>--healthcheck
 <span class="c1"># ok</span>
 </pre></div>
 </div>
+<p>Run hybrid search from the CLI:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-m<span class="w"> </span>mcp_evidencebase<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--search-bucket<span class="w"> </span>offsets<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--search-query<span class="w"> </span><span class="s2">&quot;definition of offsets&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--search-mode<span class="w"> </span>hybrid<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--search-limit<span class="w"> </span><span class="m">5</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--search-rrf-k<span class="w"> </span><span class="m">80</span>
+</pre></div>
+</div>
+<p>If you run this on your host while using Docker Compose defaults, <code class="docutils literal notranslate"><span class="pre">connection</span> <span class="pre">refused</span></code>
+is expected unless your datastore endpoints are reachable from the host. Compose uses
+internal hostnames (<code class="docutils literal notranslate"><span class="pre">minio</span></code>, <code class="docutils literal notranslate"><span class="pre">redis</span></code>, <code class="docutils literal notranslate"><span class="pre">qdrant</span></code>) for container-to-container traffic.</p>
+<p>Run CLI search inside the Compose network:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Start only required services.</span>
+docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>-d<span class="w"> </span>minio<span class="w"> </span>redis<span class="w"> </span>qdrant
+
+<span class="c1"># Run CLI in a one-off api container on the same Docker network.</span>
+docker<span class="w"> </span>compose<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>--no-deps<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-v<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$PWD</span><span class="s2">:/app&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>api<span class="w"> </span>python<span class="w"> </span>-m<span class="w"> </span>mcp_evidencebase<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--search-bucket<span class="w"> </span>offsets<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--search-query<span class="w"> </span><span class="s2">&quot;definition of offsets&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--search-mode<span class="w"> </span>hybrid<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--search-limit<span class="w"> </span><span class="m">5</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--search-rrf-k<span class="w"> </span><span class="m">80</span>
+</pre></div>
+</div>
+<p>Run CLI search on host (alternative):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">QDRANT_URL</span><span class="o">=</span>http://localhost:52180
+python<span class="w"> </span>-m<span class="w"> </span>mcp_evidencebase<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--search-bucket<span class="w"> </span>offsets<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--search-query<span class="w"> </span><span class="s2">&quot;definition of offsets&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--search-mode<span class="w"> </span>hybrid<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--search-limit<span class="w"> </span><span class="m">5</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--search-rrf-k<span class="w"> </span><span class="m">80</span>
+</pre></div>
+</div>
+<p>The host-based command above works through the NGINX proxy and does not require
+direct <code class="docutils literal notranslate"><span class="pre">localhost:6333</span></code> access.</p>
 </section>
 <section id="docker-compose-stack">
-<h2>Docker compose stack<a class="headerlink" href="#docker-compose-stack" title="Link to this heading">¶</a></h2>
-<p>Starts:</p>
-<ul class="simple">
-<li><p>NGINX reverse proxy (<code class="docutils literal notranslate"><span class="pre">52180</span></code> by default)</p></li>
-<li><p>Frontend dashboard (via proxy)</p></li>
-<li><p>Bucket API service (via proxy)</p></li>
-<li><p>Documentation site (via proxy)</p></li>
-<li><p>MinIO (via proxy)</p></li>
-<li><p>MinIO Console (via proxy)</p></li>
-<li><p>Redis (internal only)</p></li>
-<li><p>RedisInsight (via proxy)</p></li>
-<li><p>Qdrant HTTP API (via proxy)</p></li>
-<li><p>Celery worker</p></li>
-<li><p>Flower (via proxy)</p></li>
-<li><p>Cloudflare Tunnel (optional <code class="docutils literal notranslate"><span class="pre">cloudflare</span></code> profile)</p></li>
-</ul>
+<h2>Docker Compose Stack<a class="headerlink" href="#docker-compose-stack" title="Link to this heading">¶</a></h2>
+<p>Start the full local stack:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>-d<span class="w"> </span>--build
 </pre></div>
 </div>
-<p>Enable Cloudflare Tunnel:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docker<span class="w"> </span>compose<span class="w"> </span>--profile<span class="w"> </span>cloudflare<span class="w"> </span>up<span class="w"> </span>-d<span class="w"> </span>cloudflared
+<p>Services include:</p>
+<ul class="simple">
+<li><p>NGINX reverse proxy (<code class="docutils literal notranslate"><span class="pre">52180</span></code> default)</p></li>
+<li><p>Frontend dashboard</p></li>
+<li><p>API service</p></li>
+<li><p>Documentation site</p></li>
+<li><p>MinIO + MinIO Console</p></li>
+<li><p>Redis + RedisInsight</p></li>
+<li><p>Qdrant</p></li>
+<li><p>Celery worker + Flower</p></li>
+<li><p>Cloudflare Tunnel (<code class="docutils literal notranslate"><span class="pre">cloudflared</span></code>)</p></li>
+</ul>
+<p>Start stack (including Cloudflare Tunnel):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>-d
 </pre></div>
 </div>
-<p>The tunnel token is read from <code class="docutils literal notranslate"><span class="pre">CLOUDFLARE_TUNNEL_TOKEN</span></code> in <code class="docutils literal notranslate"><span class="pre">.env</span></code>.
-If your Cloudflare public hostname currently points to <code class="docutils literal notranslate"><span class="pre">http://localhost:52180</span></code>,
-set the tunnel service target to <code class="docutils literal notranslate"><span class="pre">http://proxy:80</span></code> for this compose stack.</p>
-<p>All web services are exposed through one host port (<code class="docutils literal notranslate"><span class="pre">${PROXY_PORT:-52180}</span></code>) using
-path-based routing on the main host (<code class="docutils literal notranslate"><span class="pre">localhost</span></code>) and via Cloudflare (<code class="docutils literal notranslate"><span class="pre">evidencebase.heley.uk</span></code>):</p>
+<p><code class="docutils literal notranslate"><span class="pre">CLOUDFLARE_TUNNEL_TOKEN</span></code> is required because <code class="docutils literal notranslate"><span class="pre">cloudflared</span></code> always starts.</p>
+</section>
+<section id="service-urls">
+<h2>Service URLs<a class="headerlink" href="#service-urls" title="Link to this heading">¶</a></h2>
+<p>All services are proxied through one host port (<code class="docutils literal notranslate"><span class="pre">${PROXY_PORT:-52180}</span></code>):</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>http://localhost:52180
 http://localhost:52180/docs/
 http://localhost:52180/docs/readme.html
@@ -117,8 +269,12 @@ http://localhost:52180/minio-console/
 http://localhost:52180/redisinsight/
 http://localhost:52180/dashboard/
 http://localhost:52180/flower/
-
-https://evidencebase.heley.uk
+http://localhost:52180/api/gpt/openapi.json
+http://localhost:52180/api/gpt/ping?message=hello
+</pre></div>
+</div>
+<p>Public equivalents currently configured:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>https://evidencebase.heley.uk
 https://evidencebase.heley.uk/docs/
 https://evidencebase.heley.uk/docs/readme.html
 https://evidencebase.heley.uk/docs/reference.html
@@ -127,16 +283,191 @@ https://evidencebase.heley.uk/minio-console/
 https://evidencebase.heley.uk/redisinsight/
 https://evidencebase.heley.uk/dashboard/
 https://evidencebase.heley.uk/flower/
+https://evidencebase.heley.uk/api/gpt/openapi.json
+https://evidencebase.heley.uk/api/gpt/ping?message=hello
+</pre></div>
+</div>
+<p>Recommended public GPT-only hostname:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>https://open.heley.uk/api/gpt/openapi.json
+https://open.heley.uk/api/gpt/ping?message=hello
 </pre></div>
 </div>
 </section>
-<section id="documentation">
-<h2>Documentation<a class="headerlink" href="#documentation" title="Link to this heading">¶</a></h2>
-<p>Build docs locally (includes test output from <code class="docutils literal notranslate"><span class="pre">pytest-html-plus</span></code>):</p>
+<section id="cloudflare-split-protected-ui-open-gpt-api">
+<h2>Cloudflare Split: Protected UI + Open GPT API<a class="headerlink" href="#cloudflare-split-protected-ui-open-gpt-api" title="Link to this heading">¶</a></h2>
+<p>To keep <code class="docutils literal notranslate"><span class="pre">evidencebase.heley.uk</span></code> behind Cloudflare Access while exposing only the GPT action API:</p>
+<ol class="arabic simple">
+<li><p>In Cloudflare Zero Trust -&gt; Networks -&gt; Tunnels -&gt; your named tunnel -&gt; Public hostnames, add:</p>
+<ul class="simple">
+<li><p>Hostname: <code class="docutils literal notranslate"><span class="pre">open.heley.uk</span></code></p></li>
+<li><p>Service: <code class="docutils literal notranslate"><span class="pre">http://proxy:80</span></code></p></li>
+</ul>
+</li>
+<li><p>Keep <code class="docutils literal notranslate"><span class="pre">evidencebase.heley.uk</span></code> mapped to <code class="docutils literal notranslate"><span class="pre">http://proxy:80</span></code> as-is.</p></li>
+<li><p>In Cloudflare Access -&gt; Applications, ensure policy scope protects only <code class="docutils literal notranslate"><span class="pre">evidencebase.heley.uk/*</span></code> (not <code class="docutils literal notranslate"><span class="pre">*.heley.uk</span></code>).</p></li>
+<li><p>Do not attach Access protection to <code class="docutils literal notranslate"><span class="pre">open.heley.uk</span></code>.</p></li>
+</ol>
+<p>NGINX already restricts <code class="docutils literal notranslate"><span class="pre">open.heley.uk</span></code> to <code class="docutils literal notranslate"><span class="pre">/api/gpt/*</span></code> and returns <code class="docutils literal notranslate"><span class="pre">404</span></code> for all other paths.</p>
+</section>
+<section id="api-workflow-examples">
+<h2>API Workflow Examples<a class="headerlink" href="#api-workflow-examples" title="Link to this heading">¶</a></h2>
+<p>Set base URL:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">BASE_URL</span><span class="o">=</span><span class="s2">&quot;http://localhost:52180/api&quot;</span>
+</pre></div>
+</div>
+<p>List buckets:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$BASE_URL</span><span class="s2">/buckets&quot;</span>
+</pre></div>
+</div>
+<p>Create bucket:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$BASE_URL</span><span class="s2">/buckets&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{&quot;bucket_name&quot;:&quot;research-raw&quot;}&#39;</span>
+</pre></div>
+</div>
+<p>Upload document and queue processing:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="s2">&quot;</span><span class="nv">$BASE_URL</span><span class="s2">/collections/research-raw/documents/upload?file_name=paper.pdf&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/pdf&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--data-binary<span class="w"> </span><span class="s2">&quot;@paper.pdf&quot;</span>
+</pre></div>
+</div>
+<p>This upload path enqueues <code class="docutils literal notranslate"><span class="pre">partition_minio_object(...,</span> <span class="pre">update_meta=True)</span></code>, which kicks off the
+full atomic chain (<code class="docutils literal notranslate"><span class="pre">partition</span> <span class="pre">-&gt;</span> <span class="pre">meta</span> <span class="pre">-&gt;</span> <span class="pre">section</span> <span class="pre">-&gt;</span> <span class="pre">chunk</span> <span class="pre">-&gt;</span> <span class="pre">upsert</span></code>). Crossref metadata enrichment
+is attempted during the metadata stage when a high-confidence match is found.</p>
+<p>Trigger on-demand scan:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$BASE_URL</span><span class="s2">/collections/research-raw/scan&quot;</span>
+</pre></div>
+</div>
+<p>Update document metadata:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>PUT<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$BASE_URL</span><span class="s2">/collections/research-raw/documents/&lt;document_id&gt;/metadata&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{&quot;metadata&quot;:{&quot;title&quot;:&quot;My Paper&quot;,&quot;author&quot;:&quot;A. Author&quot;,&quot;year&quot;:&quot;2025&quot;,&quot;document_type&quot;:&quot;article&quot;}}&#39;</span>
+</pre></div>
+</div>
+<p>Fetch metadata from Crossref (DOI -&gt; ISBN -&gt; ISSN -&gt; title, high-confidence only):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$BASE_URL</span><span class="s2">/collections/research-raw/documents/&lt;document_id&gt;/metadata/fetch&quot;</span>
+</pre></div>
+</div>
+<p>Run hybrid search:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$BASE_URL</span><span class="s2">/collections/research-raw/search?query=causal%20inference&amp;mode=hybrid&amp;limit=5&amp;rrf_k=80&quot;</span>
+</pre></div>
+</div>
+<p>Delete document:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>DELETE<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$BASE_URL</span><span class="s2">/collections/research-raw/documents/&lt;document_id&gt;&quot;</span>
+</pre></div>
+</div>
+<p>Delete bucket:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>DELETE<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$BASE_URL</span><span class="s2">/buckets/research-raw&quot;</span>
+</pre></div>
+</div>
+</section>
+<section id="custom-gpt-ping-action-api-key-bearer">
+<h2>Custom GPT Ping Action (API Key + Bearer)<a class="headerlink" href="#custom-gpt-ping-action-api-key-bearer" title="Link to this heading">¶</a></h2>
+<p>Use this when creating an Action in the ChatGPT UI.</p>
+<ol class="arabic">
+<li><p>Start named tunnel:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>-d<span class="w"> </span>cloudflared
+</pre></div>
+</div>
+</li>
+<li><p>Set API key in <code class="docutils literal notranslate"><span class="pre">.env</span></code>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">GPT_ACTIONS_API_KEY</span><span class="o">=</span>&lt;your-api-key&gt;
+<span class="nv">GPT_ACTIONS_LINK_BASE_URL</span><span class="o">=</span>https://evidencebase.heley.uk
+</pre></div>
+</div>
+</li>
+<li><p>Verify ping from the <code class="docutils literal notranslate"><span class="pre">open.heley.uk</span></code> hostname:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-H<span class="w"> </span><span class="s2">&quot;Authorization: Bearer &lt;your-api-key&gt;&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="s2">&quot;https://open.heley.uk/api/gpt/ping?message=hello&quot;</span>
+</pre></div>
+</div>
+</li>
+<li><p>In ChatGPT -&gt; Custom GPT -&gt; Actions:</p>
+<ul class="simple">
+<li><p>Authentication type: <code class="docutils literal notranslate"><span class="pre">API</span> <span class="pre">key</span></code></p></li>
+<li><p>Auth Type: <code class="docutils literal notranslate"><span class="pre">Bearer</span></code></p></li>
+<li><p>API key value: same value as <code class="docutils literal notranslate"><span class="pre">GPT_ACTIONS_API_KEY</span></code></p></li>
+<li><p>OpenAPI schema URL: <code class="docutils literal notranslate"><span class="pre">https://open.heley.uk/api/gpt/openapi.json</span></code></p></li>
+</ul>
+</li>
+</ol>
+<p>The ping action exposed to ChatGPT is <code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/gpt/ping</span></code> and requires API key over Bearer auth.</p>
+<p>Search wrapper exposed to ChatGPT Actions:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s2">&quot;https://open.heley.uk/api/gpt/search&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Authorization: Bearer &lt;your-api-key&gt;&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{&quot;bucket_name&quot;:&quot;research-raw&quot;,&quot;query&quot;:&quot;causal inference&quot;,&quot;mode&quot;:&quot;hybrid&quot;,&quot;limit&quot;:5,&quot;rrf_k&quot;:80}&#39;</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">bucket_name</span></code> is optional for GPT search. If exactly one bucket exists, it is auto-selected.
+<code class="docutils literal notranslate"><span class="pre">minimal_response</span></code> defaults to <code class="docutils literal notranslate"><span class="pre">true</span></code> to keep GPT payloads small; set <code class="docutils literal notranslate"><span class="pre">minimal_response=false</span></code>
+when you need full retrieval diagnostics and expanded section fields.</p>
+</section>
+<section id="ingestion-pipeline-atomic-stages">
+<h2>Ingestion Pipeline: Atomic Stages<a class="headerlink" href="#ingestion-pipeline-atomic-stages" title="Link to this heading">¶</a></h2>
+<p>The ingestion flow now uses five explicit stages that run sequentially:</p>
+<ol class="arabic simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">partition_minio_object</span></code> -&gt; <code class="docutils literal notranslate"><span class="pre">IngestionService.partition_stage_object()</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">meta_minio_object</span></code> -&gt; <code class="docutils literal notranslate"><span class="pre">IngestionService.meta_stage_object()</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">section_minio_object</span></code> -&gt; <code class="docutils literal notranslate"><span class="pre">IngestionService.section_stage_object()</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">chunk_minio_object</span></code> -&gt; <code class="docutils literal notranslate"><span class="pre">IngestionService.chunk_stage_object()</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">upsert_minio_object</span></code> -&gt; <code class="docutils literal notranslate"><span class="pre">IngestionService.upsert_stage_object()</span></code></p></li>
+</ol>
+<p><code class="docutils literal notranslate"><span class="pre">process_minio_object</span></code> is retained as a backward-compatible wrapper that runs all stages inline.</p>
+<p>Stage details:</p>
+<ol class="arabic simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">partition</span></code>: read bytes from MinIO, compute deterministic <code class="docutils literal notranslate"><span class="pre">document_id</span></code> (SHA-256), run Unstructured partitioning, persist partition JSON in Redis (<code class="docutils literal notranslate"><span class="pre">document:&lt;document_hash&gt;:partition</span></code>), and persist <code class="docutils literal notranslate"><span class="pre">partition_key</span></code> in document state.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">meta</span></code>: extract metadata (embedded PDF title/author + DOI/ISBN/ISSN/title heuristics from partitions), persist source-scoped metadata (<code class="docutils literal notranslate"><span class="pre">meta_key</span></code>), and optionally run Crossref enrichment when <code class="docutils literal notranslate"><span class="pre">update_meta=True</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">section</span></code>: derive deterministic section/chunk-section mappings from partitions and persist Redis section payload (<code class="docutils literal notranslate"><span class="pre">document:&lt;document_hash&gt;:sections</span></code>).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">chunk</span></code>: build deterministic chunk payload and persist chunk/section counters in document state.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">upsert</span></code>: embed chunk text and upsert vectors into bucket-specific Qdrant collections (dense + sparse vectors).</p></li>
+</ol>
+<p>The document state now exposes both global progress (<code class="docutils literal notranslate"><span class="pre">processing_progress</span></code>) and stage-local progress (<code class="docutils literal notranslate"><span class="pre">processing_stage</span></code>, <code class="docutils literal notranslate"><span class="pre">processing_stage_progress</span></code>) so UI progress bars can reflect which stage each document is currently in.</p>
+</section>
+<section id="celery-tasks">
+<h2>Celery Tasks<a class="headerlink" href="#celery-tasks" title="Link to this heading">¶</a></h2>
+<p>Defined in <code class="docutils literal notranslate"><span class="pre">src/mcp_evidencebase/tasks.py</span></code>:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">mcp_evidencebase.ping</span></code>: worker health probe (<code class="docutils literal notranslate"><span class="pre">pong</span></code>).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">mcp_evidencebase.scan_minio_objects(bucket_name=None,</span> <span class="pre">update_meta=True)</span></code>: scan one/all buckets
+and enqueue <code class="docutils literal notranslate"><span class="pre">partition_minio_object</span></code> for changed objects.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">mcp_evidencebase.partition_minio_object(bucket_name,</span> <span class="pre">object_name,</span> <span class="pre">etag=None,</span> <span class="pre">update_meta=False)</span></code>:
+partition stage, then enqueues <code class="docutils literal notranslate"><span class="pre">meta_minio_object</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">mcp_evidencebase.meta_minio_object(partition_payload)</span></code>: metadata stage, optional Crossref metadata update, then enqueues <code class="docutils literal notranslate"><span class="pre">section_minio_object</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">mcp_evidencebase.section_minio_object(meta_payload)</span></code>: section mapping stage, then enqueues <code class="docutils literal notranslate"><span class="pre">chunk_minio_object</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">mcp_evidencebase.chunk_minio_object(section_payload)</span></code>: chunk stage, then enqueues <code class="docutils literal notranslate"><span class="pre">upsert_minio_object</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">mcp_evidencebase.upsert_minio_object(chunk_payload)</span></code>: vector upsert stage.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">mcp_evidencebase.process_minio_object(bucket_name,</span> <span class="pre">object_name,</span> <span class="pre">etag=None,</span> <span class="pre">update_meta=False)</span></code>:
+backward-compatible wrapper that runs all five stages inline.</p></li>
+</ul>
+<p>Beat schedule is configured in <code class="docutils literal notranslate"><span class="pre">src/mcp_evidencebase/celery_app.py</span></code>. To execute scheduled scans,
+run a beat process (or worker with beat enabled). The current API endpoint
+<code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/collections/{bucket}/scan</span></code> can always trigger scans on demand.</p>
+<p>Operational guidance:</p>
+<ul class="simple">
+<li><p>Re-run partitioning when source bytes/ETag change.</p></li>
+<li><p>Re-run metadata enrichment independently when metadata heuristics or Crossref behavior changes.</p></li>
+<li><p>Re-run section/chunk/upsert stages when chunking strategy changes and partition payload is still valid.</p></li>
+<li><p>Keep stage payloads deterministic so retries remain idempotent.</p></li>
+</ul>
+</section>
+<section id="documentation-and-test-reporting">
+<h2>Documentation And Test Reporting<a class="headerlink" href="#documentation-and-test-reporting" title="Link to this heading">¶</a></h2>
+<p>Build docs locally (includes full test run, grouped summary, and coverage):</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docs/build_docs.sh
 </pre></div>
 </div>
-<p>Optional environment overrides:</p>
+<p>The docs test page includes:</p>
+<ul class="simple">
+<li><p>grouped tests by key areas,</p></li>
+<li><p>per-test commentary (what is validated and expected result),</p></li>
+<li><p>module and total line coverage,</p></li>
+<li><p>full HTML test report embed.</p></li>
+</ul>
+</section>
+<section id="environment-overrides">
+<h2>Environment Overrides<a class="headerlink" href="#environment-overrides" title="Link to this heading">¶</a></h2>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">PROXY_PORT</span><span class="o">=</span><span class="m">52180</span>
 <span class="nv">MINIO_ROOT_USER</span><span class="o">=</span>minioadmin
 <span class="nv">MINIO_ROOT_PASSWORD</span><span class="o">=</span>minioadmin
@@ -150,109 +481,125 @@ https://evidencebase.heley.uk/flower/
 <span class="nv">QDRANT_COLLECTION_PREFIX</span><span class="o">=</span>evidencebase
 <span class="nv">UNSTRUCTURED_API_URL</span><span class="o">=</span>https://api.unstructuredapp.io/general/v0/general
 <span class="nv">UNSTRUCTURED_API_KEY</span><span class="o">=</span>&lt;your-unstructured-api-key&gt;
-<span class="nv">UNSTRUCTURED_STRATEGY</span><span class="o">=</span>auto
+<span class="nv">UNSTRUCTURED_STRATEGY</span><span class="o">=</span>hi_res
+<span class="nv">UNSTRUCTURED_TIMEOUT_SECONDS</span><span class="o">=</span><span class="m">300</span>
 <span class="nv">FASTEMBED_MODEL</span><span class="o">=</span>BAAI/bge-small-en-v1.5
-<span class="nv">CHUNK_SIZE_CHARS</span><span class="o">=</span><span class="m">1200</span>
-<span class="nv">CHUNK_OVERLAP_CHARS</span><span class="o">=</span><span class="m">150</span>
+<span class="nv">FASTEMBED_KEYWORD_MODEL</span><span class="o">=</span>Qdrant/bm25
+<span class="nv">HF_HOME</span><span class="o">=</span>/model-cache/huggingface
+<span class="nv">FASTEMBED_CACHE_PATH</span><span class="o">=</span>/model-cache/fastembed
+<span class="nv">CHUNK_SIZE_CHARS</span><span class="o">=</span><span class="m">3000</span>
+<span class="nv">CHUNK_OVERLAP_CHARS</span><span class="o">=</span><span class="m">0</span>
+<span class="nv">CHUNKING_STRATEGY</span><span class="o">=</span>by_title
+<span class="nv">CHUNK_NEW_AFTER_N_CHARS</span><span class="o">=</span><span class="m">2000</span>
+<span class="nv">CHUNK_COMBINE_TEXT_UNDER_N_CHARS</span><span class="o">=</span><span class="m">500</span>
+<span class="nv">CHUNK_EXCLUDE_ELEMENT_TYPES</span><span class="o">=</span>header,footer,pageheader,pagefooter,page-header,page-footer,uncategorizedtext,uncategorized_text
+<span class="nv">CHUNK_INCLUDE_TITLE_TEXT</span><span class="o">=</span><span class="nb">false</span>
+<span class="nv">CHUNK_IMAGE_TEXT_MODE</span><span class="o">=</span>placeholder
+<span class="nv">CHUNK_PARAGRAPH_BREAK_STRATEGY</span><span class="o">=</span>text
+<span class="nv">CHUNK_PRESERVE_PAGE_BREAKS</span><span class="o">=</span><span class="nb">true</span>
 <span class="nv">MINIO_SCAN_INTERVAL_SECONDS</span><span class="o">=</span><span class="m">15</span>
+<span class="c1"># Required because cloudflared starts with docker compose up.</span>
 <span class="nv">CLOUDFLARE_TUNNEL_TOKEN</span><span class="o">=</span>&lt;your-cloudflare-tunnel-token&gt;
+<span class="nv">GPT_ACTIONS_API_KEY</span><span class="o">=</span>&lt;your-api-key&gt;
+<span class="nv">GPT_ACTIONS_LINK_BASE_URL</span><span class="o">=</span>https://evidencebase.heley.uk
 </pre></div>
 </div>
 </section>
-<section id="bucket-api-command-line-examples">
-<h2>Bucket API command-line examples<a class="headerlink" href="#bucket-api-command-line-examples" title="Link to this heading">¶</a></h2>
-<p>The UI calls the same API shown below. These are copy/paste commands.</p>
-<p>Set the API base URL:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">BASE_URL</span><span class="o">=</span><span class="s2">&quot;http://localhost:52180/api&quot;</span>
-</pre></div>
-</div>
-<p>List buckets:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$BASE_URL</span><span class="s2">/buckets&quot;</span>
-</pre></div>
-</div>
-<p>Add bucket <code class="docutils literal notranslate"><span class="pre">research-raw</span></code>:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$BASE_URL</span><span class="s2">/buckets&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{&quot;bucket_name&quot;:&quot;research-raw&quot;}&#39;</span>
-</pre></div>
-</div>
-<p>Expected response when created:</p>
-<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span><span class="nt">&quot;bucket_name&quot;</span><span class="p">:</span><span class="s2">&quot;research-raw&quot;</span><span class="p">,</span><span class="nt">&quot;created&quot;</span><span class="p">:</span><span class="kc">true</span><span class="p">,</span><span class="nt">&quot;qdrant_collection_created&quot;</span><span class="p">:</span><span class="kc">true</span><span class="p">}</span>
-</pre></div>
-</div>
-<p>Expected response when it already exists:</p>
-<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span><span class="nt">&quot;bucket_name&quot;</span><span class="p">:</span><span class="s2">&quot;research-raw&quot;</span><span class="p">,</span><span class="nt">&quot;created&quot;</span><span class="p">:</span><span class="kc">false</span><span class="p">,</span><span class="nt">&quot;qdrant_collection_created&quot;</span><span class="p">:</span><span class="kc">false</span><span class="p">}</span>
-</pre></div>
-</div>
-<p>Remove bucket <code class="docutils literal notranslate"><span class="pre">research-raw</span></code>:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>DELETE<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$BASE_URL</span><span class="s2">/buckets/research-raw&quot;</span>
-</pre></div>
-</div>
-<p>Expected response when removed:</p>
-<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span><span class="nt">&quot;bucket_name&quot;</span><span class="p">:</span><span class="s2">&quot;research-raw&quot;</span><span class="p">,</span><span class="nt">&quot;removed&quot;</span><span class="p">:</span><span class="kc">true</span><span class="p">,</span><span class="nt">&quot;qdrant_collection_removed&quot;</span><span class="p">:</span><span class="kc">true</span><span class="p">}</span>
-</pre></div>
-</div>
-<p>Expected response when it does not exist:</p>
-<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span><span class="nt">&quot;bucket_name&quot;</span><span class="p">:</span><span class="s2">&quot;research-raw&quot;</span><span class="p">,</span><span class="nt">&quot;removed&quot;</span><span class="p">:</span><span class="kc">false</span><span class="p">,</span><span class="nt">&quot;qdrant_collection_removed&quot;</span><span class="p">:</span><span class="kc">false</span><span class="p">}</span>
-</pre></div>
-</div>
-</section>
-<section id="document-ingestion-api-command-line-examples">
-<h2>Document ingestion API command-line examples<a class="headerlink" href="#document-ingestion-api-command-line-examples" title="Link to this heading">¶</a></h2>
-<p>List documents for bucket <code class="docutils literal notranslate"><span class="pre">research-raw</span></code>:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$BASE_URL</span><span class="s2">/collections/research-raw/documents&quot;</span>
-</pre></div>
-</div>
-<p>Upload and queue processing (<code class="docutils literal notranslate"><span class="pre">document_id</span></code> is the SHA-256 hash of bytes):</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">&quot;</span><span class="nv">$BASE_URL</span><span class="s2">/collections/research-raw/documents/upload?file_name=paper.pdf&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/pdf&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--data-binary<span class="w"> </span><span class="s2">&quot;@paper.pdf&quot;</span>
-</pre></div>
-</div>
-<p>Queue an on-demand bucket scan (for files dropped directly into MinIO):</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$BASE_URL</span><span class="s2">/collections/research-raw/scan&quot;</span>
-</pre></div>
-</div>
-<p>Update BibTeX metadata in Redis:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>PUT<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$BASE_URL</span><span class="s2">/collections/research-raw/documents/&lt;document_id&gt;/metadata&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{&quot;metadata&quot;:{&quot;title&quot;:&quot;My Paper&quot;,&quot;author&quot;:&quot;A. Author&quot;,&quot;year&quot;:&quot;2025&quot;,&quot;document_type&quot;:&quot;article&quot;}}&#39;</span>
-</pre></div>
-</div>
-<p>Delete a document (keeps partition payload in Redis, removes everything else):</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>DELETE<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$BASE_URL</span><span class="s2">/collections/research-raw/documents/&lt;document_id&gt;&quot;</span>
-</pre></div>
-</div>
-</section>
-<section id="redis-and-qdrant-schema">
-<h2>Redis and Qdrant Schema<a class="headerlink" href="#redis-and-qdrant-schema" title="Link to this heading">¶</a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">document_id</span></code> is the SHA-256 hash of file bytes and is the canonical document key.</p>
-<p>Redis keys (prefix defaults to <code class="docutils literal notranslate"><span class="pre">evidencebase</span></code>):</p>
+<section id="data-model-snapshot-redis-qdrant">
+<h2>Data Model Snapshot (Redis + Qdrant)<a class="headerlink" href="#data-model-snapshot-redis-qdrant" title="Link to this heading">¶</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">document_id</span></code> is the SHA-256 hash of file bytes.</p>
+<p>Redis keys (prefix default: <code class="docutils literal notranslate"><span class="pre">evidencebase</span></code>):</p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">document:&lt;document_hash&gt;</span></code> hash for processing state/progress (<code class="docutils literal notranslate"><span class="pre">processing_state</span></code>, <code class="docutils literal notranslate"><span class="pre">processing_progress</span></code>, <code class="docutils literal notranslate"><span class="pre">partition_key</span></code>, <code class="docutils literal notranslate"><span class="pre">meta_key</span></code>, etc.).</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">document:&lt;document_hash&gt;:sources</span></code> set of <code class="docutils literal notranslate"><span class="pre">bucket/object</span></code> source locations mapped to the document hash.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">document:&lt;document_hash&gt;:partitions</span></code> Unstructured partition JSON payload.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">document:partition:&lt;partition_hash&gt;</span></code> reverse index mapping partition hash -&gt; document hash.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">source:&lt;bucket&gt;/&lt;object&gt;</span></code> source mapping hash (<code class="docutils literal notranslate"><span class="pre">document_id</span></code>, <code class="docutils literal notranslate"><span class="pre">etag</span></code>, <code class="docutils literal notranslate"><span class="pre">resolver_url</span></code>, location fields).</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">source:bucket:&lt;bucket&gt;</span></code> set of source locations in a bucket.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">meta:&lt;bucket&gt;/&lt;object&gt;</span></code> source-scoped normalized BibTeX metadata payload with <code class="docutils literal notranslate"><span class="pre">document_id</span></code> and <code class="docutils literal notranslate"><span class="pre">source</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">document:&lt;document_hash&gt;</span></code> processing state/progress hash</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">document:&lt;document_hash&gt;:sources</span></code> source locations set (<code class="docutils literal notranslate"><span class="pre">bucket/object</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">document:&lt;document_hash&gt;:partition</span></code> partition payload JSON (<code class="docutils literal notranslate"><span class="pre">partition_key</span></code> stored in state hash)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">document:&lt;document_hash&gt;:sections</span></code> section/chunk mapping payload (<code class="docutils literal notranslate"><span class="pre">sections</span></code>, <code class="docutils literal notranslate"><span class="pre">chunk_sections</span></code>, <code class="docutils literal notranslate"><span class="pre">partition_key</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">source:&lt;bucket&gt;/&lt;object&gt;</span></code> source mapping (<code class="docutils literal notranslate"><span class="pre">document_id</span></code>, <code class="docutils literal notranslate"><span class="pre">etag</span></code>, <code class="docutils literal notranslate"><span class="pre">resolver_url</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">source:&lt;bucket&gt;/&lt;object&gt;:meta</span></code> source-scoped normalized metadata</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">source:bucket:&lt;bucket&gt;</span></code> set of source locations in bucket</p></li>
 </ul>
-<p>Notes:</p>
+<p>Qdrant point payload fields include:</p>
 <ul class="simple">
-<li><p>Redis stores partitions and metadata, but <strong>does not store chunks</strong>.</p></li>
-<li><p>Deleting a document keeps <code class="docutils literal notranslate"><span class="pre">document:&lt;document_hash&gt;</span></code> state and partition payload by default, and removes source/meta mappings.</p></li>
-<li><p>Metadata extraction attempts title/authors/DOI/ISBN; DOI extraction is intentionally limited to first-page/front-matter partitions.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">document_id</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">partition_key</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">title</span></code>, <code class="docutils literal notranslate"><span class="pre">author</span></code>, <code class="docutils literal notranslate"><span class="pre">year</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">resolver_url</span></code> (<code class="docutils literal notranslate"><span class="pre">docs://bucket/object.ext?page=</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">minio_location</span></code>, <code class="docutils literal notranslate"><span class="pre">chunk_index</span></code>, <code class="docutils literal notranslate"><span class="pre">chunk_id</span></code>, <code class="docutils literal notranslate"><span class="pre">chunk_type</span></code>, <code class="docutils literal notranslate"><span class="pre">text</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">section_id</span></code>, <code class="docutils literal notranslate"><span class="pre">section_title</span></code>, <code class="docutils literal notranslate"><span class="pre">page_start</span></code>, <code class="docutils literal notranslate"><span class="pre">page_end</span></code>, <code class="docutils literal notranslate"><span class="pre">filename</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">bounding_boxes</span></code> (chunk source coordinates + page references)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">orig_elements</span></code> (trace records for PDF deep-linking/bbox follow-up)</p></li>
 </ul>
-<p>Qdrant stores chunk text + embeddings. Each point payload includes:</p>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">document_id</span></code> (document hash)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">partition_key</span></code> (partition hash)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">meta_key</span></code> (metadata hash)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">resolver_url</span></code> in the form <code class="docutils literal notranslate"><span class="pre">docs://bucket/object.ext?page=</span></code></p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">minio_location</span></code>, <code class="docutils literal notranslate"><span class="pre">chunk_index</span></code>, and <code class="docutils literal notranslate"><span class="pre">text</span></code></p></li>
-</ul>
+<p>Search results are hydrated from Redis section mappings (when available) to include:
+<code class="docutils literal notranslate"><span class="pre">parent_section_id</span></code>, <code class="docutils literal notranslate"><span class="pre">parent_section_index</span></code>, <code class="docutils literal notranslate"><span class="pre">parent_section_title</span></code>, and <code class="docutils literal notranslate"><span class="pre">parent_section_text</span></code>.</p>
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
 </section>
+</section>
+<section id="project-structure">
+<h1>Project Structure<a class="headerlink" href="#project-structure" title="Link to this heading">¶</a></h1>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>.
+├── deploy/
+│   └── nginx/
+├── docker/
+├── docs/
+│   ├── build_docs.sh
+│   └── source/
+├── frontend/
+├── src/
+│   └── mcp_evidencebase/
+└── tests/
+</pre></div>
+</div>
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+</section>
+<section id="roadmap">
+<h1>Roadmap<a class="headerlink" href="#roadmap" title="Link to this heading">¶</a></h1>
+<ul class="simple">
+<li><p>[x] Unified proxy-based local stack for UI/API/docs/ops services</p></li>
+<li><p>[x] End-to-end ingestion flow (upload -&gt; partition -&gt; metadata -&gt; chunks -&gt; vectors)</p></li>
+<li><p>[x] Sphinx docs with API reference and CLI vignette</p></li>
+<li><p>[x] Test reporting with grouped areas and coverage summary in docs</p></li>
+<li><p>[ ] Add automated deployment workflow for docs and services</p></li>
+<li><p>[ ] Implement parent-child context retrieval</p></li>
+<li><p>[ ] Add prompt rewriting for query refinement</p></li>
+<li><p>[x] Expand integration tests for live MinIO/Redis/Qdrant interactions</p></li>
+</ul>
+<p>See open issues for additional planning: <a class="reference external" href="https://github.com/defenceeconomist/mcp-evidencebase/issues">open issues</a>.</p>
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+</section>
+<section id="contributing">
+<h1>Contributing<a class="headerlink" href="#contributing" title="Link to this heading">¶</a></h1>
+<p>Contributions are welcome.</p>
+<ol class="arabic simple">
+<li><p>Fork the project</p></li>
+<li><p>Create your feature branch (<code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">checkout</span> <span class="pre">-b</span> <span class="pre">feature/my-change</span></code>)</p></li>
+<li><p>Commit your changes (<code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">commit</span> <span class="pre">-m</span> <span class="pre">'Add</span> <span class="pre">some</span> <span class="pre">feature'</span></code>)</p></li>
+<li><p>Push to the branch (<code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">push</span> <span class="pre">origin</span> <span class="pre">feature/my-change</span></code>)</p></li>
+<li><p>Open a Pull Request</p></li>
+</ol>
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+</section>
+<section id="license">
+<h1>License<a class="headerlink" href="#license" title="Link to this heading">¶</a></h1>
+<p>No license file is currently included in this repository.</p>
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+</section>
+<section id="contact">
+<h1>Contact<a class="headerlink" href="#contact" title="Link to this heading">¶</a></h1>
+<p>Project repository: <a class="reference external" href="https://github.com/defenceeconomist/mcp-evidencebase">https://github.com/defenceeconomist/mcp-evidencebase</a></p>
+<p>Issues: <a class="reference external" href="https://github.com/defenceeconomist/mcp-evidencebase/issues">https://github.com/defenceeconomist/mcp-evidencebase/issues</a></p>
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+</section>
+<section id="acknowledgments">
+<h1>Acknowledgments<a class="headerlink" href="#acknowledgments" title="Link to this heading">¶</a></h1>
+<ul class="simple">
+<li><p><a class="reference external" href="https://github.com/othneildrew/Best-README-Template">Best-README-Template</a></p></li>
+<li><p><a class="reference external" href="https://fastapi.tiangolo.com/">FastAPI</a></p></li>
+<li><p><a class="reference external" href="https://docs.celeryq.dev/">Celery</a></p></li>
+<li><p><a class="reference external" href="https://qdrant.tech/">Qdrant</a></p></li>
+<li><p><a class="reference external" href="https://min.io/">MinIO</a></p></li>
+</ul>
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+<!-- MARKDOWN LINKS & IMAGES -->
 </section>
 
 
@@ -283,17 +630,38 @@ https://evidencebase.heley.uk/flower/
 <script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
 <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
 <ul class="current">
-<li class="toctree-l1 current"><a class="current reference internal" href="#">Evidence Base</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="#project-layout">Project layout</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#quickstart">Quickstart</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#docker-compose-stack">Docker compose stack</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#documentation">Documentation</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#bucket-api-command-line-examples">Bucket API command-line examples</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#document-ingestion-api-command-line-examples">Document ingestion API command-line examples</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#redis-and-qdrant-schema">Redis and Qdrant Schema</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">About The Project</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#built-with">Built With</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="#getting-started">Getting Started</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#prerequisites">Prerequisites</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#installation">Installation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#ui-e2e-test-playwright">UI E2E Test (Playwright)</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="#usage">Usage</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#cli">CLI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#docker-compose-stack">Docker Compose Stack</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#service-urls">Service URLs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#cloudflare-split-protected-ui-open-gpt-api">Cloudflare Split: Protected UI + Open GPT API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#api-workflow-examples">API Workflow Examples</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#custom-gpt-ping-action-api-key-bearer">Custom GPT Ping Action (API Key + Bearer)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#ingestion-pipeline-atomic-stages">Ingestion Pipeline: Atomic Stages</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#celery-tasks">Celery Tasks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#documentation-and-test-reporting">Documentation And Test Reporting</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#environment-overrides">Environment Overrides</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#data-model-snapshot-redis-qdrant">Data Model Snapshot (Redis + Qdrant)</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="#project-structure">Project Structure</a></li>
+<li class="toctree-l1"><a class="reference internal" href="#roadmap">Roadmap</a></li>
+<li class="toctree-l1"><a class="reference internal" href="#contributing">Contributing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="#license">License</a></li>
+<li class="toctree-l1"><a class="reference internal" href="#contact">Contact</a></li>
+<li class="toctree-l1"><a class="reference internal" href="#acknowledgments">Acknowledgments</a></li>
 <li class="toctree-l1"><a class="reference internal" href="vignette_cli.html">Command-Line Vignette: End-To-End Workflow</a></li>
+<li class="toctree-l1"><a class="reference internal" href="gpt_actions.html">GPT Actions API</a></li>
 <li class="toctree-l1"><a class="reference internal" href="reference.html">Reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="tests.html">Tests</a></li>
 </ul>

@@ -406,6 +406,65 @@ curl -sS -X POST "https://open.heley.uk/api/gpt/search" \
 `minimal_response` defaults to `true` to keep GPT payloads small; set `minimal_response=false`
 when you need full retrieval diagnostics and expanded section fields.
 
+#### GPT Search: Staged Retrieval Behaviour
+
+`POST /api/gpt/search` uses staged retrieval by default (`use_staged_retrieval=true`).
+
+When enabled, retrieval runs as:
+
+1. Query variant expansion (`query_variant_limit`, default `6`, clamped to `3..8`)
+2. Wide chunk recall per variant (`wide_limit_per_variant`, default `75`, clamped to `50..100`)
+3. Section grouping and shortlist (`section_shortlist_limit`, default `20`, clamped to `10..30`)
+4. Section-level rerank with hard-filter boosts (country/year/programme signals extracted from query)
+5. Final top `limit` section-centric results with citation anchors (`chunk_ids_used`)
+
+When disabled (`use_staged_retrieval=false`), the endpoint falls back to one-pass
+collection search (semantic/keyword/hybrid) without variant expansion, shortlist, or
+section-level reranking.
+
+Tunable staged retrieval parameters:
+
+- `query_variant_limit`: number of generated query variants (`3..8`)
+- `wide_limit_per_variant`: chunk recall depth per variant (`50..100`)
+- `section_shortlist_limit`: number of section groups kept for deep scoring (`10..30`)
+- `max_section_text_chars`: per-result section text cap in full response mode (`250..12000`)
+
+Response behavior:
+
+- `minimal_response=true` (default): compact payload for lower token usage
+- `minimal_response=false`: includes `query_variants`, `hard_filters`, `stage_stats`, and `citations`
+- `minimal_result_text_chars` controls snippet truncation for minimal mode (default `500`, clamped to `25..2000`)
+
+Example with staged retrieval enabled (default):
+
+```bash
+curl -sS -X POST "https://open.heley.uk/api/gpt/search" \
+  -H "Authorization: Bearer <your-api-key>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "bucket_name": "research-raw",
+    "query": "UK offsets programme 2020",
+    "mode": "hybrid",
+    "limit": 5,
+    "minimal_response": false
+  }'
+```
+
+Example fallback to one-pass retrieval:
+
+```bash
+curl -sS -X POST "https://open.heley.uk/api/gpt/search" \
+  -H "Authorization: Bearer <your-api-key>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "bucket_name": "research-raw",
+    "query": "UK offsets programme 2020",
+    "mode": "hybrid",
+    "limit": 5,
+    "use_staged_retrieval": false
+  }'
+```
+
 ### Ingestion Pipeline: Atomic Stages
 
 The ingestion flow now uses five explicit stages that run sequentially:
@@ -487,7 +546,8 @@ QDRANT_COLLECTION_PREFIX=evidencebase
 UNSTRUCTURED_API_URL=https://api.unstructuredapp.io/general/v0/general
 UNSTRUCTURED_API_KEY=<your-unstructured-api-key>
 UNSTRUCTURED_STRATEGY=hi_res
-UNSTRUCTURED_TIMEOUT_SECONDS=300
+# For very large PDFs, raise this further (for example 1200-1800) or set UNSTRUCTURED_STRATEGY=fast.
+UNSTRUCTURED_TIMEOUT_SECONDS=900
 FASTEMBED_MODEL=BAAI/bge-small-en-v1.5
 FASTEMBED_KEYWORD_MODEL=Qdrant/bm25
 HF_HOME=/model-cache/huggingface

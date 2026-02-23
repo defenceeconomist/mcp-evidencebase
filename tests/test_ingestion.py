@@ -375,7 +375,7 @@ def test_build_ingestion_settings_supports_unstructured_timeout_override() -> No
     assert min_clamped.unstructured_timeout_seconds == 5.0
 
     fallback_default = build_ingestion_settings({"UNSTRUCTURED_TIMEOUT_SECONDS": "invalid"})
-    assert fallback_default.unstructured_timeout_seconds == 300.0
+    assert fallback_default.unstructured_timeout_seconds == 900.0
 
 
 def test_build_ingestion_settings_supports_chunking_element_overrides() -> None:

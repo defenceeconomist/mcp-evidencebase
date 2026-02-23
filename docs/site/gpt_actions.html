@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="./">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>GPT Actions API &#8212; mcp-evidencebase 0.1.0 documentation</title>
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="_static/alabaster.css?v=27fed22d" />
+    <script src="_static/documentation_options.js?v=01f34227"></script>
+    <script src="_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Reference" href="reference.html" />
+    <link rel="prev" title="Command-Line Vignette: End-To-End Workflow" href="vignette_cli.html" />
+   
+  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <section id="gpt-actions-api">
+<h1>GPT Actions API<a class="headerlink" href="#gpt-actions-api" title="Link to this heading">¶</a></h1>
+<p>This article documents the GPT-facing API endpoints exposed by <code class="docutils literal notranslate"><span class="pre">mcp-evidencebase</span></code>, with emphasis on the <code class="docutils literal notranslate"><span class="pre">searchCollection</span></code> GPT Action function.</p>
+<section id="base-urls">
+<h2>Base URLs<a class="headerlink" href="#base-urls" title="Link to this heading">¶</a></h2>
+<p>Use one of these API bases depending on environment:</p>
+<ul class="simple">
+<li><p>Local via NGINX proxy: <code class="docutils literal notranslate"><span class="pre">http://localhost:52180/api</span></code></p></li>
+<li><p>Public GPT-only host (recommended): <code class="docutils literal notranslate"><span class="pre">https://open.heley.uk/api</span></code></p></li>
+</ul>
+<p>The GPT-only host serves only <code class="docutils literal notranslate"><span class="pre">/api/gpt/*</span></code>.</p>
+</section>
+<section id="endpoints">
+<h2>Endpoints<a class="headerlink" href="#endpoints" title="Link to this heading">¶</a></h2>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/gpt/openapi.json</span></code>: minimal OpenAPI schema for ChatGPT Actions</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/gpt/ping</span></code>: auth-protected connectivity check</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/gpt/search</span></code>: GPT Action search wrapper (<code class="docutils literal notranslate"><span class="pre">operationId:</span> <span class="pre">searchCollection</span></code>)</p></li>
+</ul>
+</section>
+<section id="authentication">
+<h2>Authentication<a class="headerlink" href="#authentication" title="Link to this heading">¶</a></h2>
+<p>Set server env var:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">GPT_ACTIONS_API_KEY</span><span class="o">=</span>&lt;your-api-key&gt;
+</pre></div>
+</div>
+<p>All GPT endpoints require this key. The API accepts any of these request auth forms:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">Authorization:</span> <span class="pre">Bearer</span> <span class="pre">&lt;key&gt;</span></code> (recommended for ChatGPT Actions)</p></li>
+<li><p>HTTP Basic (<code class="docutils literal notranslate"><span class="pre">username=&lt;key&gt;</span></code> or <code class="docutils literal notranslate"><span class="pre">password=&lt;key&gt;</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">X-API-Key:</span> <span class="pre">&lt;key&gt;</span></code></p></li>
+</ul>
+<p>If the key is missing on the server, endpoints return <code class="docutils literal notranslate"><span class="pre">503</span></code>.
+If a supplied key is invalid, endpoints return <code class="docutils literal notranslate"><span class="pre">401</span></code>.</p>
+</section>
+<section id="chatgpt-actions-setup">
+<h2>ChatGPT Actions Setup<a class="headerlink" href="#chatgpt-actions-setup" title="Link to this heading">¶</a></h2>
+<p>Use:</p>
+<ul class="simple">
+<li><p>OpenAPI schema URL: <code class="docutils literal notranslate"><span class="pre">https://open.heley.uk/api/gpt/openapi.json</span></code></p></li>
+<li><p>Authentication type: <code class="docutils literal notranslate"><span class="pre">API</span> <span class="pre">key</span></code></p></li>
+<li><p>Auth type: <code class="docutils literal notranslate"><span class="pre">Bearer</span></code></p></li>
+<li><p>API key value: same value as <code class="docutils literal notranslate"><span class="pre">GPT_ACTIONS_API_KEY</span></code></p></li>
+</ul>
+</section>
+<section id="searchcollection-function">
+<h2><code class="docutils literal notranslate"><span class="pre">searchCollection</span></code> Function<a class="headerlink" href="#searchcollection-function" title="Link to this heading">¶</a></h2>
+<p>The GPT Action function is exposed as:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/gpt/search</span></code></p></li>
+<li><p>OpenAPI <code class="docutils literal notranslate"><span class="pre">operationId</span></code>: <code class="docutils literal notranslate"><span class="pre">searchCollection</span></code></p></li>
+</ul>
+<section id="request-body">
+<h3>Request body<a class="headerlink" href="#request-body" title="Link to this heading">¶</a></h3>
+<p>Required:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">query</span></code> (<code class="docutils literal notranslate"><span class="pre">string</span></code>)</p></li>
+</ul>
+<p>Optional:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">bucket_name</span></code> (<code class="docutils literal notranslate"><span class="pre">string</span></code>): required only when multiple buckets exist</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">limit</span></code> (<code class="docutils literal notranslate"><span class="pre">int</span></code>, default <code class="docutils literal notranslate"><span class="pre">10</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">mode</span></code> (<code class="docutils literal notranslate"><span class="pre">semantic|keyword|hybrid</span></code>, default <code class="docutils literal notranslate"><span class="pre">hybrid</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">rrf_k</span></code> (<code class="docutils literal notranslate"><span class="pre">int</span></code>, default <code class="docutils literal notranslate"><span class="pre">60</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">use_staged_retrieval</span></code> (<code class="docutils literal notranslate"><span class="pre">bool</span></code>, default <code class="docutils literal notranslate"><span class="pre">true</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">query_variant_limit</span></code> (<code class="docutils literal notranslate"><span class="pre">int</span></code>, default <code class="docutils literal notranslate"><span class="pre">6</span></code>, clamped to <code class="docutils literal notranslate"><span class="pre">3..8</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">wide_limit_per_variant</span></code> (<code class="docutils literal notranslate"><span class="pre">int</span></code>, default <code class="docutils literal notranslate"><span class="pre">75</span></code>, clamped to <code class="docutils literal notranslate"><span class="pre">50..100</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">section_shortlist_limit</span></code> (<code class="docutils literal notranslate"><span class="pre">int</span></code>, default <code class="docutils literal notranslate"><span class="pre">20</span></code>, clamped to <code class="docutils literal notranslate"><span class="pre">10..30</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">max_section_text_chars</span></code> (<code class="docutils literal notranslate"><span class="pre">int</span></code>, default <code class="docutils literal notranslate"><span class="pre">2500</span></code>, clamped to <code class="docutils literal notranslate"><span class="pre">250..12000</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">minimal_response</span></code> (<code class="docutils literal notranslate"><span class="pre">bool</span></code>, default <code class="docutils literal notranslate"><span class="pre">true</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">minimal_result_text_chars</span></code> (<code class="docutils literal notranslate"><span class="pre">int</span></code>, default <code class="docutils literal notranslate"><span class="pre">500</span></code>, clamped to <code class="docutils literal notranslate"><span class="pre">25..2000</span></code>)</p></li>
+</ul>
+</section>
+<section id="response-modes">
+<h3>Response modes<a class="headerlink" href="#response-modes" title="Link to this heading">¶</a></h3>
+<p>When <code class="docutils literal notranslate"><span class="pre">minimal_response=true</span></code> (default), response is compact for token efficiency:</p>
+<ul class="simple">
+<li><p>Top-level fields: <code class="docutils literal notranslate"><span class="pre">bucket_name</span></code>, <code class="docutils literal notranslate"><span class="pre">query</span></code>, <code class="docutils literal notranslate"><span class="pre">mode</span></code>, <code class="docutils literal notranslate"><span class="pre">limit</span></code>, <code class="docutils literal notranslate"><span class="pre">rrf_k</span></code>, <code class="docutils literal notranslate"><span class="pre">results</span></code></p></li>
+<li><p>Optional <code class="docutils literal notranslate"><span class="pre">citations</span></code> appears when available</p></li>
+<li><p>Each result is reduced to core citation/link/text fields</p></li>
+</ul>
+<p>When <code class="docutils literal notranslate"><span class="pre">minimal_response=false</span></code>, response includes richer diagnostics:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">query_variants</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">hard_filters</span></code> (country/year/programme signals extracted from query)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">stage_stats</span></code> (wide recall and shortlist stats)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">citations</span></code> with section and chunk anchors</p></li>
+<li><p>Full section-oriented result payloads</p></li>
+</ul>
+</section>
+<section id="bucket-resolution-behavior">
+<h3>Bucket resolution behavior<a class="headerlink" href="#bucket-resolution-behavior" title="Link to this heading">¶</a></h3>
+<p>If <code class="docutils literal notranslate"><span class="pre">bucket_name</span></code> is omitted:</p>
+<ul class="simple">
+<li><p>one bucket available: auto-selected</p></li>
+<li><p>zero buckets: <code class="docutils literal notranslate"><span class="pre">404</span></code></p></li>
+<li><p>multiple buckets: <code class="docutils literal notranslate"><span class="pre">400</span></code> with available bucket preview</p></li>
+</ul>
+</section>
+<section id="link-fields-in-results">
+<h3>Link fields in results<a class="headerlink" href="#link-fields-in-results" title="Link to this heading">¶</a></h3>
+<p>Each result can include:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">source_material_url</span></code>: HTTP URL to retrieve the source PDF</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">resolver_link_url</span></code>: HTTP URL to open <code class="docutils literal notranslate"><span class="pre">resolver.html</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">resolver_url</span></code>: normalized clickable URL</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">resolver_reference</span></code>: original internal <code class="docutils literal notranslate"><span class="pre">docs://...</span></code> reference (when present)</p></li>
+</ul>
+<p>If <code class="docutils literal notranslate"><span class="pre">GPT_ACTIONS_LINK_BASE_URL</span></code> is set, relative links are expanded against that base.
+Otherwise links are expanded from the incoming request base URL.</p>
+</section>
+</section>
+<section id="ping-function">
+<h2><code class="docutils literal notranslate"><span class="pre">ping</span></code> Function<a class="headerlink" href="#ping-function" title="Link to this heading">¶</a></h2>
+<p>Use <code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/gpt/ping</span></code> to validate connectivity and auth.</p>
+<p>Example:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-H<span class="w"> </span><span class="s2">&quot;Authorization: Bearer &lt;your-api-key&gt;&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="s2">&quot;https://open.heley.uk/api/gpt/ping?message=hello&quot;</span>
+</pre></div>
+</div>
+<p>Response shape:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;ok&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;reply&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;pong&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;echo&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;timestamp_utc&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-02-23T12:00:00Z&quot;</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
+<section id="example-searchcollection">
+<h2>Example: <code class="docutils literal notranslate"><span class="pre">searchCollection</span></code><a class="headerlink" href="#example-searchcollection" title="Link to this heading">¶</a></h2>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s2">&quot;https://open.heley.uk/api/gpt/search&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Authorization: Bearer &lt;your-api-key&gt;&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{</span>
+<span class="s1">    &quot;bucket_name&quot;: &quot;research-raw&quot;,</span>
+<span class="s1">    &quot;query&quot;: &quot;UK offsets programme 2020&quot;,</span>
+<span class="s1">    &quot;mode&quot;: &quot;hybrid&quot;,</span>
+<span class="s1">    &quot;limit&quot;: 5</span>
+<span class="s1">  }&#39;</span>
+</pre></div>
+</div>
+</section>
+<section id="error-map">
+<h2>Error map<a class="headerlink" href="#error-map" title="Link to this heading">¶</a></h2>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">400</span></code>: invalid input (for example invalid <code class="docutils literal notranslate"><span class="pre">mode</span></code>, missing <code class="docutils literal notranslate"><span class="pre">bucket_name</span></code> with multiple buckets)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">401</span></code>: invalid or missing auth token</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">404</span></code>: no buckets available when <code class="docutils literal notranslate"><span class="pre">bucket_name</span></code> is omitted</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">503</span></code>: <code class="docutils literal notranslate"><span class="pre">GPT_ACTIONS_API_KEY</span></code> not configured server-side</p></li>
+</ul>
+</section>
+</section>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="index.html">mcp-evidencebase</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="readme.html">About The Project</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html#getting-started">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html#usage">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html#project-structure">Project Structure</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html#roadmap">Roadmap</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html#contributing">Contributing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html#license">License</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html#contact">Contact</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html#acknowledgments">Acknowledgments</a></li>
+<li class="toctree-l1"><a class="reference internal" href="vignette_cli.html">Command-Line Vignette: End-To-End Workflow</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">GPT Actions API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#base-urls">Base URLs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#endpoints">Endpoints</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#authentication">Authentication</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#chatgpt-actions-setup">ChatGPT Actions Setup</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#searchcollection-function"><code class="docutils literal notranslate"><span class="pre">searchCollection</span></code> Function</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#ping-function"><code class="docutils literal notranslate"><span class="pre">ping</span></code> Function</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#example-searchcollection">Example: <code class="docutils literal notranslate"><span class="pre">searchCollection</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#error-map">Error map</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="reference.html">Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tests.html">Tests</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="index.html">Documentation overview</a><ul>
+      <li>Previous: <a href="vignette_cli.html" title="previous chapter">Command-Line Vignette: End-To-End Workflow</a></li>
+      <li>Next: <a href="reference.html" title="next chapter">Reference</a></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 9.1.0</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+      |
+      <a href="_sources/gpt_actions.md.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>

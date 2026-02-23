@@ -14,7 +14,7 @@
     <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="Evidence Base" href="readme.html" />
+    <link rel="next" title="About The Project" href="readme.html" />
    
   <link rel="stylesheet" href="_static/custom.css" type="text/css" />
   
@@ -37,16 +37,36 @@
 <div class="toctree-wrapper compound">
 <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="readme.html">Evidence Base</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="readme.html#project-layout">Project layout</a></li>
-<li class="toctree-l2"><a class="reference internal" href="readme.html#quickstart">Quickstart</a></li>
-<li class="toctree-l2"><a class="reference internal" href="readme.html#docker-compose-stack">Docker compose stack</a></li>
-<li class="toctree-l2"><a class="reference internal" href="readme.html#documentation">Documentation</a></li>
-<li class="toctree-l2"><a class="reference internal" href="readme.html#bucket-api-command-line-examples">Bucket API command-line examples</a></li>
-<li class="toctree-l2"><a class="reference internal" href="readme.html#document-ingestion-api-command-line-examples">Document ingestion API command-line examples</a></li>
-<li class="toctree-l2"><a class="reference internal" href="readme.html#redis-and-qdrant-schema">Redis and Qdrant Schema</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html">About The Project</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="readme.html#built-with">Built With</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html#getting-started">Getting Started</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="readme.html#prerequisites">Prerequisites</a></li>
+<li class="toctree-l2"><a class="reference internal" href="readme.html#installation">Installation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="readme.html#ui-e2e-test-playwright">UI E2E Test (Playwright)</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html#usage">Usage</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="readme.html#cli">CLI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="readme.html#docker-compose-stack">Docker Compose Stack</a></li>
+<li class="toctree-l2"><a class="reference internal" href="readme.html#service-urls">Service URLs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="readme.html#cloudflare-split-protected-ui-open-gpt-api">Cloudflare Split: Protected UI + Open GPT API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="readme.html#api-workflow-examples">API Workflow Examples</a></li>
+<li class="toctree-l2"><a class="reference internal" href="readme.html#custom-gpt-ping-action-api-key-bearer">Custom GPT Ping Action (API Key + Bearer)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="readme.html#ingestion-pipeline-atomic-stages">Ingestion Pipeline: Atomic Stages</a></li>
+<li class="toctree-l2"><a class="reference internal" href="readme.html#celery-tasks">Celery Tasks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="readme.html#documentation-and-test-reporting">Documentation And Test Reporting</a></li>
+<li class="toctree-l2"><a class="reference internal" href="readme.html#environment-overrides">Environment Overrides</a></li>
+<li class="toctree-l2"><a class="reference internal" href="readme.html#data-model-snapshot-redis-qdrant">Data Model Snapshot (Redis + Qdrant)</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html#project-structure">Project Structure</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html#roadmap">Roadmap</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html#contributing">Contributing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html#license">License</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html#contact">Contact</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html#acknowledgments">Acknowledgments</a></li>
 <li class="toctree-l1"><a class="reference internal" href="vignette_cli.html">Command-Line Vignette: End-To-End Workflow</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="vignette_cli.html#start-the-stack">1. Start the stack</a></li>
 <li class="toctree-l2"><a class="reference internal" href="vignette_cli.html#set-workflow-variables">2. Set workflow variables</a></li>
@@ -55,8 +75,21 @@
 <li class="toctree-l2"><a class="reference internal" href="vignette_cli.html#monitor-processing-from-the-api">5. Monitor processing from the API</a></li>
 <li class="toctree-l2"><a class="reference internal" href="vignette_cli.html#update-metadata">6. Update metadata</a></li>
 <li class="toctree-l2"><a class="reference internal" href="vignette_cli.html#trigger-an-on-demand-scan-optional">7. Trigger an on-demand scan (optional)</a></li>
-<li class="toctree-l2"><a class="reference internal" href="vignette_cli.html#delete-document-and-bucket">8. Delete document and bucket</a></li>
-<li class="toctree-l2"><a class="reference internal" href="vignette_cli.html#stop-the-stack">9. Stop the stack</a></li>
+<li class="toctree-l2"><a class="reference internal" href="vignette_cli.html#run-hybrid-search">8. Run hybrid search</a></li>
+<li class="toctree-l2"><a class="reference internal" href="vignette_cli.html#delete-document-and-bucket">9. Delete document and bucket</a></li>
+<li class="toctree-l2"><a class="reference internal" href="vignette_cli.html#celery-task-reference">10. Celery task reference</a></li>
+<li class="toctree-l2"><a class="reference internal" href="vignette_cli.html#stop-the-stack">11. Stop the stack</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="gpt_actions.html">GPT Actions API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="gpt_actions.html#base-urls">Base URLs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="gpt_actions.html#endpoints">Endpoints</a></li>
+<li class="toctree-l2"><a class="reference internal" href="gpt_actions.html#authentication">Authentication</a></li>
+<li class="toctree-l2"><a class="reference internal" href="gpt_actions.html#chatgpt-actions-setup">ChatGPT Actions Setup</a></li>
+<li class="toctree-l2"><a class="reference internal" href="gpt_actions.html#searchcollection-function"><code class="docutils literal notranslate"><span class="pre">searchCollection</span></code> Function</a></li>
+<li class="toctree-l2"><a class="reference internal" href="gpt_actions.html#ping-function"><code class="docutils literal notranslate"><span class="pre">ping</span></code> Function</a></li>
+<li class="toctree-l2"><a class="reference internal" href="gpt_actions.html#example-searchcollection">Example: <code class="docutils literal notranslate"><span class="pre">searchCollection</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="gpt_actions.html#error-map">Error map</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="reference.html">Reference</a><ul>
@@ -106,8 +139,17 @@
 <script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
 <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="readme.html">Evidence Base</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html">About The Project</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html#getting-started">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html#usage">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html#project-structure">Project Structure</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html#roadmap">Roadmap</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html#contributing">Contributing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html#license">License</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html#contact">Contact</a></li>
+<li class="toctree-l1"><a class="reference internal" href="readme.html#acknowledgments">Acknowledgments</a></li>
 <li class="toctree-l1"><a class="reference internal" href="vignette_cli.html">Command-Line Vignette: End-To-End Workflow</a></li>
+<li class="toctree-l1"><a class="reference internal" href="gpt_actions.html">GPT Actions API</a></li>
 <li class="toctree-l1"><a class="reference internal" href="reference.html">Reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="tests.html">Tests</a></li>
 </ul>
@@ -116,7 +158,7 @@
 <h3>Related Topics</h3>
 <ul>
   <li><a href="#">Documentation overview</a><ul>
-      <li>Next: <a href="readme.html" title="next chapter">Evidence Base</a></li>
+      <li>Next: <a href="readme.html" title="next chapter">About The Project</a></li>
   </ul></li>
 </ul>
 </div>
