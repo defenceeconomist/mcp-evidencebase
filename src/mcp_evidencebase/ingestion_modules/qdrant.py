@@ -581,10 +581,7 @@ class QdrantIndexer:
         chunks: list[dict[str, Any]],
         partition_key: str,
         meta_key: str,
-        document_title: str | None = None,
-        document_author: str | None = None,
         document_year: str | None = None,
-        citation_key: str | None = None,
     ) -> None:
         """Embed chunk text and upsert vectors into Qdrant."""
         if not chunks:
@@ -624,10 +621,8 @@ class QdrantIndexer:
         from qdrant_client import models as qdrant_models
 
         minio_location = f"{bucket_name}/{file_path}"
-        resolved_document_title = str(document_title or "").strip()
-        resolved_document_author = str(document_author or "").strip()
         resolved_document_year = str(document_year or "").strip()
-        resolved_citation_key = str(citation_key or "").strip()
+        del meta_key
 
         points: list[qdrant_models.PointStruct] = []
         for index, (chunk, embedding) in enumerate(zip(indexable_chunks, embeddings, strict=False)):
@@ -739,10 +734,7 @@ class QdrantIndexer:
             )
             payload = {
                 "document_id": document_id,
-                "title": resolved_document_title,
-                "author": resolved_document_author,
                 "year": resolved_document_year,
-                "citation_key": resolved_citation_key,
                 "partition_key": partition_key,
                 "minio_location": minio_location,
                 "resolver_url": resolver_url,

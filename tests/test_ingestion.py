@@ -222,10 +222,7 @@ class RecordingQdrantIndexer:
         chunks: list[dict[str, Any]],
         partition_key: str,
         meta_key: str,
-        document_title: str | None = None,
-        document_author: str | None = None,
         document_year: str | None = None,
-        citation_key: str | None = None,
     ) -> None:
         self.upsert_calls.append(
             {
@@ -235,10 +232,7 @@ class RecordingQdrantIndexer:
                 "chunks": chunks,
                 "partition_key": partition_key,
                 "meta_key": meta_key,
-                "document_title": document_title,
-                "document_author": document_author,
                 "document_year": document_year,
-                "citation_key": citation_key,
             }
         )
 
@@ -1138,10 +1132,7 @@ def test_chunk_object_reads_persisted_partitions_and_marks_processed() -> None:
     assert upsert_call["partition_key"] == partition_stage["partition_key"]
     assert upsert_call["meta_key"] == partition_stage["meta_key"]
     _, metadata = repository.get_document_metadata("research-raw", partition_stage["document_id"])
-    assert upsert_call["document_title"] == metadata.get("title", "")
-    assert upsert_call["document_author"] == metadata.get("author", "")
     assert upsert_call["document_year"] == metadata.get("year", "")
-    assert upsert_call["citation_key"] == metadata.get("citation_key", "")
     assert upsert_call["chunks"]
 
     state = repository.get_state(partition_stage["document_id"])
@@ -1314,8 +1305,18 @@ def test_repository_defaults_citation_key_from_structured_authors() -> None:
     assert metadata["citation_key"] == "vanrossum2024the"
 
 
-def test_update_metadata_reindexes_vectors_when_citation_key_changes() -> None:
-    """Ensure citation key updates refresh Qdrant payloads for existing chunks."""
+@pytest.mark.parametrize(
+    "metadata_update",
+    [
+        {"citation_key": "newkey2024paper"},
+        {"title": "Retitled Paper"},
+        {"author": "Smith, J."},
+    ],
+)
+def test_update_metadata_does_not_reindex_when_non_year_index_fields_change(
+    metadata_update: dict[str, str],
+) -> None:
+    """Ensure non-year metadata changes do not force Qdrant re-upsert."""
     redis_client = FakeRedis()
     repository = RedisDocumentRepository(redis_client, key_prefix="test")
     qdrant_indexer = RecordingQdrantIndexer()
@@ -1341,13 +1342,18 @@ def test_update_metadata_reindexes_vectors_when_citation_key_changes() -> None:
     partition_key = repository.set_partitions(
         bucket_name,
         document_id,
-        [{"text": "Chunk text for citation refresh.", "metadata": {"page_number": 1}}],
+        [{"text": "Chunk text for metadata refresh.", "metadata": {"page_number": 1}}],
     )
     meta_key = repository.set_metadata_for_location(
         bucket_name=bucket_name,
         object_name=object_name,
         document_id=document_id,
-        metadata={"title": "Paper Title", "citation_key": "oldkey2024paper"},
+        metadata={
+            "title": "Paper Title",
+            "author": "Doe, J.",
+            "year": "2024",
+            "citation_key": "oldkey2024paper",
+        },
     )
     repository.set_state(
         document_id,
@@ -1368,19 +1374,16 @@ def test_update_metadata_reindexes_vectors_when_citation_key_changes() -> None:
     updated = service.update_metadata(
         bucket_name=bucket_name,
         document_id=document_id,
-        metadata={"citation_key": "newkey2024paper"},
+        metadata=metadata_update,
     )
 
-    assert updated["citation_key"] == "newkey2024paper"
-    assert len(qdrant_indexer.upsert_calls) == 1
-    call = qdrant_indexer.upsert_calls[0]
-    assert call["document_id"] == document_id
-    assert call["file_path"] == object_name
-    assert call["citation_key"] == "newkey2024paper"
+    for field_name, field_value in metadata_update.items():
+        assert updated[field_name] == field_value
+    assert qdrant_indexer.upsert_calls == []
 
 
-def test_update_metadata_reindexes_vectors_when_title_changes() -> None:
-    """Ensure title updates refresh Qdrant payloads for existing chunks."""
+def test_update_metadata_reindexes_vectors_when_year_changes() -> None:
+    """Ensure year updates refresh Qdrant payloads for existing chunks."""
     redis_client = FakeRedis()
     repository = RedisDocumentRepository(redis_client, key_prefix="test")
     qdrant_indexer = RecordingQdrantIndexer()
@@ -1433,92 +1436,15 @@ def test_update_metadata_reindexes_vectors_when_title_changes() -> None:
     updated = service.update_metadata(
         bucket_name=bucket_name,
         document_id=document_id,
-        metadata={"title": "Retitled Paper"},
+        metadata={"year": "2025"},
     )
 
-    assert updated["citation_key"] == "stablekey2024paper"
+    assert updated["year"] == "2025"
     assert len(qdrant_indexer.upsert_calls) == 1
     call = qdrant_indexer.upsert_calls[0]
     assert call["document_id"] == document_id
     assert call["file_path"] == object_name
-
-
-@pytest.mark.parametrize(
-    ("metadata_update", "expected_field", "expected_value"),
-    [
-        ({"author": "Smith, J."}, "document_author", "Smith, J."),
-        ({"year": "2025"}, "document_year", "2025"),
-    ],
-)
-def test_update_metadata_reindexes_vectors_when_author_or_year_changes(
-    metadata_update: dict[str, str],
-    expected_field: str,
-    expected_value: str,
-) -> None:
-    """Ensure author/year updates refresh Qdrant payloads for existing chunks."""
-    redis_client = FakeRedis()
-    repository = RedisDocumentRepository(redis_client, key_prefix="test")
-    qdrant_indexer = RecordingQdrantIndexer()
-    service = IngestionService(
-        minio_client=FakeMinioClient(b"%PDF-1.7 fake"),
-        repository=repository,
-        partition_client=FakePartitionClient([]),
-        qdrant_indexer=qdrant_indexer,  # type: ignore[arg-type]
-        chunk_size_chars=1200,
-        chunk_overlap_chars=150,
-    )
-    bucket_name = "research-raw"
-    document_id = "doc-author-year-refresh"
-    object_name = "paper.pdf"
-
-    repository.add_document(bucket_name, document_id)
-    repository.mark_object(
-        bucket_name=bucket_name,
-        object_name=object_name,
-        document_id=document_id,
-        etag="etag-1",
-    )
-    partition_key = repository.set_partitions(
-        bucket_name,
-        document_id,
-        [{"text": "Chunk text for author/year refresh.", "metadata": {"page_number": 1}}],
-    )
-    meta_key = repository.set_metadata_for_location(
-        bucket_name=bucket_name,
-        object_name=object_name,
-        document_id=document_id,
-        metadata={
-            "title": "Paper Title",
-            "author": "Doe, J.",
-            "year": "2024",
-            "citation_key": "stablekey2024paper",
-        },
-    )
-    repository.set_state(
-        document_id,
-        {
-            "file_path": object_name,
-            "etag": "etag-1",
-            "partition_key": partition_key,
-            "meta_key": meta_key,
-            "processing_state": "processed",
-            "processing_stage": "processed",
-            "processing_stage_progress": 100,
-            "processing_progress": 100,
-            "partitions_count": 1,
-            "chunks_count": 1,
-        },
-    )
-
-    service.update_metadata(
-        bucket_name=bucket_name,
-        document_id=document_id,
-        metadata=metadata_update,
-    )
-
-    assert len(qdrant_indexer.upsert_calls) == 1
-    call = qdrant_indexer.upsert_calls[0]
-    assert call[expected_field] == expected_value
+    assert call["document_year"] == "2025"
 
 
 def test_update_metadata_does_not_reindex_when_non_indexed_metadata_changes() -> None:
@@ -1905,10 +1831,7 @@ def test_qdrant_payload_contains_document_partition_meta_and_resolver_keys() -> 
         ],
         partition_key="partition-hash",
         meta_key="meta-hash",
-        document_title="Paper Title",
-        document_author="Author, A.",
         document_year="2024",
-        citation_key="doe2024paper",
     )
 
     assert len(qdrant.upsert_calls) == 1
@@ -1922,10 +1845,7 @@ def test_qdrant_payload_contains_document_partition_meta_and_resolver_keys() -> 
     assert point.vector["dense"] == [0.1, 0.2, 0.3]
     assert point.vector["keyword"] == StubSparseVector(indices=[1, 3], values=[0.8, 0.2])
     assert point.payload["document_id"] == "abc123"
-    assert point.payload["title"] == "Paper Title"
-    assert point.payload["author"] == "Author, A."
     assert point.payload["year"] == "2024"
-    assert point.payload["citation_key"] == "doe2024paper"
     assert "document_key" not in point.payload
     assert point.payload["partition_key"] == "partition-hash"
     assert "meta_key" not in point.payload
@@ -1984,8 +1904,6 @@ def test_qdrant_upsert_skips_image_chunks_for_embedding() -> None:
         ],
         partition_key="partition-hash",
         meta_key="meta-hash",
-        document_title="Paper Title",
-        document_author="Author, A.",
         document_year="2024",
     )
 
@@ -2139,9 +2057,28 @@ def test_ingestion_service_search_documents_delegates_to_qdrant_indexer() -> Non
             return [{"id": "chunk-1", "document_id": "doc-1"}]
 
     indexer = SearchRecordingIndexer()
+    repository = RedisDocumentRepository(FakeRedis(), key_prefix="test")
+    repository.add_document("research-raw", "doc-1")
+    repository.mark_object(
+        bucket_name="research-raw",
+        object_name="paper.pdf",
+        document_id="doc-1",
+        etag="etag-1",
+    )
+    repository.set_metadata_for_location(
+        bucket_name="research-raw",
+        object_name="paper.pdf",
+        document_id="doc-1",
+        metadata={
+            "title": "Paper Title",
+            "author": "Doe, J.",
+            "year": "2024",
+            "citation_key": "doe2024paper",
+        },
+    )
     service = IngestionService(
         minio_client=types.SimpleNamespace(),
-        repository=RedisDocumentRepository(FakeRedis(), key_prefix="test"),
+        repository=repository,
         partition_client=types.SimpleNamespace(),
         qdrant_indexer=indexer,  # type: ignore[arg-type]
         chunk_size_chars=1200,
@@ -2156,7 +2093,16 @@ def test_ingestion_service_search_documents_delegates_to_qdrant_indexer() -> Non
         rrf_k=80,
     )
 
-    assert results == [{"id": "chunk-1", "document_id": "doc-1"}]
+    assert results == [
+        {
+            "id": "chunk-1",
+            "document_id": "doc-1",
+            "title": "Paper Title",
+            "author": "Doe, J.",
+            "year": "2024",
+            "citation_key": "doe2024paper",
+        }
+    ]
     assert indexer.search_calls == [
         {
             "bucket_name": "research-raw",
@@ -2169,7 +2115,7 @@ def test_ingestion_service_search_documents_delegates_to_qdrant_indexer() -> Non
 
 
 def test_ingestion_service_search_documents_hydrates_parent_section_from_redis() -> None:
-    """Ensure search results are enriched from Redis section mappings by section_id."""
+    """Ensure search results are enriched from Redis metadata and section mappings."""
 
     class SearchRecordingIndexer(RecordingQdrantIndexer):
         def search_chunks(
@@ -2203,6 +2149,24 @@ def test_ingestion_service_search_documents_hydrates_parent_section_from_redis()
 
     redis_client = FakeRedis()
     repository = RedisDocumentRepository(redis_client, key_prefix="test")
+    repository.add_document("research-raw", "doc-1")
+    repository.mark_object(
+        bucket_name="research-raw",
+        object_name="paper.pdf",
+        document_id="doc-1",
+        etag="etag-1",
+    )
+    repository.set_metadata_for_location(
+        bucket_name="research-raw",
+        object_name="paper.pdf",
+        document_id="doc-1",
+        metadata={
+            "title": "Paper Title",
+            "author": "Doe, J.",
+            "year": "2024",
+            "citation_key": "doe2024paper",
+        },
+    )
     repository.set_document_sections(
         document_id="doc-1",
         partition_key="partition-1",
@@ -2242,6 +2206,10 @@ def test_ingestion_service_search_documents_hydrates_parent_section_from_redis()
     assert results[0]["parent_section_title"] == "Methods"
     assert results[0]["parent_section_text"] == "Full section text from Redis mapping."
     assert results[0]["section_title"] == "Methods"
+    assert results[0]["title"] == "Paper Title"
+    assert results[0]["author"] == "Doe, J."
+    assert results[0]["year"] == "2024"
+    assert results[0]["citation_key"] == "doe2024paper"
 
 
 def test_ingestion_service_rebuild_document_section_mapping_from_partitions() -> None:

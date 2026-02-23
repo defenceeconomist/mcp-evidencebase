@@ -487,6 +487,40 @@ class IngestionService:
 
         return results
 
+    def _hydrate_search_results_with_metadata(
+        self,
+        *,
+        bucket_name: str,
+        results: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Attach title/author/year/citation metadata from Redis by document ID."""
+        if not results:
+            return results
+
+        metadata_cache: dict[str, dict[str, str]] = {}
+        for result in results:
+            document_id = str(result.get("document_id", "")).strip()
+            if not document_id:
+                continue
+
+            metadata = metadata_cache.get(document_id)
+            if metadata is None:
+                _, resolved_metadata = self._repository.get_document_metadata(
+                    bucket_name,
+                    document_id,
+                )
+                metadata = {str(key): str(value) for key, value in resolved_metadata.items()}
+                metadata_cache[document_id] = metadata
+
+            for field_name in ("title", "author", "citation_key", "year"):
+                redis_value = str(metadata.get(field_name, "")).strip()
+                if redis_value:
+                    result[field_name] = redis_value
+                    continue
+                result[field_name] = str(result.get(field_name, "")).strip()
+
+        return results
+
     def _read_object_bytes(self, bucket_name: str, object_name: str) -> bytes:
         """Read and return object bytes from MinIO."""
         object_response = self._minio_client.get_object(bucket_name, object_name)
@@ -985,10 +1019,7 @@ class IngestionService:
                 error="",
             )
 
-            document_title = str(metadata.get("title", "")).strip()
-            document_author = str(metadata.get("author", "")).strip()
             document_year = str(metadata.get("year", "")).strip()
-            citation_key = str(metadata.get("citation_key", "")).strip()
             chunks = self._build_partition_chunks(partitions)
             self._qdrant_indexer.upsert_document_chunks(
                 bucket_name=bucket_name,
@@ -997,10 +1028,7 @@ class IngestionService:
                 chunks=chunks,
                 partition_key=partition_key,
                 meta_key=meta_key,
-                document_title=document_title,
-                document_author=document_author,
                 document_year=document_year,
-                citation_key=citation_key,
             )
             sections_count = self._safe_positive_int(state.get("sections_count"))
             if sections_count is None:
@@ -1329,7 +1357,7 @@ class IngestionService:
         current: Mapping[str, Any],
     ) -> bool:
         """Return whether Qdrant-indexed metadata fields changed."""
-        indexed_fields = ("citation_key", "title", "author", "year")
+        indexed_fields = ("year",)
         for field_name in indexed_fields:
             if str(previous.get(field_name, "")).strip() != str(current.get(field_name, "")).strip():
                 return True
@@ -1757,5 +1785,9 @@ class IngestionService:
             limit=limit,
             mode=mode,
             rrf_k=rrf_k,
+        )
+        results = self._hydrate_search_results_with_metadata(
+            bucket_name=bucket_name,
+            results=results,
         )
         return self._hydrate_search_results_with_sections(results=results)
