@@ -513,6 +513,17 @@ import {
     });
   };
 
+  const buildResolverHrefForDocumentRecord = (record) => {
+    if (!record || typeof record !== "object") {
+      return "";
+    }
+    const resolvedFromLocation = parseMinioLocation(record.minio_location);
+    return buildResolverHref({
+      bucketName: resolvedFromLocation?.bucketName || selectedBucketName,
+      filePath: resolvedFromLocation?.filePath || record.file_path,
+    });
+  };
+
   const buildResolverHrefForSearchResult = (result) => {
     if (!result || typeof result !== "object") {
       return "";
@@ -1121,6 +1132,7 @@ import {
       10
     );
     const normalizedChunksCount = Number.parseInt(normalizeText(rawDocument.chunks_count), 10);
+    const normalizedSectionsCount = Number.parseInt(normalizeText(rawDocument.sections_count), 10);
     const partitionsTree =
       rawDocument.partitions_tree && typeof rawDocument.partitions_tree === "object"
         ? rawDocument.partitions_tree
@@ -1144,6 +1156,7 @@ import {
       processing_progress: normalizedProcessingProgress,
       partitions_count: Number.isNaN(normalizedPartitionsCount) ? 0 : normalizedPartitionsCount,
       chunks_count: Number.isNaN(normalizedChunksCount) ? 0 : normalizedChunksCount,
+      sections_count: Number.isNaN(normalizedSectionsCount) ? 0 : normalizedSectionsCount,
       partitions_tree: partitionsTree,
       chunks_tree: chunksTree,
       parse_status: normalizedProcessingState,
@@ -2222,6 +2235,93 @@ import {
     });
   };
 
+  const buildDocumentSectionModalResult = (documentRecord) => {
+    if (!documentRecord || typeof documentRecord !== "object") {
+      return {};
+    }
+    return {
+      document_id: documentRecord.document_id,
+      file_path: documentRecord.file_path,
+      title: documentRecord.title,
+      minio_location: `${selectedBucketName}/${normalizeText(documentRecord.file_path).replace(/^\/+/, "")}`,
+    };
+  };
+
+  const openDocumentSectionsModal = (documentRecord) => {
+    if (
+      !documentRecord ||
+      typeof documentRecord !== "object" ||
+      !searchSectionModalElement ||
+      !searchSectionModalTitle ||
+      !searchSectionModalSubtitle ||
+      !searchSectionModalBody
+    ) {
+      return;
+    }
+
+    const sourceResult = buildDocumentSectionModalResult(documentRecord);
+    searchSectionNavigationState = {
+      bucketName: selectedBucketName,
+      documentId: documentRecord.document_id,
+      sourceResult,
+      sections: [],
+      currentIndex: -1,
+    };
+    searchSectionModalTitle.textContent = `Sections: ${filenameFromPath(documentRecord.file_path)}`;
+    searchSectionModalSubtitle.textContent = `${normalizeText(documentRecord.title) || "n/a"} | Loading sections...`;
+    searchSectionModalBody.innerHTML =
+      '<p class="text-body-secondary mb-0">Loading section markdown from the document mapping...</p>';
+    updateSearchSectionModalNavigationButtons();
+
+    if (!searchSectionModalInstance) {
+      searchSectionModalInstance = bootstrap.Modal.getOrCreateInstance(searchSectionModalElement);
+    }
+    searchSectionModalInstance.show();
+
+    const requestToken = searchSectionModalLoadToken + 1;
+    searchSectionModalLoadToken = requestToken;
+    void (async () => {
+      try {
+        const sections = await fetchDocumentSectionsForModal({
+          bucketName: searchSectionNavigationState.bucketName,
+          documentId: searchSectionNavigationState.documentId,
+        });
+        if (searchSectionModalLoadToken !== requestToken) {
+          return;
+        }
+        searchSectionNavigationState.sections = sections;
+        if (!sections.length) {
+          searchSectionNavigationState.currentIndex = -1;
+          searchSectionModalTitle.textContent = `Sections: ${filenameFromPath(documentRecord.file_path)}`;
+          searchSectionModalSubtitle.textContent = "No sections found for this document.";
+          searchSectionModalBody.innerHTML =
+            '<p class="text-body-secondary mb-0">Section markdown is unavailable. Re-index this document to populate section mappings.</p>';
+          return;
+        }
+        searchSectionNavigationState.currentIndex = 0;
+        renderSearchSectionModalSection({
+          section: sections[0],
+          result: searchSectionNavigationState.sourceResult,
+        });
+      } catch (error) {
+        if (searchSectionModalLoadToken !== requestToken) {
+          return;
+        }
+        console.warn("Failed to load sections for document modal.", error);
+        searchSectionNavigationState.sections = [];
+        searchSectionNavigationState.currentIndex = -1;
+        searchSectionModalTitle.textContent = `Sections: ${filenameFromPath(documentRecord.file_path)}`;
+        searchSectionModalSubtitle.textContent = "Failed to load document sections.";
+        searchSectionModalBody.innerHTML =
+          '<p class="text-danger mb-0">Could not load sections for this document. Try again after refreshing.</p>';
+      } finally {
+        if (searchSectionModalLoadToken === requestToken) {
+          updateSearchSectionModalNavigationButtons();
+        }
+      }
+    })();
+  };
+
   const openSearchParentSectionModal = (result) => {
     if (
       !searchSectionModalElement ||
@@ -2350,12 +2450,26 @@ import {
     parseActions.className = "btn-group";
     parseActions.role = "group";
 
+    const pdfButton = document.createElement("button");
+    pdfButton.type = "button";
+    pdfButton.className = "btn btn-outline-secondary btn-sm parse-action-btn";
+    pdfButton.textContent = "pdf";
+    pdfButton.dataset.pdfAction = "open";
+    pdfButton.dataset.documentId = record.document_id;
+
     const partitionsButton = document.createElement("button");
     partitionsButton.type = "button";
     partitionsButton.className = "btn btn-outline-secondary btn-sm parse-action-btn";
     partitionsButton.textContent = `P: ${record.partitions_count}`;
     partitionsButton.dataset.jsonAction = "partitions";
     partitionsButton.dataset.documentId = record.document_id;
+
+    const sectionsButton = document.createElement("button");
+    sectionsButton.type = "button";
+    sectionsButton.className = "btn btn-outline-secondary btn-sm parse-action-btn";
+    sectionsButton.textContent = `S: ${record.sections_count}`;
+    sectionsButton.dataset.sectionAction = "open";
+    sectionsButton.dataset.documentId = record.document_id;
 
     const chunksButton = document.createElement("button");
     chunksButton.type = "button";
@@ -2364,7 +2478,9 @@ import {
     chunksButton.dataset.jsonAction = "chunks";
     chunksButton.dataset.documentId = record.document_id;
 
+    parseActions.appendChild(pdfButton);
     parseActions.appendChild(partitionsButton);
+    parseActions.appendChild(sectionsButton);
     parseActions.appendChild(chunksButton);
     td.appendChild(parseActions);
 
@@ -2661,12 +2777,26 @@ import {
     parseActions.className = "btn-group";
     parseActions.role = "group";
 
+    const pdfButton = document.createElement("button");
+    pdfButton.type = "button";
+    pdfButton.className = "btn btn-outline-secondary btn-sm parse-action-btn";
+    pdfButton.textContent = "pdf";
+    pdfButton.dataset.pdfAction = "open";
+    pdfButton.dataset.documentId = documentRecord.document_id;
+
     const partitionsButton = document.createElement("button");
     partitionsButton.type = "button";
     partitionsButton.className = "btn btn-outline-secondary btn-sm parse-action-btn";
     partitionsButton.textContent = `P: ${documentRecord.partitions_count}`;
     partitionsButton.dataset.jsonAction = "partitions";
     partitionsButton.dataset.documentId = documentRecord.document_id;
+
+    const sectionsButton = document.createElement("button");
+    sectionsButton.type = "button";
+    sectionsButton.className = "btn btn-outline-secondary btn-sm parse-action-btn";
+    sectionsButton.textContent = `S: ${documentRecord.sections_count}`;
+    sectionsButton.dataset.sectionAction = "open";
+    sectionsButton.dataset.documentId = documentRecord.document_id;
 
     const chunksButton = document.createElement("button");
     chunksButton.type = "button";
@@ -2675,7 +2805,9 @@ import {
     chunksButton.dataset.jsonAction = "chunks";
     chunksButton.dataset.documentId = documentRecord.document_id;
 
+    parseActions.appendChild(pdfButton);
     parseActions.appendChild(partitionsButton);
+    parseActions.appendChild(sectionsButton);
     parseActions.appendChild(chunksButton);
     cell.appendChild(parseActions);
   };
@@ -4156,6 +4288,44 @@ import {
   });
 
   detailDocumentTable?.addEventListener("click", (event) => {
+    const pdfButton = event.target.closest("button[data-pdf-action]");
+    if (pdfButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      const documentId = pdfButton.dataset.documentId;
+      if (!documentId) {
+        return;
+      }
+      const targetDocument = documents.find(
+        (documentRecord) => documentRecord.document_id === documentId
+      );
+      if (!targetDocument) {
+        return;
+      }
+      const resolverHref = buildResolverHrefForDocumentRecord(targetDocument);
+      if (resolverHref) {
+        window.open(resolverHref, "_blank", "noopener,noreferrer");
+      }
+      return;
+    }
+
+    const sectionButton = event.target.closest("button[data-section-action]");
+    if (sectionButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      const documentId = sectionButton.dataset.documentId;
+      if (!documentId) {
+        return;
+      }
+      const targetDocument = documents.find(
+        (documentRecord) => documentRecord.document_id === documentId
+      );
+      if (targetDocument) {
+        openDocumentSectionsModal(targetDocument);
+      }
+      return;
+    }
+
     const actionButton = event.target.closest("button[data-json-action]");
     if (actionButton) {
       event.preventDefault();
@@ -4189,6 +4359,43 @@ import {
   });
 
   documentHotContainer?.addEventListener("click", (event) => {
+    const pdfButton = event.target.closest("button[data-pdf-action]");
+    if (pdfButton && documentHotContainer.contains(pdfButton)) {
+      event.preventDefault();
+      event.stopPropagation();
+
+      const documentId = pdfButton.dataset.documentId;
+      if (!documentId) {
+        return;
+      }
+      const targetDocument = documents.find((documentRecord) => documentRecord.document_id === documentId);
+      if (!targetDocument) {
+        return;
+      }
+      const resolverHref = buildResolverHrefForDocumentRecord(targetDocument);
+      if (resolverHref) {
+        window.open(resolverHref, "_blank", "noopener,noreferrer");
+      }
+      return;
+    }
+
+    const sectionButton = event.target.closest("button[data-section-action]");
+    if (sectionButton && documentHotContainer.contains(sectionButton)) {
+      event.preventDefault();
+      event.stopPropagation();
+
+      const documentId = sectionButton.dataset.documentId;
+      if (!documentId) {
+        return;
+      }
+      const targetDocument = documents.find((documentRecord) => documentRecord.document_id === documentId);
+      if (!targetDocument) {
+        return;
+      }
+      openDocumentSectionsModal(targetDocument);
+      return;
+    }
+
     const actionButton = event.target.closest("button[data-json-action]");
     if (!actionButton || !documentHotContainer.contains(actionButton)) {
       return;
