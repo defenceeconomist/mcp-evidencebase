@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
+from collections.abc import Mapping
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 from fastapi import HTTPException, Request
 
 from mcp_evidencebase.api_modules.errors import raise_document_http_error
+from mcp_evidencebase.citation_schema import BIBTEX_FIELDS, DOCUMENT_TYPES
 from mcp_evidencebase.ingestion import SEARCH_MODES, IngestionService
 
 
@@ -51,6 +54,185 @@ def perform_collection_search(
         "rrf_k": max(1, int(rrf_k)),
         "results": results,
     }
+
+
+_DOCUMENT_TYPES: frozenset[str] = frozenset(DOCUMENT_TYPES)
+_CITATION_KEY_SANITIZE_PATTERN = re.compile(r"[^A-Za-z0-9_\-:.]+")
+_CITATION_KEY_FALLBACK_TOKEN_PATTERN = re.compile(r"[^A-Za-z0-9]+")
+
+
+def _normalize_bibtex_entry_type(value: Any) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in _DOCUMENT_TYPES:
+        return normalized
+    return "misc"
+
+
+def _normalize_bibtex_field_value(value: Any) -> str:
+    return " ".join(str(value or "").replace("\r", "\n").split()).strip()
+
+
+def _normalize_citation_key(*, value: Any, fallback_seed: str) -> str:
+    normalized = _CITATION_KEY_SANITIZE_PATTERN.sub("", str(value or "").strip())
+    if normalized:
+        return normalized
+    fallback = _CITATION_KEY_FALLBACK_TOKEN_PATTERN.sub("", fallback_seed).lower()
+    if fallback:
+        return fallback[:40]
+    return "citation"
+
+
+def _uniquify_citation_key(*, preferred_key: str, seen_keys: set[str]) -> str:
+    normalized_preferred_key = preferred_key.strip()
+    dedupe_key = normalized_preferred_key.casefold()
+    if dedupe_key not in seen_keys:
+        seen_keys.add(dedupe_key)
+        return normalized_preferred_key
+
+    suffix = 2
+    while True:
+        candidate = f"{normalized_preferred_key}_{suffix}"
+        dedupe_candidate = candidate.casefold()
+        if dedupe_candidate not in seen_keys:
+            seen_keys.add(dedupe_candidate)
+            return candidate
+        suffix += 1
+
+
+def _format_bibtex_author_entry(entry: Mapping[str, Any]) -> str:
+    first_name = str(
+        entry.get("first_name")
+        or entry.get("firstName")
+        or entry.get("first")
+        or entry.get("given")
+        or ""
+    ).strip()
+    last_name = str(
+        entry.get("last_name")
+        or entry.get("lastName")
+        or entry.get("last")
+        or entry.get("family")
+        or ""
+    ).strip()
+    suffix = str(entry.get("suffix") or entry.get("suffix_name") or "").strip()
+
+    if last_name and suffix and first_name:
+        return f"{last_name}, {suffix}, {first_name}"
+    if last_name and first_name:
+        return f"{last_name}, {first_name}"
+    if last_name and suffix:
+        return f"{last_name}, {suffix}"
+    if last_name:
+        return last_name
+    if first_name:
+        return first_name
+    return ""
+
+
+def _format_bibtex_author_list(value: Any) -> str:
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return ""
+        try:
+            value = json.loads(stripped)
+        except json.JSONDecodeError:
+            return ""
+    if not isinstance(value, list):
+        return ""
+
+    formatted_entries: list[str] = []
+    for entry in value:
+        if not isinstance(entry, Mapping):
+            continue
+        formatted = _format_bibtex_author_entry(entry)
+        if formatted:
+            formatted_entries.append(formatted)
+    return " and ".join(formatted_entries)
+
+
+def _build_bibtex_entry(
+    *,
+    document_record: Mapping[str, Any],
+    seen_citation_keys: set[str],
+) -> str:
+    document_id = _normalize_bibtex_field_value(
+        document_record.get("document_id") or document_record.get("id")
+    )
+    title = _normalize_bibtex_field_value(
+        document_record.get("title")
+        or document_record.get("file_path")
+        or document_id
+        or "document"
+    )
+    raw_citation_key = _normalize_citation_key(
+        value=document_record.get("citation_key"),
+        fallback_seed=f"{title}{document_id}",
+    )
+    citation_key = _uniquify_citation_key(
+        preferred_key=raw_citation_key,
+        seen_keys=seen_citation_keys,
+    )
+    entry_type = _normalize_bibtex_entry_type(document_record.get("document_type"))
+
+    source_bibtex_fields = document_record.get("bibtex_fields")
+    bibtex_fields: dict[str, str] = {}
+    if isinstance(source_bibtex_fields, Mapping):
+        for field_name in BIBTEX_FIELDS:
+            bibtex_fields[field_name] = _normalize_bibtex_field_value(
+                source_bibtex_fields.get(field_name, "")
+            )
+    else:
+        for field_name in BIBTEX_FIELDS:
+            bibtex_fields[field_name] = _normalize_bibtex_field_value(
+                document_record.get(field_name, "")
+            )
+
+    if not bibtex_fields.get("title"):
+        bibtex_fields["title"] = title
+    if not bibtex_fields.get("author"):
+        bibtex_fields["author"] = _normalize_bibtex_field_value(
+            _format_bibtex_author_list(document_record.get("authors"))
+        )
+
+    field_lines = [
+        f"  {field_name} = {{{field_value}}}"
+        for field_name in BIBTEX_FIELDS
+        if (field_value := bibtex_fields.get(field_name, ""))
+    ]
+    if not field_lines:
+        field_lines = [f"  title = {{{title}}}"]
+
+    body = ",\n".join(field_lines)
+    return f"@{entry_type}{{{citation_key},\n{body}\n}}"
+
+
+def build_collection_bibtex(*, documents: list[dict[str, Any]]) -> tuple[str, int]:
+    """Return deterministic BibTeX export payload and entry count for collection documents."""
+    seen_citation_keys: set[str] = set()
+    entries: list[str] = []
+
+    sorted_documents = sorted(
+        (document for document in documents if isinstance(document, Mapping)),
+        key=lambda document: (
+            _normalize_bibtex_field_value(document.get("citation_key")).casefold(),
+            _normalize_bibtex_field_value(document.get("file_path")).casefold(),
+            _normalize_bibtex_field_value(
+                document.get("document_id") or document.get("id")
+            ).casefold(),
+        ),
+    )
+    for document_record in sorted_documents:
+        entries.append(
+            _build_bibtex_entry(
+                document_record=document_record,
+                seen_citation_keys=seen_citation_keys,
+            )
+        )
+
+    if not entries:
+        return "", 0
+    return "\n\n".join(entries) + "\n", len(entries)
 
 
 _STOPWORDS: frozenset[str] = frozenset(

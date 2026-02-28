@@ -26,7 +26,7 @@ import {
 } from "./js/table-ui.mjs";
 
 (function () {
-  window.__EVIDENCEBASE_UI_BUILD__ = "2026-02-20-ingestion-stage-progress-a";
+  window.__EVIDENCEBASE_UI_BUILD__ = "2026-02-28-bibtex-download-a";
   const origin = window.location.origin;
   const apiBasePath = origin + "/api";
   const bucketList = document.getElementById("bucket-list");
@@ -41,6 +41,7 @@ import {
   const collectionToggles = document.querySelectorAll('[data-action="toggle-collections"]');
   const uploadPdfButton = document.getElementById("upload-pdf-btn");
   const uploadPdfFolderButton = document.getElementById("upload-pdf-folder-btn");
+  const downloadBibtexButton = document.getElementById("download-bibtex-btn");
   const fetchMetaButton = document.getElementById("fetch-meta-btn");
   const updateCitationKeyButton = document.getElementById("update-citation-key-btn");
   const removeSelectedDocumentsButton = document.getElementById("remove-selected-docs-btn");
@@ -2882,6 +2883,9 @@ import {
     if (removeSelectedDocumentsButton) {
       removeSelectedDocumentsButton.disabled = bulkRemoveSelectedDisabled;
     }
+    if (downloadBibtexButton) {
+      downloadBibtexButton.disabled = !selectedBucketName;
+    }
     if (detailFetchMetaButton) {
       detailFetchMetaButton.disabled = actionsDisabled;
     }
@@ -3580,6 +3584,23 @@ import {
     );
   };
 
+  const downloadCollectionBibtex = () => {
+    if (!selectedBucketName) {
+      window.alert("Select a collection first.");
+      return;
+    }
+    const downloadUrl =
+      `${apiBasePath}/collections/${encodeURIComponent(selectedBucketName)}/bibliography.bib`;
+    const anchor = document.createElement("a");
+    anchor.href = downloadUrl;
+    anchor.download = `${selectedBucketName}-bibliography.bib`;
+    anchor.rel = "noopener";
+    anchor.style.display = "none";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  };
+
   const fetchDocumentMetadataFromCrossref = async (record) => {
     if (!record || typeof record !== "object" || !record.document_id || !selectedBucketName) {
       return {
@@ -4192,6 +4213,9 @@ import {
       }
     });
     picker.click();
+  });
+  downloadBibtexButton?.addEventListener("click", () => {
+    downloadCollectionBibtex();
   });
   fetchMetaButton?.addEventListener("click", () => {
     void fetchMissingMetadataForAllRecords();

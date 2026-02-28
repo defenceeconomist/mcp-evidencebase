@@ -11,7 +11,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from mcp_evidencebase.api_modules.deps import get_ingestion_service
 from mcp_evidencebase.api_modules.errors import raise_document_http_error
 from mcp_evidencebase.api_modules.models import MetadataUpdateRequest
-from mcp_evidencebase.api_modules.services import perform_collection_search
+from mcp_evidencebase.api_modules.services import (
+    build_collection_bibtex,
+    perform_collection_search,
+)
 from mcp_evidencebase.api_modules.task_dispatch import enqueue_partition_task, enqueue_scan_task
 from mcp_evidencebase.citation_schema import get_citation_schema
 from mcp_evidencebase.ingestion import IngestionService
@@ -37,6 +40,40 @@ def get_documents(
     except Exception as exc:
         raise_document_http_error(exc)
     return {"bucket_name": bucket_name.strip(), "documents": documents}
+
+
+@router.get("/collections/{bucket_name}/bibliography.bib")
+def download_collection_bibliography(
+    bucket_name: str,
+    service: Annotated[IngestionService, Depends(get_ingestion_service)],
+) -> Response:
+    """Return collection metadata as a downloadable BibTeX bibliography file."""
+    normalized_bucket_name = bucket_name.strip()
+    if not normalized_bucket_name:
+        raise HTTPException(status_code=400, detail="bucket_name must not be empty.")
+
+    try:
+        documents = service.list_documents(normalized_bucket_name)
+    except Exception as exc:
+        raise_document_http_error(exc)
+
+    bibtex_payload, entry_count = build_collection_bibtex(documents=documents)
+    safe_bucket_name = "".join(
+        character if (character.isalnum() or character in {"-", "_", "."}) else "-"
+        for character in normalized_bucket_name
+    ).strip("-")
+    if not safe_bucket_name:
+        safe_bucket_name = "collection"
+    download_file_name = f"{safe_bucket_name}-bibliography.bib"
+    return Response(
+        content=bibtex_payload,
+        media_type="application/x-bibtex",
+        headers={
+            "Content-Disposition": f'attachment; filename="{download_file_name}"',
+            "Cache-Control": "no-store",
+            "X-BibTeX-Entry-Count": str(entry_count),
+        },
+    )
 
 
 @router.get("/collections/{bucket_name}/search")

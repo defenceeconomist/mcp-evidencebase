@@ -973,6 +973,78 @@ def test_get_documents_returns_documents(client: TestClient) -> None:
     assert response.json()["documents"][0]["document_id"] == "doc-1"
 
 
+def test_download_collection_bibliography_returns_bibtex_attachment(client: TestClient) -> None:
+    """Ensure bibliography endpoint returns downloadable BibTeX built from metadata records."""
+    service = FakeIngestionService(
+        documents=[
+            {
+                "document_id": "doc-1",
+                "file_path": "paper.pdf",
+                "document_type": "article",
+                "citation_key": "smith2024offsets",
+                "authors": [],
+                "bibtex_fields": {
+                    "author": "Smith, Jane",
+                    "title": "Offsets in Defence Procurement",
+                    "year": "2024",
+                },
+            }
+        ]
+    )
+    _override_ingestion_service(service)
+
+    response = client.get("/collections/research-raw/bibliography.bib")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/x-bibtex")
+    assert (
+        response.headers["content-disposition"]
+        == 'attachment; filename="research-raw-bibliography.bib"'
+    )
+    assert response.headers["x-bibtex-entry-count"] == "1"
+    assert response.text == (
+        "@article{smith2024offsets,\n"
+        "  author = {Smith, Jane},\n"
+        "  title = {Offsets in Defence Procurement},\n"
+        "  year = {2024}\n"
+        "}\n"
+    )
+
+
+def test_download_collection_bibliography_dedupes_citation_keys(client: TestClient) -> None:
+    """Ensure duplicate citation keys are suffixed and structured authors are serialized."""
+    service = FakeIngestionService(
+        documents=[
+            {
+                "document_id": "doc-2",
+                "file_path": "beta.pdf",
+                "document_type": "misc",
+                "citation_key": "doe2025",
+                "authors": [{"first_name": "John", "last_name": "Doe", "suffix": "Jr."}],
+                "bibtex_fields": {"title": "Beta Study"},
+            },
+            {
+                "document_id": "doc-1",
+                "file_path": "alpha.pdf",
+                "document_type": "misc",
+                "citation_key": "doe2025",
+                "authors": [{"first_name": "Jane", "last_name": "Doe", "suffix": ""}],
+                "bibtex_fields": {"title": "Alpha Study"},
+            },
+        ]
+    )
+    _override_ingestion_service(service)
+
+    response = client.get("/collections/research-raw/bibliography.bib")
+
+    assert response.status_code == 200
+    assert response.headers["x-bibtex-entry-count"] == "2"
+    assert "@misc{doe2025," in response.text
+    assert "@misc{doe2025_2," in response.text
+    assert "author = {Doe, Jane}" in response.text
+    assert "author = {Doe, Jr., John}" in response.text
+
+
 def test_get_metadata_schema_returns_shared_rules(client: TestClient) -> None:
     """Ensure metadata schema endpoint exposes shared citation/author rules."""
     response = client.get("/metadata/schema")
