@@ -18,6 +18,12 @@ from mcp_evidencebase.api_modules.services import (
 from mcp_evidencebase.api_modules.task_dispatch import enqueue_partition_task, enqueue_scan_task
 from mcp_evidencebase.citation_schema import get_citation_schema
 from mcp_evidencebase.ingestion import IngestionService
+from mcp_evidencebase.pdf_split import (
+    MAX_SPLIT_HEADING_LEVEL,
+    build_pdf_split_plan,
+    load_pdf_reader,
+    render_pdf_split_segment,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["collections"])
@@ -233,6 +239,124 @@ async def upload_document(
         "queued": queued,
         "task_id": task_id,
         "queue_error": queue_error,
+    }
+
+
+@router.post("/collections/{bucket_name}/documents/split/preview")
+async def preview_document_split(
+    bucket_name: str,
+    file_name: str,
+    request: Request,
+) -> dict[str, Any]:
+    """Preview how a PDF would be split by outline heading level."""
+    normalized_bucket_name = bucket_name.strip()
+    normalized_file_name = file_name.strip()
+    if not normalized_file_name:
+        raise HTTPException(status_code=400, detail="file name must not be empty.")
+
+    payload = await request.body()
+    try:
+        reader = load_pdf_reader(payload)
+        plan = build_pdf_split_plan(reader, normalized_file_name)
+    except Exception as exc:
+        raise_document_http_error(exc)
+
+    return {
+        "bucket_name": normalized_bucket_name,
+        "file_name": normalized_file_name,
+        **plan.to_dict(),
+    }
+
+
+@router.post("/collections/{bucket_name}/documents/split/upload")
+async def upload_split_document(
+    bucket_name: str,
+    file_name: str,
+    heading_level: int,
+    request: Request,
+    service: Annotated[IngestionService, Depends(get_ingestion_service)],
+) -> dict[str, Any]:
+    """Split one PDF by outline heading level, upload parts, and queue processing."""
+    normalized_bucket_name = bucket_name.strip()
+    normalized_file_name = file_name.strip()
+    if not normalized_file_name:
+        raise HTTPException(status_code=400, detail="file name must not be empty.")
+    if heading_level < 1 or heading_level > MAX_SPLIT_HEADING_LEVEL:
+        raise HTTPException(
+            status_code=400,
+            detail=(f"heading_level must be between 1 and {MAX_SPLIT_HEADING_LEVEL}."),
+        )
+
+    payload = await request.body()
+    try:
+        reader = load_pdf_reader(payload)
+        plan = build_pdf_split_plan(reader, normalized_file_name)
+        level_preview = plan.get_level(heading_level)
+    except Exception as exc:
+        raise_document_http_error(exc)
+
+    if not level_preview.available or not level_preview.splits:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No level {heading_level} outline headings were found in this PDF.",
+        )
+
+    uploaded: list[dict[str, Any]] = []
+    failures: list[dict[str, str]] = []
+    for split_segment in level_preview.splits:
+        try:
+            split_payload = render_pdf_split_segment(reader, split_segment)
+            object_name = service.upload_document(
+                bucket_name=normalized_bucket_name,
+                object_name=split_segment.object_name,
+                payload=split_payload,
+                content_type="application/pdf",
+            )
+        except Exception as exc:
+            failures.append(
+                {
+                    "chapter_title": split_segment.chapter_title,
+                    "object_name": split_segment.object_name,
+                    "error": str(exc),
+                }
+            )
+            continue
+
+        queued = True
+        task_id: str | None = None
+        queue_error = ""
+        try:
+            task = enqueue_partition_task(normalized_bucket_name, object_name)
+            task_id = task.id
+        except Exception as exc:
+            queued = False
+            queue_error = str(exc)
+            logger.exception("Failed to enqueue partition_minio_object task for split PDF.")
+
+        uploaded.append(
+            {
+                "chapter_title": split_segment.chapter_title,
+                "object_name": object_name,
+                "file_name": split_segment.file_name,
+                "page_start": split_segment.page_start,
+                "page_end": split_segment.page_end,
+                "page_count": split_segment.page_count,
+                "queued": queued,
+                "task_id": task_id,
+                "queue_error": queue_error,
+            }
+        )
+
+    return {
+        "bucket_name": normalized_bucket_name,
+        "file_name": normalized_file_name,
+        "pdf_title": plan.pdf_title,
+        "folder_name": plan.folder_name,
+        "heading_level": heading_level,
+        "uploaded_count": len(uploaded),
+        "failure_count": len(failures),
+        "uploaded": uploaded,
+        "failures": failures,
     }
 
 

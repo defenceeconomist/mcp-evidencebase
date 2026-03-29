@@ -26,9 +26,22 @@ import {
 } from "./js/table-ui.mjs";
 
 (function () {
-  window.__EVIDENCEBASE_UI_BUILD__ = "2026-02-28-bibtex-download-a";
+  window.__EVIDENCEBASE_UI_BUILD__ = "2026-03-29-base-path-links-a";
   const origin = window.location.origin;
-  const apiBasePath = origin + "/api";
+  const deriveAppBasePath = (pathname) => {
+    const normalizedPath = String(pathname || "/").trim() || "/";
+    if (normalizedPath === "/") {
+      return "";
+    }
+    if (/\.[^/]+$/.test(normalizedPath)) {
+      const lastSlashIndex = normalizedPath.lastIndexOf("/");
+      return lastSlashIndex > 0 ? normalizedPath.slice(0, lastSlashIndex) : "";
+    }
+    return normalizedPath.replace(/\/+$/, "");
+  };
+  const appBasePath = deriveAppBasePath(window.location.pathname);
+  const appBaseUrl = origin + appBasePath;
+  const apiBasePath = appBaseUrl + "/api";
   const bucketList = document.getElementById("bucket-list");
   const bucketEmptyState = document.getElementById("bucket-empty-state");
   const collectionsFilterInput = document.getElementById("collections-filter-input");
@@ -79,6 +92,17 @@ import {
   const searchSectionModalBody = document.getElementById("search-section-modal-body");
   const searchSectionPrevButton = document.getElementById("search-section-prev-btn");
   const searchSectionNextButton = document.getElementById("search-section-next-btn");
+  const pdfSplitModalElement = document.getElementById("pdf-split-modal");
+  const pdfSplitModalTitle = document.getElementById("pdf-split-modal-title");
+  const pdfSplitModalSubtitle = document.getElementById("pdf-split-modal-subtitle");
+  const pdfSplitPdfTitle = document.getElementById("pdf-split-pdf-title");
+  const pdfSplitFolderName = document.getElementById("pdf-split-folder-name");
+  const pdfSplitPageCount = document.getElementById("pdf-split-page-count");
+  const pdfSplitLevelOptions = document.getElementById("pdf-split-level-options");
+  const pdfSplitStatus = document.getElementById("pdf-split-status");
+  const pdfSplitPreviewCount = document.getElementById("pdf-split-preview-count");
+  const pdfSplitPreviewBody = document.getElementById("pdf-split-preview-body");
+  const pdfSplitUploadButton = document.getElementById("pdf-split-upload-btn");
   const semanticSearchTab = document.getElementById("semantic-search-tab");
   const semanticSearchPane = document.getElementById("semantic-search-pane");
   const semanticSearchForm = document.getElementById("semantic-search-form");
@@ -100,6 +124,9 @@ import {
   }
   if (searchSectionModalElement && searchSectionModalElement.parentElement !== document.body) {
     document.body.appendChild(searchSectionModalElement);
+  }
+  if (pdfSplitModalElement && pdfSplitModalElement.parentElement !== document.body) {
+    document.body.appendChild(pdfSplitModalElement);
   }
 
   const selectedBucketCookieName = "evidencebase_selected_bucket";
@@ -263,6 +290,7 @@ import {
   let documentTable = null;
   let docJsonModalInstance = null;
   let searchSectionModalInstance = null;
+  let pdfSplitModalInstance = null;
   let documentRefreshTimerId = null;
   const metadataSaveTimers = new Map();
   const metadataSaveDelayMs = 650;
@@ -276,6 +304,12 @@ import {
     sourceResult: null,
     sections: [],
     currentIndex: -1,
+  };
+  let pdfSplitState = {
+    file: null,
+    preview: null,
+    selectedLevel: 1,
+    uploadInProgress: false,
   };
   const isMobileViewport = () => window.matchMedia("(max-width: 991.98px)").matches;
 
@@ -422,35 +456,6 @@ import {
     return normalizeText(file.name).toLowerCase().endsWith(".pdf");
   };
 
-  const getFolderPrefixFromSelectedFiles = (files) => {
-    if (!Array.isArray(files)) {
-      return "";
-    }
-    for (const file of files) {
-      const normalizedRelativePath = normalizeObjectPath(file?.webkitRelativePath || "");
-      if (!normalizedRelativePath || !normalizedRelativePath.includes("/")) {
-        continue;
-      }
-      const parts = normalizedRelativePath.split("/").filter(Boolean);
-      if (parts.length > 1) {
-        return parts[0];
-      }
-    }
-    return "";
-  };
-
-  const getRelativePathWithinSelectedFolder = (file) => {
-    const normalizedRelativePath = normalizeObjectPath(file?.webkitRelativePath || "");
-    if (!normalizedRelativePath || !normalizedRelativePath.includes("/")) {
-      return normalizeObjectPath(file?.name || "");
-    }
-    const parts = normalizedRelativePath.split("/").filter(Boolean);
-    if (parts.length <= 1) {
-      return normalizeObjectPath(file?.name || "");
-    }
-    return normalizeObjectPath(parts.slice(1).join("/"));
-  };
-
   const normalizeDocumentType = (value) => {
     return normalizeDocumentTypeFromModule(value, documentTypes);
   };
@@ -462,6 +467,13 @@ import {
     }
     const splitParts = normalized.split("/");
     return splitParts[splitParts.length - 1] || normalized;
+  };
+
+  const getPdfSplitLevelPreview = (preview, level) => {
+    if (!preview || !Array.isArray(preview.levels)) {
+      return null;
+    }
+    return preview.levels.find((entry) => Number.parseInt(entry?.level, 10) === level) || null;
   };
 
   const parseMinioLocation = (value) => {
@@ -501,7 +513,7 @@ import {
           : normalizedHighlight;
       params.set("highlight", truncatedHighlight);
     }
-    return `${origin}/resolver.html?${params.toString()}`;
+    return `${appBaseUrl}/resolver.html?${params.toString()}`;
   };
 
   const buildResolverHrefForSelectedDocument = (record) => {
@@ -3475,85 +3487,241 @@ import {
     }
   };
 
-  const uploadPdfFolder = async (selectedFiles) => {
+  const setPdfSplitModalBusyState = (busy, statusText = "") => {
+    pdfSplitState.uploadInProgress = busy;
+    if (pdfSplitUploadButton) {
+      pdfSplitUploadButton.disabled = busy || !pdfSplitState.preview;
+      pdfSplitUploadButton.textContent = busy ? "Creating Split Folder..." : "Create Split Folder";
+    }
+    if (pdfSplitLevelOptions) {
+      pdfSplitLevelOptions.querySelectorAll('input[name="pdf-split-level"]').forEach((input) => {
+        input.disabled = busy || input.dataset.available !== "true";
+      });
+    }
+    if (pdfSplitStatus) {
+      pdfSplitStatus.textContent = normalizeText(statusText);
+    }
+  };
+
+  const clearPdfSplitState = () => {
+    pdfSplitState = {
+      file: null,
+      preview: null,
+      selectedLevel: 1,
+      uploadInProgress: false,
+    };
+    if (pdfSplitModalTitle) {
+      pdfSplitModalTitle.textContent = "Split PDF by Chapter";
+    }
+    if (pdfSplitModalSubtitle) {
+      pdfSplitModalSubtitle.textContent = "";
+    }
+    if (pdfSplitPdfTitle) {
+      pdfSplitPdfTitle.textContent = "";
+    }
+    if (pdfSplitFolderName) {
+      pdfSplitFolderName.textContent = "";
+    }
+    if (pdfSplitPageCount) {
+      pdfSplitPageCount.textContent = "";
+    }
+    if (pdfSplitPreviewCount) {
+      pdfSplitPreviewCount.textContent = "";
+    }
+    if (pdfSplitPreviewBody) {
+      pdfSplitPreviewBody.innerHTML = "";
+    }
+    if (pdfSplitLevelOptions) {
+      pdfSplitLevelOptions.innerHTML = "";
+    }
+    setPdfSplitModalBusyState(false, "");
+  };
+
+  const renderPdfSplitPreview = () => {
+    if (!pdfSplitState.preview || !pdfSplitPreviewBody || !pdfSplitPreviewCount) {
+      return;
+    }
+    const levelPreview = getPdfSplitLevelPreview(pdfSplitState.preview, pdfSplitState.selectedLevel);
+    const splits = Array.isArray(levelPreview?.splits) ? levelPreview.splits : [];
+
+    pdfSplitPreviewBody.innerHTML = "";
+    if (!splits.length) {
+      const emptyRow = document.createElement("tr");
+      const cell = document.createElement("td");
+      cell.colSpan = 4;
+      cell.className = "text-body-secondary small px-3 py-3";
+      cell.textContent = `No level ${pdfSplitState.selectedLevel} headings were detected in this PDF.`;
+      emptyRow.appendChild(cell);
+      pdfSplitPreviewBody.appendChild(emptyRow);
+      pdfSplitPreviewCount.textContent = "0 chapter files";
+      return;
+    }
+
+    pdfSplitPreviewCount.textContent = `${splits.length} chapter file${splits.length === 1 ? "" : "s"}`;
+    splits.forEach((split, index) => {
+      const row = document.createElement("tr");
+
+      const indexCell = document.createElement("td");
+      indexCell.className = "ps-3 text-body-secondary text-nowrap";
+      indexCell.textContent = String(index + 1);
+      row.appendChild(indexCell);
+
+      const chapterCell = document.createElement("td");
+      const chapterTitle = document.createElement("div");
+      chapterTitle.className = "pdf-split-chapter-title";
+      chapterTitle.textContent = normalizeText(split.chapter_title) || `Chapter ${index + 1}`;
+      chapterCell.appendChild(chapterTitle);
+      if (Number(split.heading_page_start) > Number(split.page_start)) {
+        const detail = document.createElement("div");
+        detail.className = "pdf-split-option-meta";
+        detail.textContent = `Heading starts on page ${split.heading_page_start}`;
+        chapterCell.appendChild(detail);
+      }
+      row.appendChild(chapterCell);
+
+      const pagesCell = document.createElement("td");
+      pagesCell.className = "text-nowrap";
+      pagesCell.textContent = `${split.page_start}-${split.page_end} (${split.page_count} page${
+        Number(split.page_count) === 1 ? "" : "s"
+      })`;
+      row.appendChild(pagesCell);
+
+      const fileCell = document.createElement("td");
+      fileCell.className = "pe-3";
+      const fileName = document.createElement("div");
+      fileName.className = "pdf-split-file-name";
+      fileName.textContent = normalizeText(split.object_name);
+      fileCell.appendChild(fileName);
+      row.appendChild(fileCell);
+
+      pdfSplitPreviewBody.appendChild(row);
+    });
+  };
+
+  const renderPdfSplitLevelOptions = () => {
+    if (!pdfSplitState.preview || !pdfSplitLevelOptions) {
+      return;
+    }
+    pdfSplitLevelOptions.innerHTML = "";
+    pdfSplitState.preview.levels.forEach((levelPreview) => {
+      const wrapper = document.createElement("div");
+      wrapper.className = `form-check${levelPreview.available ? "" : " disabled"}`;
+
+      const input = document.createElement("input");
+      input.className = "form-check-input";
+      input.type = "radio";
+      input.name = "pdf-split-level";
+      input.id = `pdf-split-level-${levelPreview.level}`;
+      input.value = String(levelPreview.level);
+      input.dataset.available = levelPreview.available ? "true" : "false";
+      input.checked = levelPreview.level === pdfSplitState.selectedLevel;
+      input.disabled = !levelPreview.available || pdfSplitState.uploadInProgress;
+      input.addEventListener("change", () => {
+        pdfSplitState.selectedLevel = levelPreview.level;
+        renderPdfSplitPreview();
+        setPdfSplitModalBusyState(false, `Previewing level ${levelPreview.level} chapter splits.`);
+      });
+
+      const label = document.createElement("label");
+      label.className = "form-check-label";
+      label.htmlFor = input.id;
+
+      const title = document.createElement("div");
+      title.className = "pdf-split-option-title";
+      title.textContent = `Level ${levelPreview.level} headings`;
+      label.appendChild(title);
+
+      const meta = document.createElement("div");
+      meta.className = "pdf-split-option-meta";
+      meta.textContent = levelPreview.available
+        ? `${levelPreview.split_count} split file${levelPreview.split_count === 1 ? "" : "s"}`
+        : "No headings found at this level";
+      label.appendChild(meta);
+
+      wrapper.appendChild(input);
+      wrapper.appendChild(label);
+      pdfSplitLevelOptions.appendChild(wrapper);
+    });
+  };
+
+  const openPdfSplitModal = ({ file, preview }) => {
+    if (
+      !file ||
+      !preview ||
+      !pdfSplitModalElement ||
+      !pdfSplitPdfTitle ||
+      !pdfSplitFolderName ||
+      !pdfSplitPageCount
+    ) {
+      return;
+    }
+
+    pdfSplitState.file = file;
+    pdfSplitState.preview = preview;
+    pdfSplitState.selectedLevel = Number.parseInt(preview.default_heading_level, 10) || 1;
+
+    if (pdfSplitModalTitle) {
+      pdfSplitModalTitle.textContent = "Split PDF by Chapter";
+    }
+    if (pdfSplitModalSubtitle) {
+      pdfSplitModalSubtitle.textContent = `${normalizeText(file.name)} -> ${selectedBucketName}/${normalizeText(
+        preview.folder_name
+      )}`;
+    }
+    pdfSplitPdfTitle.textContent = normalizeText(preview.pdf_title) || filenameFromPath(file.name);
+    pdfSplitFolderName.textContent = normalizeText(preview.folder_name);
+    pdfSplitPageCount.textContent = `${preview.page_count} page${Number(preview.page_count) === 1 ? "" : "s"}`;
+
+    renderPdfSplitLevelOptions();
+    renderPdfSplitPreview();
+    setPdfSplitModalBusyState(false, `Previewing level ${pdfSplitState.selectedLevel} chapter splits.`);
+
+    if (!pdfSplitModalInstance) {
+      pdfSplitModalInstance = bootstrap.Modal.getOrCreateInstance(pdfSplitModalElement);
+    }
+    pdfSplitModalInstance.show();
+  };
+
+  const previewPdfSplitUpload = async (file) => {
     if (!selectedBucketName) {
       window.alert("Select a collection first.");
       return;
     }
-    if (!Array.isArray(selectedFiles) || selectedFiles.length === 0) {
-      return;
-    }
-
-    const pdfFiles = selectedFiles.filter((file) => isPdfFile(file));
-    if (pdfFiles.length === 0) {
-      window.alert("The selected folder does not contain any PDF files.");
-      return;
-    }
-
-    const suggestedFolderPrefix = getFolderPrefixFromSelectedFiles(pdfFiles);
-    if (!suggestedFolderPrefix) {
-      window.alert("Could not resolve a folder name from the selected files.");
-      return;
-    }
-    const requestedFolderPrefix = window.prompt(
-      "Enter the folder title/path prefix for uploaded PDFs:",
-      suggestedFolderPrefix
-    );
-    if (requestedFolderPrefix === null) {
-      return;
-    }
-    const folderPrefix = normalizeObjectPath(requestedFolderPrefix || suggestedFolderPrefix);
-    if (!folderPrefix) {
-      window.alert("Folder title/path prefix cannot be empty.");
+    if (!file || !isPdfFile(file)) {
+      window.alert("Select a PDF file first.");
       return;
     }
 
     const originalUploadPdfDisabled = uploadPdfButton ? uploadPdfButton.disabled : false;
     const originalUploadFolderDisabled = uploadPdfFolderButton ? uploadPdfFolderButton.disabled : false;
     const originalUploadFolderLabel = uploadPdfFolderButton
-      ? normalizeText(uploadPdfFolderButton.textContent) || "Upload PDF Folder"
-      : "Upload PDF Folder";
+      ? normalizeText(uploadPdfFolderButton.textContent) || "Upload PDF as Folder"
+      : "Upload PDF as Folder";
 
-    const failures = [];
-    let uploadedCount = 0;
     if (uploadPdfButton) {
       uploadPdfButton.disabled = true;
     }
     if (uploadPdfFolderButton) {
       uploadPdfFolderButton.disabled = true;
+      uploadPdfFolderButton.textContent = "Analyzing PDF...";
     }
 
     try {
-      for (let index = 0; index < pdfFiles.length; index += 1) {
-        const file = pdfFiles[index];
-        if (uploadPdfFolderButton) {
-          uploadPdfFolderButton.textContent = `Uploading ${index + 1}/${pdfFiles.length}`;
+      const preview = await apiRequest(
+        `/collections/${encodeURIComponent(
+          selectedBucketName
+        )}/documents/split/preview?file_name=${encodeURIComponent(normalizeText(file.name))}`,
+        {
+          method: "POST",
+          body: file,
+          headers: {
+            "Content-Type": file.type || "application/pdf",
+          },
         }
-
-        const relativePath = getRelativePathWithinSelectedFolder(file);
-        const objectName = normalizeObjectPath(`${folderPrefix}/${relativePath}`);
-        if (!objectName) {
-          failures.push(`${normalizeText(file.name) || `file-${index + 1}`}: invalid target object path`);
-          continue;
-        }
-
-        const result = await uploadDocumentFile(file, {
-          objectName,
-          refreshDocumentsAfterUpload: false,
-          suppressErrorAlert: true,
-        });
-        if (result.ok) {
-          uploadedCount += 1;
-          await refreshDocuments({ silent: true, preserveSelection: true });
-          continue;
-        }
-        failures.push(
-          `${normalizeText(result.objectName) || normalizeText(file.name) || `file-${index + 1}`}: ${
-            result.error?.message || "unknown upload error"
-          }`
-        );
-      }
-      await refreshDocuments({ silent: true, preserveSelection: true });
+      );
+      openPdfSplitModal({ file, preview });
+    } catch (error) {
+      window.alert(`Could not preview split chapters for '${normalizeText(file.name)}': ${error.message}`);
     } finally {
       if (uploadPdfButton) {
         uploadPdfButton.disabled = originalUploadPdfDisabled;
@@ -3563,25 +3731,72 @@ import {
         uploadPdfFolderButton.textContent = originalUploadFolderLabel;
       }
     }
+  };
 
-    const baseLocation = `${selectedBucketName}/${folderPrefix}`;
-    if (failures.length > 0) {
-      const previewFailures = failures.slice(0, 8).map((failure) => `- ${failure}`);
-      if (failures.length > 8) {
-        previewFailures.push(`- ...and ${failures.length - 8} more`);
-      }
-      window.alert(
-        `Uploaded ${uploadedCount} of ${pdfFiles.length} PDFs to '${baseLocation}'.\n` +
-          "Celery tasks were queued for successful uploads.\n\n" +
-          `Failures:\n${previewFailures.join("\n")}`
-      );
+  const createPdfSplitFolder = async () => {
+    if (!selectedBucketName) {
+      window.alert("Select a collection first.");
+      return;
+    }
+    if (!pdfSplitState.file || !pdfSplitState.preview) {
+      window.alert("Preview a PDF split before uploading.");
       return;
     }
 
-    window.alert(
-      `Uploaded ${uploadedCount} PDF${uploadedCount === 1 ? "" : "s"} to '${baseLocation}'.\n` +
-        "Celery tasks were queued for processing."
+    const levelPreview = getPdfSplitLevelPreview(pdfSplitState.preview, pdfSplitState.selectedLevel);
+    if (!levelPreview?.available) {
+      window.alert(`No level ${pdfSplitState.selectedLevel} headings are available for this PDF.`);
+      return;
+    }
+
+    setPdfSplitModalBusyState(
+      true,
+      `Creating chapter files from level ${pdfSplitState.selectedLevel} headings...`
     );
+
+    try {
+      const payload = await apiRequest(
+        `/collections/${encodeURIComponent(
+          selectedBucketName
+        )}/documents/split/upload?file_name=${encodeURIComponent(
+          normalizeText(pdfSplitState.file.name)
+        )}&heading_level=${encodeURIComponent(String(pdfSplitState.selectedLevel))}`,
+        {
+          method: "POST",
+          body: pdfSplitState.file,
+          headers: {
+            "Content-Type": pdfSplitState.file.type || "application/pdf",
+          },
+        }
+      );
+
+      await refreshDocuments({ silent: true, preserveSelection: true });
+      pdfSplitModalInstance?.hide();
+
+      const baseLocation = `${selectedBucketName}/${payload.folder_name}`;
+      if (payload.failure_count > 0) {
+        const failureLines = (Array.isArray(payload.failures) ? payload.failures : [])
+          .slice(0, 8)
+          .map((failure) => `- ${normalizeText(failure.object_name)}: ${normalizeText(failure.error)}`);
+        if (Array.isArray(payload.failures) && payload.failures.length > 8) {
+          failureLines.push(`- ...and ${payload.failures.length - 8} more`);
+        }
+        window.alert(
+          `Created ${payload.uploaded_count} split PDF${payload.uploaded_count === 1 ? "" : "s"} in '${baseLocation}'.\n` +
+            "Some chapter uploads failed.\n\n" +
+            `Failures:\n${failureLines.join("\n")}`
+        );
+        return;
+      }
+
+      window.alert(
+        `Created ${payload.uploaded_count} split PDF${payload.uploaded_count === 1 ? "" : "s"} in '${baseLocation}'.\n` +
+          "Celery tasks were queued for processing."
+      );
+    } catch (error) {
+      setPdfSplitModalBusyState(false, `Could not create split folder: ${error.message}`);
+      window.alert(`Could not create the split PDF folder: ${error.message}`);
+    }
   };
 
   const downloadCollectionBibtex = () => {
@@ -4162,7 +4377,7 @@ import {
 
   document.querySelectorAll("[data-path]").forEach((anchor) => {
     const path = anchor.getAttribute("data-path") || "";
-    anchor.href = origin + path;
+    anchor.href = `${appBaseUrl}${path}`;
     anchor.target = "_blank";
     anchor.rel = "noopener noreferrer";
   });
@@ -4203,13 +4418,10 @@ import {
     const picker = document.createElement("input");
     picker.type = "file";
     picker.accept = ".pdf,application/pdf";
-    picker.multiple = true;
-    picker.setAttribute("webkitdirectory", "");
-    picker.setAttribute("directory", "");
     picker.addEventListener("change", () => {
-      const selectedFiles = picker.files ? Array.from(picker.files) : [];
-      if (selectedFiles.length > 0) {
-        void uploadPdfFolder(selectedFiles);
+      const nextFile = picker.files && picker.files[0] ? picker.files[0] : null;
+      if (nextFile) {
+        void previewPdfSplitUpload(nextFile);
       }
     });
     picker.click();
@@ -4267,10 +4479,16 @@ import {
   searchSectionNextButton?.addEventListener("click", () => {
     navigateSearchSectionModal(1);
   });
+  pdfSplitUploadButton?.addEventListener("click", () => {
+    void createPdfSplitFolder();
+  });
   searchSectionModalElement?.addEventListener("hidden.bs.modal", () => {
     searchSectionModalLoadToken += 1;
     clearSearchSectionNavigationState();
     updateSearchSectionModalNavigationButtons();
+  });
+  pdfSplitModalElement?.addEventListener("hidden.bs.modal", () => {
+    clearPdfSplitState();
   });
   semanticSearchModeSelect?.addEventListener("change", () => {
     syncSemanticSearchModeFields();

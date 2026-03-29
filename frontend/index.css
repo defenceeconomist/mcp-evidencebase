@@ -458,6 +458,38 @@
   color: var(--bs-secondary-color);
 }
 
+#pdf-split-level-options .form-check {
+  border: 1px solid var(--bs-border-color);
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem 0.75rem 2.5rem;
+}
+
+#pdf-split-level-options .form-check.disabled {
+  opacity: 0.65;
+}
+
+#pdf-split-level-options .form-check-label {
+  display: block;
+}
+
+.pdf-split-option-title {
+  font-weight: 600;
+}
+
+.pdf-split-option-meta,
+.pdf-split-file-name {
+  color: var(--bs-secondary-color);
+  font-size: 0.875rem;
+}
+
+.pdf-split-chapter-title {
+  font-weight: 600;
+}
+
+#pdf-split-preview-body td {
+  vertical-align: top;
+}
+
 @media (min-width: 992px) {
   .navbar-sidebar-slot {
     flex: 0 0 var(--sidebar-width-lg);

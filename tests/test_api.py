@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from io import BytesIO
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 from minio.error import S3Error
+from pypdf import PdfWriter
 
 from mcp_evidencebase.api import app, get_bucket_service, get_ingestion_service
 
@@ -285,6 +287,25 @@ def _make_s3_error() -> S3Error:
     )
 
 
+def _build_outlined_pdf_bytes() -> bytes:
+    writer = PdfWriter()
+    for _ in range(6):
+        writer.add_blank_page(width=72, height=72)
+
+    chapter_one = writer.add_outline_item("Chapter 1", 0)
+    writer.add_outline_item("Section 1.1", 1, parent=chapter_one)
+    writer.add_outline_item("Section 1.2", 2, parent=chapter_one)
+
+    chapter_two = writer.add_outline_item("Chapter 2", 3)
+    section_two = writer.add_outline_item("Section 2.1", 4, parent=chapter_two)
+    writer.add_outline_item("Detail 2.1.a", 5, parent=section_two)
+    writer.add_metadata({"/Title": "Sample Book"})
+
+    output = BytesIO()
+    writer.write(output)
+    return output.getvalue()
+
+
 def test_healthz_returns_ok(client: TestClient) -> None:
     """Assert ``/healthz`` returns HTTP 200 with ``{\"status\": \"ok\"}``."""
     response = client.get("/healthz")
@@ -403,8 +424,7 @@ def test_gpt_search_returns_results_with_bearer_auth(
                 "file_path": "paper.pdf",
                 "text": "Causal inference content",
                 "source_material_url": (
-                    "/api/collections/research-raw/documents/resolve"
-                    "?file_path=paper.pdf"
+                    "/api/collections/research-raw/documents/resolve?file_path=paper.pdf"
                 ),
                 "resolver_link_url": (
                     "/resolver.html?bucket=research-raw&file_path=paper.pdf&page=3"
@@ -448,10 +468,7 @@ def test_gpt_search_returns_results_with_bearer_auth(
         payload["results"][0]["resolver_url"]
         == "http://testserver/resolver.html?bucket=research-raw&file_path=paper.pdf&page=3"
     )
-    assert (
-        payload["results"][0]["resolver_reference"]
-        == "docs://research-raw/paper.pdf?page=3"
-    )
+    assert payload["results"][0]["resolver_reference"] == "docs://research-raw/paper.pdf?page=3"
     assert service.search_calls == [("research-raw", "causal inference", 5, "hybrid", 80)]
 
 
@@ -468,8 +485,7 @@ def test_gpt_search_honors_links_base_url_override(
                 "id": "chunk-1",
                 "score": 0.91,
                 "source_material_url": (
-                    "/api/collections/research-raw/documents/resolve"
-                    "?file_path=paper.pdf"
+                    "/api/collections/research-raw/documents/resolve?file_path=paper.pdf"
                 ),
                 "resolver_link_url": (
                     "/resolver.html?bucket=research-raw&file_path=paper.pdf&page=3"
@@ -504,10 +520,7 @@ def test_gpt_search_honors_links_base_url_override(
         payload["results"][0]["resolver_url"]
         == "https://evidencebase.heley.uk/resolver.html?bucket=research-raw&file_path=paper.pdf&page=3"
     )
-    assert (
-        payload["results"][0]["resolver_reference"]
-        == "docs://research-raw/paper.pdf?page=3"
-    )
+    assert payload["results"][0]["resolver_reference"] == "docs://research-raw/paper.pdf?page=3"
 
 
 def test_gpt_search_honors_links_base_url_override_without_scheme(
@@ -523,8 +536,7 @@ def test_gpt_search_honors_links_base_url_override_without_scheme(
                 "id": "chunk-1",
                 "score": 0.91,
                 "source_material_url": (
-                    "/api/collections/research-raw/documents/resolve"
-                    "?file_path=paper.pdf"
+                    "/api/collections/research-raw/documents/resolve?file_path=paper.pdf"
                 ),
                 "resolver_link_url": (
                     "/resolver.html?bucket=research-raw&file_path=paper.pdf&page=3"
@@ -559,10 +571,7 @@ def test_gpt_search_honors_links_base_url_override_without_scheme(
         payload["results"][0]["resolver_url"]
         == "https://evidencebase.heley.uk/resolver.html?bucket=research-raw&file_path=paper.pdf&page=3"
     )
-    assert (
-        payload["results"][0]["resolver_reference"]
-        == "docs://research-raw/paper.pdf?page=3"
-    )
+    assert payload["results"][0]["resolver_reference"] == "docs://research-raw/paper.pdf?page=3"
 
 
 def test_gpt_search_staged_retrieval_returns_section_citations(
@@ -582,12 +591,10 @@ def test_gpt_search_staged_retrieval_returns_section_citations(
                 "parent_section_id": "section-42",
                 "file_path": "paper.pdf",
                 "text": (
-                    "Industrial participation obligations and offsets in "
-                    "UK defence procurement."
+                    "Industrial participation obligations and offsets in UK defence procurement."
                 ),
                 "source_material_url": (
-                    "/api/collections/research-raw/documents/resolve"
-                    "?file_path=paper.pdf"
+                    "/api/collections/research-raw/documents/resolve?file_path=paper.pdf"
                 ),
                 "resolver_link_url": (
                     "/resolver.html?bucket=research-raw&file_path=paper.pdf&page=3"
@@ -648,8 +655,7 @@ def test_gpt_search_defaults_to_minimal_response_shape(
                 "file_path": "paper.pdf",
                 "text": "Causal inference content",
                 "source_material_url": (
-                    "/api/collections/research-raw/documents/resolve"
-                    "?file_path=paper.pdf"
+                    "/api/collections/research-raw/documents/resolve?file_path=paper.pdf"
                 ),
                 "resolver_link_url": (
                     "/resolver.html?bucket=research-raw&file_path=paper.pdf&page=3"
@@ -1159,6 +1165,101 @@ def test_upload_document_queues_processing_task(
     assert fake_task.calls == [("research-raw", "paper.pdf", None, True)]
 
 
+def test_preview_document_split_returns_heading_levels(client: TestClient) -> None:
+    """Verify split preview exposes chapter plans for outline heading levels 1-3."""
+    response = client.post(
+        "/collections/research-raw/documents/split/preview?file_name=sample-book.pdf",
+        content=_build_outlined_pdf_bytes(),
+        headers={"Content-Type": "application/pdf"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["bucket_name"] == "research-raw"
+    assert payload["pdf_title"] == "Sample Book"
+    assert payload["folder_name"] == "Sample Book"
+    assert payload["page_count"] == 6
+    assert payload["default_heading_level"] == 1
+
+    first_level = payload["levels"][0]
+    assert first_level["level"] == 1
+    assert first_level["available"] is True
+    assert first_level["split_count"] == 2
+    assert first_level["splits"] == [
+        {
+            "level": 1,
+            "chapter_title": "Chapter 1",
+            "file_name": "Chapter 1.pdf",
+            "object_name": "Sample Book/Chapter 1.pdf",
+            "page_start": 1,
+            "page_end": 3,
+            "page_count": 3,
+            "heading_page_start": 1,
+        },
+        {
+            "level": 1,
+            "chapter_title": "Chapter 2",
+            "file_name": "Chapter 2.pdf",
+            "object_name": "Sample Book/Chapter 2.pdf",
+            "page_start": 4,
+            "page_end": 6,
+            "page_count": 3,
+            "heading_page_start": 4,
+        },
+    ]
+
+    third_level = payload["levels"][2]
+    assert third_level["level"] == 3
+    assert third_level["available"] is True
+    assert third_level["split_count"] == 1
+    assert third_level["splits"][0]["chapter_title"] == "Detail 2.1.a"
+    assert third_level["splits"][0]["page_start"] == 1
+    assert third_level["splits"][0]["page_end"] == 6
+
+
+def test_upload_split_document_uploads_chapters_and_queues_tasks(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify chapter splits upload into the PDF title folder and queue processing per split."""
+    service = FakeIngestionService()
+    _override_ingestion_service(service)
+    fake_task = FakeTask("task-split-1")
+    monkeypatch.setattr("mcp_evidencebase.api.partition_minio_object", fake_task)
+
+    response = client.post(
+        "/collections/research-raw/documents/split/upload"
+        "?file_name=sample-book.pdf&heading_level=2",
+        content=_build_outlined_pdf_bytes(),
+        headers={"Content-Type": "application/pdf"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["pdf_title"] == "Sample Book"
+    assert payload["folder_name"] == "Sample Book"
+    assert payload["heading_level"] == 2
+    assert payload["uploaded_count"] == 3
+    assert payload["failure_count"] == 0
+    assert [item["object_name"] for item in payload["uploaded"]] == [
+        "Sample Book/Section 1.1.pdf",
+        "Sample Book/Section 1.2.pdf",
+        "Sample Book/Section 2.1.pdf",
+    ]
+    assert [item["page_start"] for item in payload["uploaded"]] == [1, 3, 5]
+    assert [item["page_end"] for item in payload["uploaded"]] == [2, 4, 6]
+    assert [uploaded[1] for uploaded in service.uploaded] == [
+        "Sample Book/Section 1.1.pdf",
+        "Sample Book/Section 1.2.pdf",
+        "Sample Book/Section 2.1.pdf",
+    ]
+    assert fake_task.calls == [
+        ("research-raw", "Sample Book/Section 1.1.pdf", None, True),
+        ("research-raw", "Sample Book/Section 1.2.pdf", None, True),
+        ("research-raw", "Sample Book/Section 2.1.pdf", None, True),
+    ]
+
+
 def test_trigger_bucket_scan_queues_task(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
@@ -1264,9 +1365,7 @@ def test_update_document_metadata_accepts_structured_authors(client: TestClient)
         "document_id": "doc-1",
         "metadata": {"authors": structured_authors},
     }
-    assert service.metadata_updates == [
-        ("research-raw", "doc-1", {"authors": structured_authors})
-    ]
+    assert service.metadata_updates == [("research-raw", "doc-1", {"authors": structured_authors})]
 
 
 def test_fetch_document_metadata_from_crossref_returns_payload(client: TestClient) -> None:

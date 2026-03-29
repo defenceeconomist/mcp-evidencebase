@@ -26,8 +26,22 @@
   const requestedPage = Number.parseInt(query.get("page") || "1", 10);
   const requestedHighlight = (query.get("highlight") || "").trim();
 
+  const deriveAppBasePath = (pathname) => {
+    const normalizedPath = String(pathname || "/").trim() || "/";
+    if (normalizedPath === "/") {
+      return "";
+    }
+    if (/\.[^/]+$/.test(normalizedPath)) {
+      const lastSlashIndex = normalizedPath.lastIndexOf("/");
+      return lastSlashIndex > 0 ? normalizedPath.slice(0, lastSlashIndex) : "";
+    }
+    return normalizedPath.replace(/\/+$/, "");
+  };
+  const appBasePath = deriveAppBasePath(window.location.pathname);
   const encodePath = (value) => encodeURIComponent(value || "");
-  const apiUrl = `/api/collections/${encodePath(bucketName)}/documents/resolve?file_path=${encodePath(filePath)}`;
+  const apiUrl =
+    `${appBasePath}/api/collections/${encodePath(bucketName)}/documents/resolve` +
+    `?file_path=${encodePath(filePath)}`;
 
   let pdfDocument = null;
   let currentPage = Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1;

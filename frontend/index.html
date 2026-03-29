@@ -14,7 +14,7 @@
       rel="stylesheet"
       crossorigin="anonymous"
     />
-    <link href="./index.css?v=20260220a" rel="stylesheet" />
+    <link href="./index.css?v=20260329a" rel="stylesheet" />
   </head>
   <body class="bg-body-tertiary d-flex flex-column vh-100">
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
@@ -177,7 +177,7 @@
                       id="upload-pdf-folder-btn"
                       class="btn btn-outline-primary btn-sm header-action-btn"
                     >
-                      Upload PDF Folder
+                      Upload PDF as Folder
                     </button>
                     <button
                       type="button"
@@ -414,6 +414,96 @@
                   </div>
                 </div>
               </div>
+
+              <div
+                class="modal fade"
+                id="pdf-split-modal"
+                tabindex="-1"
+                aria-labelledby="pdf-split-modal-title"
+                aria-hidden="true"
+              >
+                <div class="modal-dialog modal-xl modal-dialog-scrollable">
+                  <div class="modal-content">
+                    <div class="modal-header">
+                      <div>
+                        <h2 id="pdf-split-modal-title" class="modal-title h5 mb-1">
+                          Split PDF by Chapter
+                        </h2>
+                        <p id="pdf-split-modal-subtitle" class="text-body-secondary small mb-0"></p>
+                      </div>
+                      <button
+                        type="button"
+                        class="btn-close"
+                        data-bs-dismiss="modal"
+                        aria-label="Close"
+                      ></button>
+                    </div>
+                    <div class="modal-body">
+                      <div class="row g-3">
+                        <div class="col-12 col-lg-4">
+                          <div class="card h-100">
+                            <div class="card-header py-2 fw-semibold small text-body-secondary">
+                              Split Settings
+                            </div>
+                            <div class="card-body d-flex flex-column gap-3">
+                              <dl class="row mb-0 small">
+                                <dt class="col-5 text-body-secondary">PDF Title</dt>
+                                <dd id="pdf-split-pdf-title" class="col-7 mb-2"></dd>
+                                <dt class="col-5 text-body-secondary">New Folder</dt>
+                                <dd id="pdf-split-folder-name" class="col-7 mb-2"></dd>
+                                <dt class="col-5 text-body-secondary">Pages</dt>
+                                <dd id="pdf-split-page-count" class="col-7 mb-0"></dd>
+                              </dl>
+                              <div>
+                                <p class="small fw-semibold mb-2">Split On Heading Level</p>
+                                <div id="pdf-split-level-options" class="d-flex flex-column gap-2"></div>
+                              </div>
+                              <p id="pdf-split-status" class="small text-body-secondary mb-0"></p>
+                            </div>
+                          </div>
+                        </div>
+                        <div class="col-12 col-lg-8">
+                          <div class="card h-100">
+                            <div
+                              class="card-header py-2 d-flex justify-content-between align-items-center gap-2 flex-wrap"
+                            >
+                              <span class="fw-semibold small text-body-secondary">Output Preview</span>
+                              <span id="pdf-split-preview-count" class="small text-body-secondary"></span>
+                            </div>
+                            <div class="card-body p-0">
+                              <div class="table-responsive">
+                                <table class="table table-sm align-middle mb-0">
+                                  <thead>
+                                    <tr>
+                                      <th scope="col" class="text-nowrap ps-3">#</th>
+                                      <th scope="col">Chapter</th>
+                                      <th scope="col" class="text-nowrap">Pages</th>
+                                      <th scope="col" class="text-nowrap pe-3">Output File</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody id="pdf-split-preview-body"></tbody>
+                                </table>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="modal-footer">
+                      <button
+                        type="button"
+                        class="btn btn-outline-secondary btn-sm"
+                        data-bs-dismiss="modal"
+                      >
+                        Cancel
+                      </button>
+                      <button type="button" id="pdf-split-upload-btn" class="btn btn-primary btn-sm">
+                        Create Split Folder
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </section>
             <section
               class="tab-pane p-3"
@@ -543,6 +633,6 @@
       src="https://cdn.jsdelivr.net/npm/dompurify@3.2.6/dist/purify.min.js"
       crossorigin="anonymous"
     ></script>
-    <script type="module" src="./index.js?v=20260228a"></script>
+    <script type="module" src="./index.js?v=20260329b"></script>
   </body>
 </html>
