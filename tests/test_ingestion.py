@@ -378,6 +378,18 @@ def test_build_ingestion_settings_supports_unstructured_timeout_override() -> No
     assert fallback_default.unstructured_timeout_seconds == 900.0
 
 
+def test_build_ingestion_settings_supports_qdrant_timeout_override() -> None:
+    """Confirm QDRANT_TIMEOUT_SECONDS is parsed and minimum-clamped."""
+    settings = build_ingestion_settings({"QDRANT_TIMEOUT_SECONDS": "45"})
+    assert settings.qdrant_timeout_seconds == 45.0
+
+    min_clamped = build_ingestion_settings({"QDRANT_TIMEOUT_SECONDS": "0"})
+    assert min_clamped.qdrant_timeout_seconds == 1.0
+
+    fallback_default = build_ingestion_settings({"QDRANT_TIMEOUT_SECONDS": "invalid"})
+    assert fallback_default.qdrant_timeout_seconds == 30.0
+
+
 def test_build_ingestion_settings_supports_chunking_element_overrides() -> None:
     """Confirm chunking element filters and text controls are parsed from env."""
     settings = build_ingestion_settings(
@@ -637,7 +649,9 @@ def test_fetch_metadata_from_crossref_prefers_doi_and_updates_authors_and_entry_
     )
     called_paths: list[tuple[str, dict[str, str]]] = []
 
-    def fake_crossref_get_json(*, path: str, params: Mapping[str, str] | None = None) -> Mapping[str, Any]:
+    def fake_crossref_get_json(
+        *, path: str, params: Mapping[str, str] | None = None
+    ) -> Mapping[str, Any]:
         called_paths.append((path, dict(params or {})))
         return {
             "message": {
@@ -715,7 +729,9 @@ def test_fetch_metadata_from_crossref_prefers_isbn_before_issn_and_title(
     )
     called_queries: list[dict[str, str]] = []
 
-    def fake_crossref_get_json(*, path: str, params: Mapping[str, str] | None = None) -> Mapping[str, Any]:
+    def fake_crossref_get_json(
+        *, path: str, params: Mapping[str, str] | None = None
+    ) -> Mapping[str, Any]:
         del path
         query_params = dict(params or {})
         called_queries.append(query_params)
@@ -779,7 +795,9 @@ def test_fetch_metadata_from_crossref_rejects_low_confidence_title_match(
         chunk_overlap_chars=150,
     )
 
-    def fake_crossref_get_json(*, path: str, params: Mapping[str, str] | None = None) -> Mapping[str, Any]:
+    def fake_crossref_get_json(
+        *, path: str, params: Mapping[str, str] | None = None
+    ) -> Mapping[str, Any]:
         del path, params
         return {
             "message": {
@@ -837,7 +855,9 @@ def test_fetch_metadata_from_crossref_parses_name_only_author_entries(
         chunk_overlap_chars=150,
     )
 
-    def fake_crossref_get_json(*, path: str, params: Mapping[str, str] | None = None) -> Mapping[str, Any]:
+    def fake_crossref_get_json(
+        *, path: str, params: Mapping[str, str] | None = None
+    ) -> Mapping[str, Any]:
         del path, params
         return {
             "message": {
@@ -901,7 +921,9 @@ def test_fetch_metadata_from_crossref_falls_back_to_editors_when_author_missing(
         chunk_overlap_chars=150,
     )
 
-    def fake_crossref_get_json(*, path: str, params: Mapping[str, str] | None = None) -> Mapping[str, Any]:
+    def fake_crossref_get_json(
+        *, path: str, params: Mapping[str, str] | None = None
+    ) -> Mapping[str, Any]:
         del path, params
         return {
             "message": {
@@ -967,7 +989,9 @@ def test_fetch_metadata_from_crossref_tries_next_candidate_when_first_has_no_upd
         chunk_overlap_chars=150,
     )
 
-    def fake_crossref_get_json(*, path: str, params: Mapping[str, str] | None = None) -> Mapping[str, Any]:
+    def fake_crossref_get_json(
+        *, path: str, params: Mapping[str, str] | None = None
+    ) -> Mapping[str, Any]:
         del path, params
         return {
             "message": {
@@ -1676,7 +1700,8 @@ def test_set_metadata_for_location_stores_payload_under_source_meta_key() -> Non
 
     assert meta_key == "research-raw/paper.pdf"
     assert (
-        redis_client.hgetall(f"test:source:{bucket_name}/{object_name}:meta").get("title", "") == "Paper"
+        redis_client.hgetall(f"test:source:{bucket_name}/{object_name}:meta").get("title", "")
+        == "Paper"
     )
     assert redis_client.hgetall(f"test:meta:{bucket_name}/{object_name}") == {}
 
@@ -2025,12 +2050,18 @@ def test_qdrant_indexer_hybrid_search_merges_dense_and_keyword_results() -> None
         results[0]["source_material_url"]
         == "/api/collections/research-raw/documents/resolve?file_path=a.pdf"
     )
-    assert results[0]["resolver_link_url"] == "/resolver.html?bucket=research-raw&file_path=a.pdf&page=2"
+    assert (
+        results[0]["resolver_link_url"]
+        == "/resolver.html?bucket=research-raw&file_path=a.pdf&page=2"
+    )
     assert (
         results[1]["source_material_url"]
         == "/api/collections/research-raw/documents/resolve?file_path=b.pdf"
     )
-    assert results[1]["resolver_link_url"] == "/resolver.html?bucket=research-raw&file_path=b.pdf&page=5"
+    assert (
+        results[1]["resolver_link_url"]
+        == "/resolver.html?bucket=research-raw&file_path=b.pdf&page=5"
+    )
     assert [call["vector_name"] for call in qdrant.search_calls] == ["dense", "keyword"]
 
 

@@ -438,7 +438,7 @@
     <div class="report-metadata" style="background: #f2f4f7;">
     <h2 onclick="this.nextElementSibling.classList.toggle('hidden')" style="cursor: pointer; font-size: 12px; ">
         Execution Metadata (click to toggle)
-         <button class="inline-copy-btn" onclick="event.stopPropagation(); copyFromBase64('eydyZXBvcnRfdGl0bGUnOiAndGVzdHMnLCAnZW52aXJvbm1lbnQnOiAnUGFzcyAtLXJwLWVudiB0byBwb3B1bGF0ZSBlbnZpcm9ubWVudCcsICdicmFuY2gnOiAnUGFzcyAtLWdpdC1icmFuY2ggdG8gcG9wdWxhdGUgZ2l0IG1ldGFkYXRhJywgJ2NvbW1pdCc6ICdQYXNzIC0tZ2l0LWNvbW1pdCB0byBwb3B1bGF0ZSBnaXQgbWV0YWRhdGEnLCAncHl0aG9uX3ZlcnNpb24nOiAnMy4xNC4yJywgJ2dlbmVyYXRlZF9hdCc6ICcyMDI2LTAzLTI5VDE4OjM2OjIxLjEwMzE3Mid9', this)" title="Copy metadata">
+         <button class="inline-copy-btn" onclick="event.stopPropagation(); copyFromBase64('eydyZXBvcnRfdGl0bGUnOiAndGVzdHMnLCAnZW52aXJvbm1lbnQnOiAnUGFzcyAtLXJwLWVudiB0byBwb3B1bGF0ZSBlbnZpcm9ubWVudCcsICdicmFuY2gnOiAnUGFzcyAtLWdpdC1icmFuY2ggdG8gcG9wdWxhdGUgZ2l0IG1ldGFkYXRhJywgJ2NvbW1pdCc6ICdQYXNzIC0tZ2l0LWNvbW1pdCB0byBwb3B1bGF0ZSBnaXQgbWV0YWRhdGEnLCAncHl0aG9uX3ZlcnNpb24nOiAnMy4xNC4yJywgJ2dlbmVyYXRlZF9hdCc6ICcyMDI2LTAzLTI5VDE5OjI1OjE5LjA4MDQ2NSd9', this)" title="Copy metadata">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                         <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
@@ -451,7 +451,7 @@
         <tr><th>Environment</th><td>Pass --rp-env to populate environment</td></tr>
         <tr><th>Branch</th><td>Pass --git-branch to populate git metadata</td></tr>
         <tr><th>Commit</th><td>Pass --git-commit to populate git metadata</td></tr>
-        <tr><th>Generated At</th><td>2026-03-29T18:36:21.103172</td></tr>
+        <tr><th>Generated At</th><td>2026-03-29T19:25:19.080465</td></tr>
         <tr><th>Python version</th><td>3.14.2</td></tr>
     </table>
 </div>
@@ -475,7 +475,7 @@
       </label>
       <label style="margin-left: 1rem;">
         <input type="checkbox" id="untrackedOnlyCheckbox" />
-        Show untracked (<span>49</span>)
+        Show untracked (<span>51</span>)
       </label>
       <span onclick="toggleUntrackedInfo()" style="
   display: inline-flex;
@@ -532,12 +532,12 @@
 
     <div id="markersFilter" class="marker-filter" style="margin-bottom: 1rem;">
       <strong>Filter by Markers:</strong><br/>
-    <label><input type="checkbox" value="area_api" /> area_api (49)</label> 
+    <label><input type="checkbox" value="area_api" /> area_api (51)</label> 
             <div style="padding: 1rem; background: #e6f4ea; 
             border: 1px solid #2f7a33; 
             border-radius: 5px; margin-bottom: 1rem;">
               <strong>Bingo!</strong> All your tests passed!
-              The slowest test was <strong>test_upload_split_document_uploads_chapters_and_queues_tasks</strong> at 0.00s.
+              The slowest test was <strong>test_preview_document_split_returns_heading_levels</strong> at 0.00s.
             </div>
             <div id="tests-container">
     
@@ -2998,6 +2998,69 @@
 
     
     
+<div class="test test-card" data-name="test_reindex_document_queues_upsert_task" data-link="" data-markers="area_api">
+  <div class="header passed" onclick="toggleDetails(this)">
+    <div class="header-section test-info">
+      <span class="toggle"></span>
+      <strong>test_reindex_document_queues_upsert_task</strong>
+      <span>— PASSED</span>
+    </div>
+    <div class="header-section meta">
+      <span class="nodeid-badge" style="display: flex; align-items: center; gap: 6px;">
+        <code style="font-size: 0.6em; color: #555;">tests/test_api.py::test_reindex_document_queues_upsert_task</code>
+          <button class="inline-copy-btn" onclick="event.stopPropagation(); copyFromBase64('dGVzdHMvdGVzdF9hcGkucHk6OnRlc3RfcmVpbmRleF9kb2N1bWVudF9xdWV1ZXNfdXBzZXJ0X3Rhc2s=', this)" title="Copy nodeid">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                    </svg>
+                </button>
+            
+      </span>
+      <span class="worker-id" style="background: #ddd; border-radius: 3px; padding: 2px 5px; font-size: 0.85em; font-weight: bold;">main</span>
+    </div>
+
+    <div class="header-section badges-and-timing">
+      <span style="display:inline-block; min-width:40px;"></span>
+      <span style="display:inline-block; min-width:45px;"></span>
+      <span class="timestamp">⏱ 0.00s</span>
+    </div>
+  </div>
+
+  <div class="details">
+    <div class="details-content">
+      <div class="details-text">
+         
+        
+        
+        
+                <div><strong>STDERR:</strong> <button class="inline-copy-btn" onclick="event.stopPropagation(); copyFromBase64('SU5GTyAtIEhUVFAgUmVxdWVzdDogUE9TVCBodHRwOi8vdGVzdHNlcnZlci9jb2xsZWN0aW9ucy9yZXNlYXJjaC1yYXcvZG9jdW1lbnRzL2RvYy0xL3JlaW5kZXggIkhUVFAvMS4xIDIwMCBPSyIK', this)" title="Copy stderr">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                    </svg>
+                </button>
+            
+                <pre>INFO - HTTP Request: POST http://testserver/collections/research-raw/documents/doc-1/reindex "HTTP/1.1 200 OK"
+</pre></div>
+                
+        
+                    <div><strong>Logs:</strong> <button class="inline-copy-btn" onclick="event.stopPropagation(); copyFromBase64('SFRUUCBSZXF1ZXN0OiBQT1NUIGh0dHA6Ly90ZXN0c2VydmVyL2NvbGxlY3Rpb25zL3Jlc2VhcmNoLXJhdy9kb2N1bWVudHMvZG9jLTEvcmVpbmRleCAiSFRUUC8xLjEgMjAwIE9LIg==', this)" title="Copy logs">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                    </svg>
+                </button>
+            
+                    <pre>HTTP Request: POST http://testserver/collections/research-raw/documents/doc-1/reindex "HTTP/1.1 200 OK"</pre></div>
+                    
+      </div>
+      
+    </div>
+  </div>
+</div>
+
+    
+    
 <div class="test test-card" data-name="test_upload_document_returns_queued_false_when_broker_is_unavailable" data-link="" data-markers="area_api">
   <div class="header passed" onclick="toggleDetails(this)">
     <div class="header-section test-info">
@@ -3033,7 +3096,7 @@
         
         
         
-                <div><strong>STDERR:</strong> <button class="inline-copy-btn" onclick="event.stopPropagation(); copyFromBase64('RVJST1IgLSBGYWlsZWQgdG8gZW5xdWV1ZSBwYXJ0aXRpb25fbWluaW9fb2JqZWN0IHRhc2suClRyYWNlYmFjayAobW9zdCByZWNlbnQgY2FsbCBsYXN0KToKICBGaWxlICIvVXNlcnMvbHVrZWhlbGV5L0RldmVsb3Blci9tY3AtZXZpZGVuY2ViYXNlL3NyYy9tY3BfZXZpZGVuY2ViYXNlL2FwaV9tb2R1bGVzL3JvdXRlcnMvY29sbGVjdGlvbnMucHkiLCBsaW5lIDIyOSwgaW4gdXBsb2FkX2RvY3VtZW50CiAgICB0YXNrID0gZW5xdWV1ZV9wYXJ0aXRpb25fdGFzayhub3JtYWxpemVkX2J1Y2tldF9uYW1lLCBvYmplY3RfbmFtZSkKICBGaWxlICIvVXNlcnMvbHVrZWhlbGV5L0RldmVsb3Blci9tY3AtZXZpZGVuY2ViYXNlL3NyYy9tY3BfZXZpZGVuY2ViYXNlL2FwaV9tb2R1bGVzL3Rhc2tfZGlzcGF0Y2gucHkiLCBsaW5lIDEyLCBpbiBlbnF1ZXVlX3BhcnRpdGlvbl90YXNrCiAgICByZXR1cm4gYXBpX21vZHVsZS5wYXJ0aXRpb25fbWluaW9fb2JqZWN0LmRlbGF5KGJ1Y2tldF9uYW1lLCBvYmplY3RfbmFtZSwgTm9uZSwgVHJ1ZSkKICAgICAgICAgICB+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5eXl5eXl5eXl5eXl5eXl5eXl5eXl5eXl5eXl5eXl5eXl5eXl5eXgogIEZpbGUgIi9Vc2Vycy9sdWtlaGVsZXkvRGV2ZWxvcGVyL21jcC1ldmlkZW5jZWJhc2UvdGVzdHMvdGVzdF9hcGkucHkiLCBsaW5lIDI3NiwgaW4gZGVsYXkKICAgIHJhaXNlIFJ1bnRpbWVFcnJvcihzZWxmLm1lc3NhZ2UpClJ1bnRpbWVFcnJvcjogcmV0cnkgbGltaXQgZXhjZWVkZWQgd2hpbGUgdHJ5aW5nIHRvIHJlY29ubmVjdApJTkZPIC0gSFRUUCBSZXF1ZXN0OiBQT1NUIGh0dHA6Ly90ZXN0c2VydmVyL2NvbGxlY3Rpb25zL3Jlc2VhcmNoLXJhdy9kb2N1bWVudHMvdXBsb2FkP2ZpbGVfbmFtZT1wYXBlci5wZGYgIkhUVFAvMS4xIDIwMCBPSyIK', this)" title="Copy stderr">
+                <div><strong>STDERR:</strong> <button class="inline-copy-btn" onclick="event.stopPropagation(); copyFromBase64('RVJST1IgLSBGYWlsZWQgdG8gZW5xdWV1ZSBwYXJ0aXRpb25fbWluaW9fb2JqZWN0IHRhc2suClRyYWNlYmFjayAobW9zdCByZWNlbnQgY2FsbCBsYXN0KToKICBGaWxlICIvVXNlcnMvbHVrZWhlbGV5L0RldmVsb3Blci9tY3AtZXZpZGVuY2ViYXNlL3NyYy9tY3BfZXZpZGVuY2ViYXNlL2FwaV9tb2R1bGVzL3JvdXRlcnMvY29sbGVjdGlvbnMucHkiLCBsaW5lIDIzMywgaW4gdXBsb2FkX2RvY3VtZW50CiAgICB0YXNrID0gZW5xdWV1ZV9wYXJ0aXRpb25fdGFzayhub3JtYWxpemVkX2J1Y2tldF9uYW1lLCBvYmplY3RfbmFtZSkKICBGaWxlICIvVXNlcnMvbHVrZWhlbGV5L0RldmVsb3Blci9tY3AtZXZpZGVuY2ViYXNlL3NyYy9tY3BfZXZpZGVuY2ViYXNlL2FwaV9tb2R1bGVzL3Rhc2tfZGlzcGF0Y2gucHkiLCBsaW5lIDEyLCBpbiBlbnF1ZXVlX3BhcnRpdGlvbl90YXNrCiAgICByZXR1cm4gYXBpX21vZHVsZS5wYXJ0aXRpb25fbWluaW9fb2JqZWN0LmRlbGF5KGJ1Y2tldF9uYW1lLCBvYmplY3RfbmFtZSwgTm9uZSwgVHJ1ZSkKICAgICAgICAgICB+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5eXl5eXl5eXl5eXl5eXl5eXl5eXl5eXl5eXl5eXl5eXl5eXl5eXgogIEZpbGUgIi9Vc2Vycy9sdWtlaGVsZXkvRGV2ZWxvcGVyL21jcC1ldmlkZW5jZWJhc2UvdGVzdHMvdGVzdF9hcGkucHkiLCBsaW5lIDI5NiwgaW4gZGVsYXkKICAgIHJhaXNlIFJ1bnRpbWVFcnJvcihzZWxmLm1lc3NhZ2UpClJ1bnRpbWVFcnJvcjogcmV0cnkgbGltaXQgZXhjZWVkZWQgd2hpbGUgdHJ5aW5nIHRvIHJlY29ubmVjdApJTkZPIC0gSFRUUCBSZXF1ZXN0OiBQT1NUIGh0dHA6Ly90ZXN0c2VydmVyL2NvbGxlY3Rpb25zL3Jlc2VhcmNoLXJhdy9kb2N1bWVudHMvdXBsb2FkP2ZpbGVfbmFtZT1wYXBlci5wZGYgIkhUVFAvMS4xIDIwMCBPSyIK', this)" title="Copy stderr">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                         <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
@@ -3042,12 +3105,12 @@
             
                 <pre>ERROR - Failed to enqueue partition_minio_object task.
 Traceback (most recent call last):
-  File "/Users/lukeheley/Developer/mcp-evidencebase/src/mcp_evidencebase/api_modules/routers/collections.py", line 229, in upload_document
+  File "/Users/lukeheley/Developer/mcp-evidencebase/src/mcp_evidencebase/api_modules/routers/collections.py", line 233, in upload_document
     task = enqueue_partition_task(normalized_bucket_name, object_name)
   File "/Users/lukeheley/Developer/mcp-evidencebase/src/mcp_evidencebase/api_modules/task_dispatch.py", line 12, in enqueue_partition_task
     return api_module.partition_minio_object.delay(bucket_name, object_name, None, True)
            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/Users/lukeheley/Developer/mcp-evidencebase/tests/test_api.py", line 276, in delay
+  File "/Users/lukeheley/Developer/mcp-evidencebase/tests/test_api.py", line 296, in delay
     raise RuntimeError(self.message)
 RuntimeError: retry limit exceeded while trying to reconnect
 INFO - HTTP Request: POST http://testserver/collections/research-raw/documents/upload?file_name=paper.pdf "HTTP/1.1 200 OK"
@@ -3063,6 +3126,80 @@ INFO - HTTP Request: POST http://testserver/collections/research-raw/documents/u
             
                     <pre>Failed to enqueue partition_minio_object task.
 HTTP Request: POST http://testserver/collections/research-raw/documents/upload?file_name=paper.pdf "HTTP/1.1 200 OK"</pre></div>
+                    
+      </div>
+      
+    </div>
+  </div>
+</div>
+
+    
+    
+<div class="test test-card" data-name="test_reindex_document_returns_queued_false_when_broker_is_unavailable" data-link="" data-markers="area_api">
+  <div class="header passed" onclick="toggleDetails(this)">
+    <div class="header-section test-info">
+      <span class="toggle"></span>
+      <strong>test_reindex_document_returns_queued_false_when_broker_is_unavailable</strong>
+      <span>— PASSED</span>
+    </div>
+    <div class="header-section meta">
+      <span class="nodeid-badge" style="display: flex; align-items: center; gap: 6px;">
+        <code style="font-size: 0.6em; color: #555;">tests/test_api.py::test_reindex_document_returns_queued_false_when_broker_is_unavailable</code>
+          <button class="inline-copy-btn" onclick="event.stopPropagation(); copyFromBase64('dGVzdHMvdGVzdF9hcGkucHk6OnRlc3RfcmVpbmRleF9kb2N1bWVudF9yZXR1cm5zX3F1ZXVlZF9mYWxzZV93aGVuX2Jyb2tlcl9pc191bmF2YWlsYWJsZQ==', this)" title="Copy nodeid">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                    </svg>
+                </button>
+            
+      </span>
+      <span class="worker-id" style="background: #ddd; border-radius: 3px; padding: 2px 5px; font-size: 0.85em; font-weight: bold;">main</span>
+    </div>
+
+    <div class="header-section badges-and-timing">
+      <span style="display:inline-block; min-width:40px;"></span>
+      <span style="display:inline-block; min-width:45px;"></span>
+      <span class="timestamp">⏱ 0.00s</span>
+    </div>
+  </div>
+
+  <div class="details">
+    <div class="details-content">
+      <div class="details-text">
+         
+        
+        
+        
+                <div><strong>STDERR:</strong> <button class="inline-copy-btn" onclick="event.stopPropagation(); copyFromBase64('RVJST1IgLSBGYWlsZWQgdG8gZW5xdWV1ZSB1cHNlcnRfbWluaW9fb2JqZWN0IHRhc2sgZm9yIHJlaW5kZXguClRyYWNlYmFjayAobW9zdCByZWNlbnQgY2FsbCBsYXN0KToKICBGaWxlICIvVXNlcnMvbHVrZWhlbGV5L0RldmVsb3Blci9tY3AtZXZpZGVuY2ViYXNlL3NyYy9tY3BfZXZpZGVuY2ViYXNlL2FwaV9tb2R1bGVzL3JvdXRlcnMvY29sbGVjdGlvbnMucHkiLCBsaW5lIDQzNSwgaW4gcmVpbmRleF9kb2N1bWVudAogICAgdGFzayA9IGVucXVldWVfdXBzZXJ0X3Rhc2soc3RhZ2VfcGF5bG9hZCkKICBGaWxlICIvVXNlcnMvbHVrZWhlbGV5L0RldmVsb3Blci9tY3AtZXZpZGVuY2ViYXNlL3NyYy9tY3BfZXZpZGVuY2ViYXNlL2FwaV9tb2R1bGVzL3Rhc2tfZGlzcGF0Y2gucHkiLCBsaW5lIDI2LCBpbiBlbnF1ZXVlX3Vwc2VydF90YXNrCiAgICByZXR1cm4gYXBpX21vZHVsZS51cHNlcnRfbWluaW9fb2JqZWN0LmRlbGF5KHN0YWdlX3BheWxvYWQpCiAgICAgICAgICAgfn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+Xl5eXl5eXl5eXl5eXl5eCiAgRmlsZSAiL1VzZXJzL2x1a2VoZWxleS9EZXZlbG9wZXIvbWNwLWV2aWRlbmNlYmFzZS90ZXN0cy90ZXN0X2FwaS5weSIsIGxpbmUgMjk2LCBpbiBkZWxheQogICAgcmFpc2UgUnVudGltZUVycm9yKHNlbGYubWVzc2FnZSkKUnVudGltZUVycm9yOiByZXRyeSBsaW1pdCBleGNlZWRlZCB3aGlsZSB0cnlpbmcgdG8gcmVjb25uZWN0CklORk8gLSBIVFRQIFJlcXVlc3Q6IFBPU1QgaHR0cDovL3Rlc3RzZXJ2ZXIvY29sbGVjdGlvbnMvcmVzZWFyY2gtcmF3L2RvY3VtZW50cy9kb2MtMS9yZWluZGV4ICJIVFRQLzEuMSAyMDAgT0siCg==', this)" title="Copy stderr">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                    </svg>
+                </button>
+            
+                <pre>ERROR - Failed to enqueue upsert_minio_object task for reindex.
+Traceback (most recent call last):
+  File "/Users/lukeheley/Developer/mcp-evidencebase/src/mcp_evidencebase/api_modules/routers/collections.py", line 435, in reindex_document
+    task = enqueue_upsert_task(stage_payload)
+  File "/Users/lukeheley/Developer/mcp-evidencebase/src/mcp_evidencebase/api_modules/task_dispatch.py", line 26, in enqueue_upsert_task
+    return api_module.upsert_minio_object.delay(stage_payload)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "/Users/lukeheley/Developer/mcp-evidencebase/tests/test_api.py", line 296, in delay
+    raise RuntimeError(self.message)
+RuntimeError: retry limit exceeded while trying to reconnect
+INFO - HTTP Request: POST http://testserver/collections/research-raw/documents/doc-1/reindex "HTTP/1.1 200 OK"
+</pre></div>
+                
+        
+                    <div><strong>Logs:</strong> <button class="inline-copy-btn" onclick="event.stopPropagation(); copyFromBase64('RmFpbGVkIHRvIGVucXVldWUgdXBzZXJ0X21pbmlvX29iamVjdCB0YXNrIGZvciByZWluZGV4LgpIVFRQIFJlcXVlc3Q6IFBPU1QgaHR0cDovL3Rlc3RzZXJ2ZXIvY29sbGVjdGlvbnMvcmVzZWFyY2gtcmF3L2RvY3VtZW50cy9kb2MtMS9yZWluZGV4ICJIVFRQLzEuMSAyMDAgT0si', this)" title="Copy logs">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                    </svg>
+                </button>
+            
+                    <pre>Failed to enqueue upsert_minio_object task for reindex.
+HTTP Request: POST http://testserver/collections/research-raw/documents/doc-1/reindex "HTTP/1.1 200 OK"</pre></div>
                     
       </div>
       
@@ -3107,7 +3244,7 @@ HTTP Request: POST http://testserver/collections/research-raw/documents/upload?f
         
         
         
-                <div><strong>STDERR:</strong> <button class="inline-copy-btn" onclick="event.stopPropagation(); copyFromBase64('RVJST1IgLSBGYWlsZWQgdG8gZW5xdWV1ZSBzY2FuX21pbmlvX29iamVjdHMgdGFzay4KVHJhY2ViYWNrIChtb3N0IHJlY2VudCBjYWxsIGxhc3QpOgogIEZpbGUgIi9Vc2Vycy9sdWtlaGVsZXkvRGV2ZWxvcGVyL21jcC1ldmlkZW5jZWJhc2Uvc3JjL21jcF9ldmlkZW5jZWJhc2UvYXBpX21vZHVsZXMvcm91dGVycy9jb2xsZWN0aW9ucy5weSIsIGxpbmUgMzY4LCBpbiB0cmlnZ2VyX2J1Y2tldF9zY2FuCiAgICB0YXNrID0gZW5xdWV1ZV9zY2FuX3Rhc2sobm9ybWFsaXplZF9idWNrZXRfbmFtZSkKICBGaWxlICIvVXNlcnMvbHVrZWhlbGV5L0RldmVsb3Blci9tY3AtZXZpZGVuY2ViYXNlL3NyYy9tY3BfZXZpZGVuY2ViYXNlL2FwaV9tb2R1bGVzL3Rhc2tfZGlzcGF0Y2gucHkiLCBsaW5lIDE5LCBpbiBlbnF1ZXVlX3NjYW5fdGFzawogICAgcmV0dXJuIGFwaV9tb2R1bGUuc2Nhbl9taW5pb19vYmplY3RzLmRlbGF5KGJ1Y2tldF9uYW1lKQogICAgICAgICAgIH5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+Xl5eXl5eXl5eXl5eXgogIEZpbGUgIi9Vc2Vycy9sdWtlaGVsZXkvRGV2ZWxvcGVyL21jcC1ldmlkZW5jZWJhc2UvdGVzdHMvdGVzdF9hcGkucHkiLCBsaW5lIDI3NiwgaW4gZGVsYXkKICAgIHJhaXNlIFJ1bnRpbWVFcnJvcihzZWxmLm1lc3NhZ2UpClJ1bnRpbWVFcnJvcjogcmV0cnkgbGltaXQgZXhjZWVkZWQgd2hpbGUgdHJ5aW5nIHRvIHJlY29ubmVjdApJTkZPIC0gSFRUUCBSZXF1ZXN0OiBQT1NUIGh0dHA6Ly90ZXN0c2VydmVyL2NvbGxlY3Rpb25zL3Jlc2VhcmNoLXJhdy9zY2FuICJIVFRQLzEuMSAyMDAgT0siCg==', this)" title="Copy stderr">
+                <div><strong>STDERR:</strong> <button class="inline-copy-btn" onclick="event.stopPropagation(); copyFromBase64('RVJST1IgLSBGYWlsZWQgdG8gZW5xdWV1ZSBzY2FuX21pbmlvX29iamVjdHMgdGFzay4KVHJhY2ViYWNrIChtb3N0IHJlY2VudCBjYWxsIGxhc3QpOgogIEZpbGUgIi9Vc2Vycy9sdWtlaGVsZXkvRGV2ZWxvcGVyL21jcC1ldmlkZW5jZWJhc2Uvc3JjL21jcF9ldmlkZW5jZWJhc2UvYXBpX21vZHVsZXMvcm91dGVycy9jb2xsZWN0aW9ucy5weSIsIGxpbmUgMzcyLCBpbiB0cmlnZ2VyX2J1Y2tldF9zY2FuCiAgICB0YXNrID0gZW5xdWV1ZV9zY2FuX3Rhc2sobm9ybWFsaXplZF9idWNrZXRfbmFtZSkKICBGaWxlICIvVXNlcnMvbHVrZWhlbGV5L0RldmVsb3Blci9tY3AtZXZpZGVuY2ViYXNlL3NyYy9tY3BfZXZpZGVuY2ViYXNlL2FwaV9tb2R1bGVzL3Rhc2tfZGlzcGF0Y2gucHkiLCBsaW5lIDE5LCBpbiBlbnF1ZXVlX3NjYW5fdGFzawogICAgcmV0dXJuIGFwaV9tb2R1bGUuc2Nhbl9taW5pb19vYmplY3RzLmRlbGF5KGJ1Y2tldF9uYW1lKQogICAgICAgICAgIH5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+Xl5eXl5eXl5eXl5eXgogIEZpbGUgIi9Vc2Vycy9sdWtlaGVsZXkvRGV2ZWxvcGVyL21jcC1ldmlkZW5jZWJhc2UvdGVzdHMvdGVzdF9hcGkucHkiLCBsaW5lIDI5NiwgaW4gZGVsYXkKICAgIHJhaXNlIFJ1bnRpbWVFcnJvcihzZWxmLm1lc3NhZ2UpClJ1bnRpbWVFcnJvcjogcmV0cnkgbGltaXQgZXhjZWVkZWQgd2hpbGUgdHJ5aW5nIHRvIHJlY29ubmVjdApJTkZPIC0gSFRUUCBSZXF1ZXN0OiBQT1NUIGh0dHA6Ly90ZXN0c2VydmVyL2NvbGxlY3Rpb25zL3Jlc2VhcmNoLXJhdy9zY2FuICJIVFRQLzEuMSAyMDAgT0siCg==', this)" title="Copy stderr">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                         <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
@@ -3116,12 +3253,12 @@ HTTP Request: POST http://testserver/collections/research-raw/documents/upload?f
             
                 <pre>ERROR - Failed to enqueue scan_minio_objects task.
 Traceback (most recent call last):
-  File "/Users/lukeheley/Developer/mcp-evidencebase/src/mcp_evidencebase/api_modules/routers/collections.py", line 368, in trigger_bucket_scan
+  File "/Users/lukeheley/Developer/mcp-evidencebase/src/mcp_evidencebase/api_modules/routers/collections.py", line 372, in trigger_bucket_scan
     task = enqueue_scan_task(normalized_bucket_name)
   File "/Users/lukeheley/Developer/mcp-evidencebase/src/mcp_evidencebase/api_modules/task_dispatch.py", line 19, in enqueue_scan_task
     return api_module.scan_minio_objects.delay(bucket_name)
            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
-  File "/Users/lukeheley/Developer/mcp-evidencebase/tests/test_api.py", line 276, in delay
+  File "/Users/lukeheley/Developer/mcp-evidencebase/tests/test_api.py", line 296, in delay
     raise RuntimeError(self.message)
 RuntimeError: retry limit exceeded while trying to reconnect
 INFO - HTTP Request: POST http://testserver/collections/research-raw/scan "HTTP/1.1 200 OK"

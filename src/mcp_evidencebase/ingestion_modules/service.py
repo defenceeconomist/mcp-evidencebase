@@ -45,6 +45,7 @@ from mcp_evidencebase.ingestion_modules.metadata import (
 from mcp_evidencebase.ingestion_modules.qdrant import QdrantIndexer
 from mcp_evidencebase.ingestion_modules.repository import RedisDocumentRepository
 
+
 class UnstructuredPartitionClient:
     """HTTP client for Unstructured partition API."""
 
@@ -175,9 +176,7 @@ class IngestionService:
         self._chunk_size_chars = chunk_size_chars
         self._chunk_overlap_chars = chunk_overlap_chars
         self._chunk_exclude_element_types = (
-            tuple(chunk_exclude_element_types)
-            if chunk_exclude_element_types
-            else None
+            tuple(chunk_exclude_element_types) if chunk_exclude_element_types else None
         )
         self._chunking_strategy = str(chunking_strategy or "by_title").strip().lower() or "by_title"
         self._chunk_new_after_n_chars = max(1, int(chunk_new_after_n_chars))
@@ -285,8 +284,7 @@ class IngestionService:
         )
         if not partitions:
             raise ValueError(
-                "No partitions were found for document "
-                f"'{document_id}' and key '{partition_key}'."
+                f"No partitions were found for document '{document_id}' and key '{partition_key}'."
             )
         return state, partition_key, partitions
 
@@ -376,7 +374,9 @@ class IngestionService:
             if section is None:
                 section = {
                     "section_id": section_id,
-                    "section_index": section_index if section_index is not None else len(sections_by_id),
+                    "section_index": section_index
+                    if section_index is not None
+                    else len(sections_by_id),
                     "section_title": section_title,
                     "section_text": section_markdown,
                     "section_markdown": section_markdown,
@@ -460,9 +460,10 @@ class IngestionService:
 
         for result in results:
             document_id = str(result.get("document_id", "")).strip()
-            section_id = str(result.get("section_id", "")).strip() or str(
-                result.get("parent_section_id", "")
-            ).strip()
+            section_id = (
+                str(result.get("section_id", "")).strip()
+                or str(result.get("parent_section_id", "")).strip()
+            )
             if not document_id or not section_id:
                 continue
 
@@ -1167,13 +1168,18 @@ class IngestionService:
             normalized_document_id,
         ):
             raise ValueError(
-                f"Document '{normalized_document_id}' was not found in bucket '{normalized_bucket_name}'."
+                "Document "
+                f"'{normalized_document_id}' was not found in bucket "
+                f"'{normalized_bucket_name}'."
             )
 
-        section = self._repository.get_document_section(normalized_document_id, normalized_section_id)
+        section = self._repository.get_document_section(
+            normalized_document_id, normalized_section_id
+        )
         if section is None:
             raise ValueError(
-                f"Section '{normalized_section_id}' was not found for document '{normalized_document_id}'."
+                f"Section '{normalized_section_id}' was not found for document "
+                f"'{normalized_document_id}'."
             )
         return section
 
@@ -1196,7 +1202,9 @@ class IngestionService:
             normalized_document_id,
         ):
             raise ValueError(
-                f"Document '{normalized_document_id}' was not found in bucket '{normalized_bucket_name}'."
+                "Document "
+                f"'{normalized_document_id}' was not found in bucket "
+                f"'{normalized_bucket_name}'."
             )
 
         sections = self._repository.get_document_sections(normalized_document_id)
@@ -1227,14 +1235,17 @@ class IngestionService:
             normalized_document_id,
         ):
             raise ValueError(
-                f"Document '{normalized_document_id}' was not found in bucket '{normalized_bucket_name}'."
+                "Document "
+                f"'{normalized_document_id}' was not found in bucket "
+                f"'{normalized_bucket_name}'."
             )
 
         state = self._repository.get_state(normalized_document_id)
         partition_key = state.get("partition_key", "")
         if not partition_key:
             raise ValueError(
-                f"Document '{normalized_document_id}' has no partition_key; run partition stage first."
+                f"Document '{normalized_document_id}' has no partition_key; "
+                "run partition stage first."
             )
 
         partitions = self._repository.get_partitions_by_key(
@@ -1304,6 +1315,50 @@ class IngestionService:
             "errors": errors,
         }
 
+    def build_document_reindex_payload(
+        self,
+        *,
+        bucket_name: str,
+        document_id: str,
+    ) -> dict[str, str]:
+        """Build a queueable upsert payload for one existing document."""
+        normalized_bucket_name = bucket_name.strip()
+        normalized_document_id = document_id.strip()
+        if not normalized_bucket_name:
+            raise ValueError("bucket_name must not be empty.")
+        if not normalized_document_id:
+            raise ValueError("document_id must not be empty.")
+
+        state, partition_key, _ = self._load_partition_context(document_id=normalized_document_id)
+        meta_key, _ = self._resolve_metadata_context(
+            bucket_name=normalized_bucket_name,
+            document_id=normalized_document_id,
+            state=state,
+        )
+
+        object_name = str(state.get("file_path", "")).strip()
+        if not object_name:
+            object_names = self._repository.get_document_object_names(
+                normalized_bucket_name,
+                normalized_document_id,
+            )
+            if object_names:
+                object_name = object_names[0]
+        if not object_name:
+            raise ValueError(
+                f"Document '{normalized_document_id}' has no stored object path in bucket "
+                f"'{normalized_bucket_name}'."
+            )
+
+        return self._build_stage_payload(
+            bucket_name=normalized_bucket_name,
+            object_name=object_name,
+            document_id=normalized_document_id,
+            etag=str(state.get("etag", "")).strip(),
+            partition_key=partition_key,
+            meta_key=meta_key,
+        )
+
     def update_metadata(
         self,
         *,
@@ -1359,7 +1414,10 @@ class IngestionService:
         """Return whether Qdrant-indexed metadata fields changed."""
         indexed_fields = ("year",)
         for field_name in indexed_fields:
-            if str(previous.get(field_name, "")).strip() != str(current.get(field_name, "")).strip():
+            if (
+                str(previous.get(field_name, "")).strip()
+                != str(current.get(field_name, "")).strip()
+            ):
                 return True
         return False
 

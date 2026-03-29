@@ -9,9 +9,9 @@ from typing import Protocol
 
 from minio import Minio
 
-from mcp_evidencebase.ingestion_modules.service import IngestionService, UnstructuredPartitionClient
 from mcp_evidencebase.ingestion_modules.qdrant import QdrantIndexer
 from mcp_evidencebase.ingestion_modules.repository import RedisDocumentRepository
+from mcp_evidencebase.ingestion_modules.service import IngestionService, UnstructuredPartitionClient
 from mcp_evidencebase.minio_settings import MinioSettings, build_minio_settings
 
 
@@ -32,6 +32,7 @@ class IngestionSettings:
     redis_prefix: str
     qdrant_url: str
     qdrant_api_key: str | None
+    qdrant_timeout_seconds: float
     qdrant_collection_prefix: str
     unstructured_api_url: str
     unstructured_api_key: str | None
@@ -50,6 +51,7 @@ class IngestionSettings:
     chunk_paragraph_break_strategy: str
     chunk_preserve_page_breaks: bool
     scan_interval_seconds: int
+
 
 def build_ingestion_settings(env: Mapping[str, str] | None = None) -> IngestionSettings:
     """Build ingestion settings from environment variables.
@@ -105,15 +107,14 @@ def build_ingestion_settings(env: Mapping[str, str] | None = None) -> IngestionS
         redis_prefix=source.get("REDIS_PREFIX", "evidencebase"),
         qdrant_url=source.get("QDRANT_URL", "http://localhost:6333"),
         qdrant_api_key=source.get("QDRANT_API_KEY") or None,
+        qdrant_timeout_seconds=max(1.0, _safe_float("QDRANT_TIMEOUT_SECONDS", 30.0)),
         qdrant_collection_prefix=source.get("QDRANT_COLLECTION_PREFIX", "evidencebase"),
         unstructured_api_url=source.get(
             "UNSTRUCTURED_API_URL", "https://api.unstructuredapp.io/general/v0/general"
         ),
         unstructured_api_key=source.get("UNSTRUCTURED_API_KEY") or None,
         unstructured_strategy=source.get("UNSTRUCTURED_STRATEGY", "hi_res"),
-        unstructured_timeout_seconds=max(
-            5.0, _safe_float("UNSTRUCTURED_TIMEOUT_SECONDS", 900.0)
-        ),
+        unstructured_timeout_seconds=max(5.0, _safe_float("UNSTRUCTURED_TIMEOUT_SECONDS", 900.0)),
         fastembed_model=source.get("FASTEMBED_MODEL", "BAAI/bge-small-en-v1.5"),
         fastembed_keyword_model=source.get("FASTEMBED_KEYWORD_MODEL", "Qdrant/bm25"),
         chunk_size_chars=_safe_int("CHUNK_SIZE_CHARS", 1200),
@@ -166,6 +167,7 @@ def build_ingestion_service(settings: IngestionSettings | None = None) -> Ingest
     qdrant_client = QdrantClient(
         url=resolved_settings.qdrant_url,
         api_key=resolved_settings.qdrant_api_key,
+        timeout=resolved_settings.qdrant_timeout_seconds,
     )
     qdrant_indexer = QdrantIndexer(
         qdrant_client=qdrant_client,

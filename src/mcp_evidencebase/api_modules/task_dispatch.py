@@ -17,3 +17,10 @@ def enqueue_scan_task(bucket_name: str) -> Any:
     import mcp_evidencebase.api as api_module
 
     return api_module.scan_minio_objects.delay(bucket_name)
+
+
+def enqueue_upsert_task(stage_payload: dict[str, str]) -> Any:
+    """Queue upsert task using the symbols exposed on ``mcp_evidencebase.api``."""
+    import mcp_evidencebase.api as api_module
+
+    return api_module.upsert_minio_object.delay(stage_payload)

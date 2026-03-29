@@ -15,7 +15,11 @@ from mcp_evidencebase.api_modules.services import (
     build_collection_bibtex,
     perform_collection_search,
 )
-from mcp_evidencebase.api_modules.task_dispatch import enqueue_partition_task, enqueue_scan_task
+from mcp_evidencebase.api_modules.task_dispatch import (
+    enqueue_partition_task,
+    enqueue_scan_task,
+    enqueue_upsert_task,
+)
 from mcp_evidencebase.citation_schema import get_citation_schema
 from mcp_evidencebase.ingestion import IngestionService
 from mcp_evidencebase.pdf_split import (
@@ -404,6 +408,44 @@ def update_document_metadata(
         "bucket_name": bucket_name.strip(),
         "document_id": document_id.strip(),
         "metadata": metadata,
+    }
+
+
+@router.post("/collections/{bucket_name}/documents/{document_id}/reindex")
+def reindex_document(
+    bucket_name: str,
+    document_id: str,
+    service: Annotated[IngestionService, Depends(get_ingestion_service)],
+) -> dict[str, Any]:
+    """Queue reindex/upsert work for one existing document."""
+    normalized_bucket_name = bucket_name.strip()
+    normalized_document_id = document_id.strip()
+    try:
+        stage_payload = service.build_document_reindex_payload(
+            bucket_name=normalized_bucket_name,
+            document_id=normalized_document_id,
+        )
+    except Exception as exc:
+        raise_document_http_error(exc)
+
+    queued = True
+    task_id: str | None = None
+    queue_error = ""
+    try:
+        task = enqueue_upsert_task(stage_payload)
+        task_id = task.id
+    except Exception as exc:
+        queued = False
+        queue_error = str(exc)
+        logger.exception("Failed to enqueue upsert_minio_object task for reindex.")
+
+    return {
+        "bucket_name": normalized_bucket_name,
+        "document_id": normalized_document_id,
+        "object_name": stage_payload.get("object_name", ""),
+        "queued": queued,
+        "task_id": task_id,
+        "queue_error": queue_error,
     }
 
 

@@ -54,6 +54,7 @@ class FakeIngestionService:
     section_fetches: list[tuple[str, str, str]] = field(default_factory=list)
     section_list_calls: list[tuple[str, str]] = field(default_factory=list)
     section_rebuild_calls: list[tuple[str, str | None]] = field(default_factory=list)
+    reindex_payload_calls: list[tuple[str, str]] = field(default_factory=list)
     upload_error: Exception | None = None
     delete_error: Exception | None = None
     metadata_error: Exception | None = None
@@ -62,6 +63,7 @@ class FakeIngestionService:
     search_error: Exception | None = None
     section_fetch_error: Exception | None = None
     section_rebuild_error: Exception | None = None
+    reindex_error: Exception | None = None
     qdrant_create_result: bool = True
     qdrant_delete_result: bool = True
     qdrant_create_error: Exception | None = None
@@ -231,6 +233,24 @@ class FakeIngestionService:
             "rebuilt": 4,
             "failed": 0,
             "errors": [],
+        }
+
+    def build_document_reindex_payload(
+        self,
+        *,
+        bucket_name: str,
+        document_id: str,
+    ) -> dict[str, str]:
+        if self.reindex_error is not None:
+            raise self.reindex_error
+        self.reindex_payload_calls.append((bucket_name, document_id))
+        return {
+            "bucket_name": bucket_name,
+            "object_name": "paper.pdf",
+            "document_id": document_id,
+            "etag": "etag-1",
+            "partition_key": "partition-1",
+            "meta_key": "meta-1",
         }
 
 
@@ -1280,6 +1300,42 @@ def test_trigger_bucket_scan_queues_task(
     assert fake_task.calls == [("research-raw",)]
 
 
+def test_reindex_document_queues_upsert_task(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify reindex endpoint queues the existing upsert stage for one document."""
+    service = FakeIngestionService()
+    _override_ingestion_service(service)
+    fake_task = FakeTask("task-reindex-1")
+    monkeypatch.setattr("mcp_evidencebase.api.upsert_minio_object", fake_task)
+
+    response = client.post("/collections/research-raw/documents/doc-1/reindex")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "bucket_name": "research-raw",
+        "document_id": "doc-1",
+        "object_name": "paper.pdf",
+        "queued": True,
+        "task_id": "task-reindex-1",
+        "queue_error": "",
+    }
+    assert service.reindex_payload_calls == [("research-raw", "doc-1")]
+    assert fake_task.calls == [
+        (
+            {
+                "bucket_name": "research-raw",
+                "object_name": "paper.pdf",
+                "document_id": "doc-1",
+                "etag": "etag-1",
+                "partition_key": "partition-1",
+                "meta_key": "meta-1",
+            },
+        )
+    ]
+
+
 def test_upload_document_returns_queued_false_when_broker_is_unavailable(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
@@ -1303,6 +1359,27 @@ def test_upload_document_returns_queued_false_when_broker_is_unavailable(
     assert response.json()["task_id"] is None
     assert "retry limit exceeded" in response.json()["queue_error"]
     assert service.uploaded == [("research-raw", "paper.pdf", b"pdf-bytes")]
+
+
+def test_reindex_document_returns_queued_false_when_broker_is_unavailable(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Confirm reindex queue failures report queued=false without losing validation."""
+    service = FakeIngestionService()
+    _override_ingestion_service(service)
+    monkeypatch.setattr(
+        "mcp_evidencebase.api.upsert_minio_object",
+        FailingTask("retry limit exceeded while trying to reconnect"),
+    )
+
+    response = client.post("/collections/research-raw/documents/doc-1/reindex")
+
+    assert response.status_code == 200
+    assert response.json()["queued"] is False
+    assert response.json()["task_id"] is None
+    assert "retry limit exceeded" in response.json()["queue_error"]
+    assert service.reindex_payload_calls == [("research-raw", "doc-1")]
 
 
 def test_trigger_bucket_scan_returns_queued_false_when_broker_is_unavailable(

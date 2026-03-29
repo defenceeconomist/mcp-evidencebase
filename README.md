@@ -361,6 +361,31 @@ Fetch metadata from Crossref (DOI -> ISBN -> ISSN -> title, high-confidence only
 curl -sS -X POST "$BASE_URL/collections/research-raw/documents/<document_id>/metadata/fetch"
 ```
 
+Reindex a document explicitly:
+
+```bash
+curl -sS -X POST "$BASE_URL/collections/research-raw/documents/<document_id>/reindex"
+```
+
+Recover documents stuck at `processing/upsert` with `80%` progress:
+
+```bash
+docker compose up -d --build api celery
+curl -sS -X POST "$BASE_URL/collections/<bucket>/documents/<document_id>/reindex"
+```
+
+If you need to requeue several stuck documents at once:
+
+```bash
+for document_id in <doc1> <doc2> <doc3>; do
+  curl -sS -X POST "$BASE_URL/collections/<bucket>/documents/$document_id/reindex"
+done
+```
+
+The reindex endpoint rebuilds the stored upsert payload for the existing document and queues
+`upsert_minio_object` directly. This is the preferred recovery path when metadata edits or a slow
+Qdrant write leave a document stuck in the final ingestion stage.
+
 Run hybrid search:
 
 ```bash
@@ -555,6 +580,7 @@ REDIS_URL=redis://redis:6379/2
 REDIS_PREFIX=evidencebase
 QDRANT_URL=http://qdrant:6333
 QDRANT_COLLECTION_PREFIX=evidencebase
+QDRANT_TIMEOUT_SECONDS=30
 UNSTRUCTURED_API_URL=https://api.unstructuredapp.io/general/v0/general
 UNSTRUCTURED_API_KEY=<your-unstructured-api-key>
 UNSTRUCTURED_STRATEGY=hi_res
