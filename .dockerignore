@@ -1,0 +1,17 @@
+.git
+.venv
+.mypy_cache
+.pytest_cache
+.ruff_cache
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.DS_Store
+report_output
+tmp
+docs/site
+docs/source/_static/tests
+frontend/node_modules
+frontend/test-results
+frontend/playwright-report

@@ -240,6 +240,18 @@ docker compose up -d
 
 `CLOUDFLARE_TUNNEL_TOKEN` is required because `cloudflared` always starts.
 
+### Portainer Stack
+
+Use [`docker-compose.portainer.yml`](docker-compose.portainer.yml) when deploying through Portainer.
+It removes local `build:` steps and expects prebuilt images instead:
+
+```text
+APP_IMAGE=ghcr.io/your-org/mcp-evidencebase-app:latest
+PROXY_IMAGE=ghcr.io/your-org/mcp-evidencebase-proxy:latest
+```
+
+Use [`deploy/portainer.env.example`](deploy/portainer.env.example) as the variable template for the stack environment in Portainer.
+
 ### Service URLs
 
 All services are proxied through one host port (`${PROXY_PORT:-52180}`):

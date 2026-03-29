@@ -1,8 +1,5 @@
-x-app-build: &app-build
-  image: mcp-evidencebase-app:latest
-  build:
-    context: .
-    dockerfile: docker/app/Dockerfile
+x-app-image: &app-image
+  image: ${APP_IMAGE:-mcp-evidencebase-app:latest}
 
 x-backend-environment: &backend-environment
   CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
@@ -48,6 +45,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
   redisinsight:
     image: redis/redisinsight:latest
     profiles: ["ops"]
@@ -82,7 +80,7 @@ services:
       - qdrant-storage:/qdrant/storage
 
   celery:
-    <<: *app-build
+    <<: *app-image
     container_name: evidencebase-celery
     restart: unless-stopped
     depends_on:
@@ -100,7 +98,7 @@ services:
     command: ["celery", "-A", "mcp_evidencebase.celery_app", "worker", "--loglevel=info"]
 
   flower:
-    <<: *app-build
+    <<: *app-image
     profiles: ["ops"]
     container_name: evidencebase-flower
     restart: unless-stopped
@@ -124,7 +122,7 @@ services:
       ]
 
   api:
-    <<: *app-build
+    <<: *app-image
     container_name: evidencebase-api
     restart: unless-stopped
     environment:
@@ -143,10 +141,7 @@ services:
         condition: service_started
 
   proxy:
-    image: mcp-evidencebase-proxy:latest
-    build:
-      context: .
-      dockerfile: docker/proxy/Dockerfile
+    image: ${PROXY_IMAGE:-mcp-evidencebase-proxy:latest}
     container_name: evidencebase-proxy
     restart: unless-stopped
     depends_on:
@@ -173,6 +168,7 @@ services:
       - run
       - --token
       - "${CLOUDFLARE_TUNNEL_TOKEN:?CLOUDFLARE_TUNNEL_TOKEN is required for the cloudflared service}"
+
 volumes:
   minio-data:
   qdrant-storage:
