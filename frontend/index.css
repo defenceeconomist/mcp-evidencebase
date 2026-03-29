@@ -486,6 +486,31 @@
   font-weight: 600;
 }
 
+#pdf-split-modal .card-header-tabs {
+  margin-bottom: -0.5rem;
+}
+
+#pdf-split-modal .nav-tabs .nav-link {
+  font-size: 0.9rem;
+}
+
+#pdf-split-metadata-pane .form-control {
+  max-width: 100%;
+}
+
+#pdf-split-metadata-fields .detail-field-row {
+  margin-bottom: 0;
+}
+
+#pdf-split-metadata-fields .authors-editor-row {
+  background: rgba(var(--bs-secondary-rgb), 0.03);
+}
+
+.pdf-split-file-toggle {
+  width: 1rem;
+  height: 1rem;
+}
+
 #pdf-split-preview-body td {
   vertical-align: top;
 }

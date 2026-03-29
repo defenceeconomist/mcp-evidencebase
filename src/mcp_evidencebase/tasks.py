@@ -119,6 +119,7 @@ def partition_minio_object(
     object_name: str,
     etag: str | None = None,
     update_meta: bool = False,
+    metadata_overrides: Mapping[str, Any] | None = None,
 ) -> dict[str, str]:
     """Run partition stage and enqueue metadata stage.
 
@@ -146,6 +147,8 @@ def partition_minio_object(
         "meta_key": stage_payload.get("meta_key", ""),
         "update_meta": bool(update_meta),
     }
+    if metadata_overrides:
+        meta_payload["metadata_overrides"] = dict(metadata_overrides)
     meta_minio_object.delay(meta_payload)
     return stage_payload
 
@@ -164,6 +167,7 @@ def meta_minio_object(partition_payload: Mapping[str, Any]) -> dict[str, str]:
         task_name="meta_minio_object",
     )
     update_meta = bool(partition_payload.get("update_meta", False))
+    metadata_overrides = partition_payload.get("metadata_overrides")
     service = build_ingestion_service()
     stage_payload = service.meta_stage_object(
         bucket_name=bucket_name,
@@ -176,6 +180,13 @@ def meta_minio_object(partition_payload: Mapping[str, Any]) -> dict[str, str]:
             service=service,
             bucket_name=bucket_name,
             document_id=document_id,
+        )
+    if isinstance(metadata_overrides, Mapping) and metadata_overrides:
+        service.update_metadata(
+            bucket_name=bucket_name,
+            document_id=document_id,
+            metadata=metadata_overrides,
+            refresh_vectors=False,
         )
     section_minio_object.delay(stage_payload)
     return stage_payload

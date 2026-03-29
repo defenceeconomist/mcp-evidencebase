@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 from minio.error import S3Error
-from pypdf import PdfWriter
+from pypdf import PdfReader, PdfWriter
 
 from mcp_evidencebase.api import app, get_bucket_service, get_ingestion_service
 
@@ -49,6 +49,7 @@ class FakeIngestionService:
     deleted: list[tuple[str, str, bool]] = field(default_factory=list)
     metadata_updates: list[tuple[str, str, dict[str, Any]]] = field(default_factory=list)
     metadata_fetches: list[tuple[str, str]] = field(default_factory=list)
+    metadata_seed_fetches: list[dict[str, Any]] = field(default_factory=list)
     resolved_documents: list[tuple[str, str]] = field(default_factory=list)
     search_calls: list[tuple[str, str, int, str, int]] = field(default_factory=list)
     section_fetches: list[tuple[str, str, str]] = field(default_factory=list)
@@ -59,6 +60,7 @@ class FakeIngestionService:
     delete_error: Exception | None = None
     metadata_error: Exception | None = None
     metadata_fetch_error: Exception | None = None
+    metadata_seed_fetch_error: Exception | None = None
     resolve_error: Exception | None = None
     search_error: Exception | None = None
     section_fetch_error: Exception | None = None
@@ -68,6 +70,7 @@ class FakeIngestionService:
     qdrant_delete_result: bool = True
     qdrant_create_error: Exception | None = None
     qdrant_delete_error: Exception | None = None
+    metadata_seed_lookup_result: dict[str, Any] = field(default_factory=dict)
 
     def list_buckets(self) -> list[str]:
         return self.bucket_names
@@ -141,6 +144,16 @@ class FakeIngestionService:
             "confidence": 1.0,
             "metadata": {"title": "Fetched Title", "document_type": "article"},
         }
+
+    def lookup_metadata_seed_from_crossref(
+        self,
+        *,
+        metadata: dict[str, Any],
+    ) -> dict[str, Any]:
+        if self.metadata_seed_fetch_error is not None:
+            raise self.metadata_seed_fetch_error
+        self.metadata_seed_fetches.append(dict(metadata))
+        return dict(self.metadata_seed_lookup_result)
 
     def resolve_document_object(
         self,
@@ -319,7 +332,24 @@ def _build_outlined_pdf_bytes() -> bytes:
     chapter_two = writer.add_outline_item("Chapter 2", 3)
     section_two = writer.add_outline_item("Section 2.1", 4, parent=chapter_two)
     writer.add_outline_item("Detail 2.1.a", 5, parent=section_two)
-    writer.add_metadata({"/Title": "Sample Book"})
+    writer.add_metadata({"/Title": "Sample Book", "/Author": "Sample Editor"})
+
+    output = BytesIO()
+    writer.write(output)
+    return output.getvalue()
+
+
+def _build_mixed_chapter_outline_pdf_bytes() -> bytes:
+    writer = PdfWriter()
+    for _ in range(6):
+        writer.add_blank_page(width=72, height=72)
+
+    book = writer.add_outline_item("Book", 0)
+    writer.add_outline_item("Chapter 1", 1, parent=book)
+    writer.add_outline_item("Methods 1.1", 2, parent=book)
+    writer.add_outline_item("Chapter 2", 3, parent=book)
+    writer.add_outline_item("References", 5, parent=book)
+    writer.add_metadata({"/Title": "Mixed Chapters"})
 
     output = BytesIO()
     writer.write(output)
@@ -1198,6 +1228,10 @@ def test_preview_document_split_returns_heading_levels(client: TestClient) -> No
     assert payload["bucket_name"] == "research-raw"
     assert payload["pdf_title"] == "Sample Book"
     assert payload["folder_name"] == "Sample Book"
+    assert payload["metadata_seed"] == {
+        "title": "Sample Book",
+        "author": "Sample Editor",
+    }
     assert payload["page_count"] == 6
     assert payload["default_heading_level"] == 1
 
@@ -1235,6 +1269,73 @@ def test_preview_document_split_returns_heading_levels(client: TestClient) -> No
     assert third_level["splits"][0]["chapter_title"] == "Detail 2.1.a"
     assert third_level["splits"][0]["page_start"] == 1
     assert third_level["splits"][0]["page_end"] == 6
+
+
+def test_preview_document_split_enriches_metadata_seed_from_crossref(client: TestClient) -> None:
+    """Verify split preview merges Crossref-enriched metadata into the seed."""
+    service = FakeIngestionService(
+        metadata_seed_lookup_result={
+            "lookup_field": "doi",
+            "confidence": 1.0,
+            "metadata": {
+                "authors": [
+                    {"first_name": "Jane", "last_name": "Doe", "suffix": ""},
+                ],
+                "author": "Doe, J.",
+                "booktitle": "Crossref Book",
+                "doi": "10.5555/example-doi",
+                "isbn": "9780393040029",
+                "year": "2024",
+            },
+        }
+    )
+    _override_ingestion_service(service)
+
+    response = client.post(
+        "/collections/research-raw/documents/split/preview?file_name=sample-book.pdf",
+        content=_build_outlined_pdf_bytes(),
+        headers={"Content-Type": "application/pdf"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert service.metadata_seed_fetches == [
+        {
+            "title": "Sample Book",
+            "author": "Sample Editor",
+        }
+    ]
+    assert payload["metadata_seed"]["authors"] == [
+        {"first_name": "Jane", "last_name": "Doe", "suffix": ""}
+    ]
+    assert payload["metadata_seed"]["author"] == "Doe, J."
+    assert payload["metadata_seed"]["booktitle"] == "Crossref Book"
+    assert payload["metadata_seed"]["doi"] == "10.5555/example-doi"
+    assert payload["metadata_seed"]["isbn"] == "9780393040029"
+    assert payload["metadata_seed"]["year"] == "2024"
+
+
+def test_preview_document_split_prefers_chapter_like_headings_within_mixed_level(
+    client: TestClient,
+) -> None:
+    """Verify mixed heading levels prefer chapter-like split points."""
+    response = client.post(
+        "/collections/research-raw/documents/split/preview?file_name=mixed-chapters.pdf",
+        content=_build_mixed_chapter_outline_pdf_bytes(),
+        headers={"Content-Type": "application/pdf"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["pdf_title"] == "Mixed Chapters"
+    assert payload["default_heading_level"] == 2
+    second_level = payload["levels"][1]
+    assert second_level["available"] is True
+    assert second_level["split_count"] == 2
+    assert [split["chapter_title"] for split in second_level["splits"]] == [
+        "Chapter 1",
+        "Chapter 2",
+    ]
 
 
 def test_upload_split_document_uploads_chapters_and_queues_tasks(
@@ -1277,6 +1378,57 @@ def test_upload_split_document_uploads_chapters_and_queues_tasks(
         ("research-raw", "Sample Book/Section 1.1.pdf", None, True),
         ("research-raw", "Sample Book/Section 1.2.pdf", None, True),
         ("research-raw", "Sample Book/Section 2.1.pdf", None, True),
+    ]
+
+
+def test_upload_split_document_honors_custom_folder_and_embeds_author_metadata(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify selected split files inherit schema-based metadata overrides."""
+    service = FakeIngestionService()
+    _override_ingestion_service(service)
+    fake_task = FakeTask("task-split-custom-1")
+    monkeypatch.setattr("mcp_evidencebase.api.partition_minio_object", fake_task)
+
+    response = client.post(
+        "/collections/research-raw/documents/split/upload"
+        "?file_name=sample-book.pdf&heading_level=1&folder_name=Edited%20Book",
+        content=_build_outlined_pdf_bytes(),
+        headers={
+            "Content-Type": "application/pdf",
+            "X-Evidencebase-Split-Metadata": (
+                '{"document_type":"incollection","booktitle":"Edited Book","author":"Jane Editor"}'
+            ),
+            "X-Evidencebase-Split-Selected-Files": "Chapter 1.pdf",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["pdf_title"] == "Edited Book"
+    assert payload["folder_name"] == "Edited Book"
+    assert [item["object_name"] for item in payload["uploaded"]] == [
+        "Edited Book/Chapter 1.pdf",
+    ]
+    assert [uploaded[1] for uploaded in service.uploaded] == [
+        "Edited Book/Chapter 1.pdf",
+    ]
+    uploaded_reader = PdfReader(BytesIO(service.uploaded[0][2]))
+    assert uploaded_reader.metadata.title == "Chapter 1"
+    assert uploaded_reader.metadata.author == "Jane Editor"
+    assert fake_task.calls == [
+        (
+            "research-raw",
+            "Edited Book/Chapter 1.pdf",
+            None,
+            True,
+            {
+                "document_type": "incollection",
+                "booktitle": "Edited Book",
+                "author": "Jane Editor",
+            },
+        ),
     ]
 
 

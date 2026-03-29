@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import json
 import sys
 import types
-import json
 from collections import defaultdict
+from collections.abc import Mapping
 from dataclasses import dataclass
 from fnmatch import fnmatch
-from typing import Any, Mapping
+from typing import Any
 
 import pytest
 
@@ -1329,6 +1330,26 @@ def test_repository_defaults_citation_key_from_structured_authors() -> None:
     assert metadata["citation_key"] == "vanrossum2024the"
 
 
+def test_repository_defaults_citation_key_from_chapter_filename_token() -> None:
+    """Ensure chapter-marked filenames become ``chN<word>`` citation title tokens."""
+    redis_client = FakeRedis()
+    repository = RedisDocumentRepository(redis_client, key_prefix="test")
+
+    meta_key = repository.set_metadata_for_location(
+        bucket_name="research-raw",
+        object_name="Gertler 2010 Chapter 1 Introduction.pdf",
+        document_id="doc-citekey-chapter",
+        metadata={
+            "author": "Gertler, Paul",
+            "title": "Introduction",
+            "year": "2010",
+        },
+    )
+
+    metadata = repository.get_metadata_by_key(meta_key)
+    assert metadata["citation_key"] == "gertler2010ch1introduction"
+
+
 @pytest.mark.parametrize(
     "metadata_update",
     [
@@ -1535,6 +1556,83 @@ def test_update_metadata_does_not_reindex_when_non_indexed_metadata_changes() ->
 
     assert updated["journal"] == "Journal of Causal Methods"
     assert qdrant_indexer.upsert_calls == []
+    state = repository.get_state(document_id)
+    assert state["processing_state"] == "processed"
+    assert state["processing_stage"] == "processed"
+    assert state["processing_progress"] == "100"
+    assert state["processing_stage_progress"] == "100"
+
+
+def test_update_metadata_clears_stale_upsert_state_when_no_reindex_is_needed() -> None:
+    """Ensure citation-key-only updates do not leave documents parked at upsert 80%."""
+    redis_client = FakeRedis()
+    repository = RedisDocumentRepository(redis_client, key_prefix="test")
+    qdrant_indexer = RecordingQdrantIndexer()
+    service = IngestionService(
+        minio_client=FakeMinioClient(b"%PDF-1.7 fake"),
+        repository=repository,
+        partition_client=FakePartitionClient([]),
+        qdrant_indexer=qdrant_indexer,  # type: ignore[arg-type]
+        chunk_size_chars=1200,
+        chunk_overlap_chars=150,
+    )
+    bucket_name = "research-raw"
+    document_id = "doc-citation-upsert-stale"
+    object_name = "paper.pdf"
+
+    repository.add_document(bucket_name, document_id)
+    repository.mark_object(
+        bucket_name=bucket_name,
+        object_name=object_name,
+        document_id=document_id,
+        etag="etag-1",
+    )
+    partition_key = repository.set_partitions(
+        bucket_name,
+        document_id,
+        [{"text": "Chunk text for stale upsert state.", "metadata": {"page_number": 1}}],
+    )
+    meta_key = repository.set_metadata_for_location(
+        bucket_name=bucket_name,
+        object_name=object_name,
+        document_id=document_id,
+        metadata={
+            "title": "Paper Title",
+            "author": "Doe, J.",
+            "year": "2024",
+            "citation_key": "oldkey2024paper",
+        },
+    )
+    repository.set_state(
+        document_id,
+        {
+            "file_path": object_name,
+            "etag": "etag-1",
+            "partition_key": partition_key,
+            "meta_key": meta_key,
+            "processing_state": "processing",
+            "processing_stage": "upsert",
+            "processing_stage_progress": 0,
+            "processing_progress": 80,
+            "partitions_count": 1,
+            "chunks_count": 1,
+            "sections_count": 1,
+        },
+    )
+
+    updated = service.update_metadata(
+        bucket_name=bucket_name,
+        document_id=document_id,
+        metadata={"citation_key": "doe2024paper"},
+    )
+
+    assert updated["citation_key"] == "doe2024paper"
+    assert qdrant_indexer.upsert_calls == []
+    state = repository.get_state(document_id)
+    assert state["processing_state"] == "processed"
+    assert state["processing_stage"] == "processed"
+    assert state["processing_progress"] == "100"
+    assert state["processing_stage_progress"] == "100"
 
 
 def test_repository_persists_structured_authors_metadata_field() -> None:

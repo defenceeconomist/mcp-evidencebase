@@ -26,7 +26,7 @@ import {
 } from "./js/table-ui.mjs";
 
 (function () {
-  window.__EVIDENCEBASE_UI_BUILD__ = "2026-03-29-base-path-links-a";
+  window.__EVIDENCEBASE_UI_BUILD__ = "2026-03-29-detail-reindex-a";
   const origin = window.location.origin;
   const deriveAppBasePath = (pathname) => {
     const normalizedPath = String(pathname || "/").trim() || "/";
@@ -71,6 +71,7 @@ import {
   const detailSelectedDocument = document.getElementById("detail-selected-document");
   const detailFetchMetaButton = document.getElementById("detail-fetch-meta-btn");
   const detailUpdateCitationKeyButton = document.getElementById("detail-update-citation-key-btn");
+  const detailReindexButton = document.getElementById("detail-reindex-btn");
   const detailClearMetaButton = document.getElementById("detail-clear-meta-btn");
   const bulkViewContainer = document.getElementById("bulk-view-container");
   const documentHotWrapper = document.getElementById("document-hot-wrapper");
@@ -96,12 +97,16 @@ import {
   const pdfSplitModalTitle = document.getElementById("pdf-split-modal-title");
   const pdfSplitModalSubtitle = document.getElementById("pdf-split-modal-subtitle");
   const pdfSplitPdfTitle = document.getElementById("pdf-split-pdf-title");
-  const pdfSplitFolderName = document.getElementById("pdf-split-folder-name");
   const pdfSplitPageCount = document.getElementById("pdf-split-page-count");
+  const pdfSplitFolderInput = document.getElementById("pdf-split-folder-input");
   const pdfSplitLevelOptions = document.getElementById("pdf-split-level-options");
   const pdfSplitStatus = document.getElementById("pdf-split-status");
+  const pdfSplitPreviewTab = document.getElementById("pdf-split-preview-tab");
+  const pdfSplitMetadataTab = document.getElementById("pdf-split-metadata-tab");
+  const pdfSplitMetadataFields = document.getElementById("pdf-split-metadata-fields");
   const pdfSplitPreviewCount = document.getElementById("pdf-split-preview-count");
   const pdfSplitPreviewBody = document.getElementById("pdf-split-preview-body");
+  const pdfSplitSelectAllFiles = document.getElementById("pdf-split-select-all-files");
   const pdfSplitUploadButton = document.getElementById("pdf-split-upload-btn");
   const semanticSearchTab = document.getElementById("semantic-search-tab");
   const semanticSearchPane = document.getElementById("semantic-search-pane");
@@ -309,6 +314,10 @@ import {
     file: null,
     preview: null,
     selectedLevel: 1,
+    folderName: "",
+    folderNameTouched: false,
+    metadataRecord: null,
+    selectedOutputFiles: new Set(),
     uploadInProgress: false,
   };
   const isMobileViewport = () => window.matchMedia("(max-width: 991.98px)").matches;
@@ -1030,6 +1039,23 @@ import {
     return titleWordMatch ? titleWordMatch[0] : "";
   };
 
+  const extractCitationChapterTitleToken = (value) => {
+    const normalizedValue = stripOuterBraces(value);
+    if (!normalizedValue) {
+      return "";
+    }
+    const chapterMatch = normalizedValue.match(
+      /\bchapter\s*([0-9]+|[ivxlcdm]+)\b(?:\s*[-_:,.;)]*\s*([A-Za-z0-9]+))?/i
+    );
+    if (!chapterMatch) {
+      return "";
+    }
+    const chapterNumber = normalizeCitationToken(chapterMatch[1]);
+    const trailingWord = normalizeCitationToken(chapterMatch[2] || "");
+    const chapterToken = `ch${chapterNumber}${trailingWord}`;
+    return chapterToken === "ch" ? "" : chapterToken;
+  };
+
   const extractCitationFirstAuthorLastName = (authorEntries, authorText) => {
     const normalizedEntries = normalizeAuthorEntries(authorEntries);
     if (normalizedEntries.length > 0) {
@@ -1078,11 +1104,14 @@ import {
       getRecordBibtexFieldValue(record, "title") ||
       normalizeText(record.title) ||
       filenameFromPath(record.file_path || "");
+    const fileTitleText = filenameFromPath(record.file_path || "").replace(/\.[^/.]+$/, "");
     const authorToken = normalizeCitationToken(
       extractCitationFirstAuthorLastName(authorEntries, authorText)
     );
     const yearToken = extractCitationYearToken(yearText);
-    const titleToken = normalizeCitationToken(extractCitationFirstTitleWord(titleText));
+    const fileTitleToken = extractCitationChapterTitleToken(fileTitleText);
+    const metadataTitleToken = normalizeCitationToken(extractCitationFirstTitleWord(titleText));
+    const titleToken = fileTitleToken || metadataTitleToken;
     return `${authorToken}${yearToken}${titleToken}`;
   };
 
@@ -2904,6 +2933,9 @@ import {
     if (detailUpdateCitationKeyButton) {
       detailUpdateCitationKeyButton.disabled = actionsDisabled;
     }
+    if (detailReindexButton) {
+      detailReindexButton.disabled = actionsDisabled;
+    }
     if (detailClearMetaButton) {
       detailClearMetaButton.disabled = actionsDisabled;
     }
@@ -3487,11 +3519,146 @@ import {
     }
   };
 
+  const sanitizePdfSplitSegment = (value, fallback = "document") => {
+    const cleanedValue = normalizeText(value)
+      .replace(/[\x00-\x1f\x7f/\\]+/g, " ")
+      .replace(/\s+/g, " ")
+      .replace(/^[.\s]+|[.\s]+$/g, "");
+    if (cleanedValue) {
+      return cleanedValue;
+    }
+    const cleanedFallback = normalizeText(fallback)
+      .replace(/[\x00-\x1f\x7f/\\]+/g, " ")
+      .replace(/\s+/g, " ")
+      .replace(/^[.\s]+|[.\s]+$/g, "");
+    return cleanedFallback || "document";
+  };
+
+  const getPdfSplitFallbackFolderName = () => {
+    if (pdfSplitState.preview) {
+      const previewFolderName = normalizeText(pdfSplitState.preview.folder_name);
+      if (previewFolderName) {
+        return previewFolderName;
+      }
+    }
+    const fileName = pdfSplitState.file ? filenameFromPath(pdfSplitState.file.name) : "document.pdf";
+    const fileStem = normalizeText(fileName.replace(/\.[^.]+$/, ""));
+    return fileStem || "document";
+  };
+
+  const getResolvedPdfSplitFolderName = () => {
+    return sanitizePdfSplitSegment(pdfSplitState.folderName, getPdfSplitFallbackFolderName());
+  };
+
+  const createPdfSplitMetadataRecord = ({ file, preview }) => {
+    const filePath = normalizeText(file?.name) || "document.pdf";
+    const metadataSeed = preview && typeof preview.metadata_seed === "object" ? preview.metadata_seed : {};
+    const record = {
+      document_type: "incollection",
+      citation_key: "",
+      authors: [],
+      file_path: filePath,
+      bibtex_fields: {},
+    };
+    bibtexFields.forEach((fieldName) => {
+      record[fieldName] = "";
+      record.bibtex_fields[fieldName] = "";
+    });
+    const defaultBookTitle =
+      normalizeText(metadataSeed.booktitle) ||
+      normalizeText(metadataSeed.title) ||
+      normalizeText(preview?.pdf_title) ||
+      normalizeText(filenameFromPath(filePath).replace(/\.[^.]+$/, ""));
+    setBibtexFieldValue(record, "booktitle", defaultBookTitle);
+    const structuredAuthors = parseStructuredAuthors(metadataSeed.authors);
+    if (structuredAuthors.length) {
+      record.authors = structuredAuthors;
+      setBibtexFieldValue(record, "author", formatAuthorsBibtex(structuredAuthors), {
+        preserveStructuredAuthors: true,
+      });
+    } else if (normalizeText(metadataSeed.author)) {
+      setBibtexFieldValue(record, "author", metadataSeed.author);
+    }
+    bibtexFields
+      .filter((fieldName) => !["title", "author", "booktitle"].includes(fieldName))
+      .forEach((fieldName) => {
+      const fieldValue = normalizeText(metadataSeed[fieldName]);
+      if (fieldValue) {
+        setBibtexFieldValue(record, fieldName, fieldValue);
+      }
+    });
+    syncRecordCoreFields(record);
+    return record;
+  };
+
+  const getPdfSplitSelectedFilesForCurrentLevel = () => {
+    const levelPreview = getPdfSplitLevelPreview(pdfSplitState.preview, pdfSplitState.selectedLevel);
+    const splits = Array.isArray(levelPreview?.splits) ? levelPreview.splits : [];
+    return splits
+      .map((split) => normalizeText(split.file_name))
+      .filter((fileName) => pdfSplitState.selectedOutputFiles.has(fileName));
+  };
+
+  const selectAllPdfSplitFilesForCurrentLevel = () => {
+    const levelPreview = getPdfSplitLevelPreview(pdfSplitState.preview, pdfSplitState.selectedLevel);
+    const splits = Array.isArray(levelPreview?.splits) ? levelPreview.splits : [];
+    pdfSplitState.selectedOutputFiles = new Set(
+      splits.map((split) => normalizeText(split.file_name)).filter(Boolean)
+    );
+  };
+
+  const clearAllPdfSplitFilesForCurrentLevel = () => {
+    const levelPreview = getPdfSplitLevelPreview(pdfSplitState.preview, pdfSplitState.selectedLevel);
+    const splits = Array.isArray(levelPreview?.splits) ? levelPreview.splits : [];
+    splits.forEach((split) => {
+      const splitFileName = normalizeText(split.file_name);
+      if (splitFileName) {
+        pdfSplitState.selectedOutputFiles.delete(splitFileName);
+      }
+    });
+  };
+
+  const getResolvedPdfSplitBookTitle = () => {
+    const record = pdfSplitState.metadataRecord;
+    const recordBookTitle = record ? getRecordBibtexFieldValue(record, "booktitle") : "";
+    const recordTitle = record ? getRecordBibtexFieldValue(record, "title") : "";
+    const fallbackTitle =
+      normalizeText(pdfSplitState.preview?.pdf_title) ||
+      normalizeText(pdfSplitState.file ? filenameFromPath(pdfSplitState.file.name).replace(/\.[^.]+$/, "") : "");
+    return normalizeText(recordBookTitle) || normalizeText(recordTitle) || fallbackTitle || "document";
+  };
+
+  const updatePdfSplitModalSummary = () => {
+    if (pdfSplitModalSubtitle) {
+      const fileName = normalizeText(pdfSplitState.file?.name);
+      const folderName = getResolvedPdfSplitFolderName();
+      pdfSplitModalSubtitle.textContent =
+        fileName && selectedBucketName ? `${fileName} -> ${selectedBucketName}/${folderName}` : "";
+    }
+    if (pdfSplitPdfTitle) {
+      pdfSplitPdfTitle.textContent = getResolvedPdfSplitBookTitle();
+    }
+    if (pdfSplitFolderInput) {
+      pdfSplitFolderInput.value = normalizeText(pdfSplitState.folderName);
+    }
+  };
+
   const setPdfSplitModalBusyState = (busy, statusText = "") => {
     pdfSplitState.uploadInProgress = busy;
     if (pdfSplitUploadButton) {
       pdfSplitUploadButton.disabled = busy || !pdfSplitState.preview;
       pdfSplitUploadButton.textContent = busy ? "Creating Split Folder..." : "Create Split Folder";
+    }
+    if (pdfSplitFolderInput) {
+      pdfSplitFolderInput.disabled = busy;
+    }
+    if (pdfSplitMetadataTab) {
+      pdfSplitMetadataTab.disabled = busy;
+    }
+    if (pdfSplitMetadataFields) {
+      pdfSplitMetadataFields.querySelectorAll("input, select, textarea, button").forEach((control) => {
+        control.disabled = busy;
+      });
     }
     if (pdfSplitLevelOptions) {
       pdfSplitLevelOptions.querySelectorAll('input[name="pdf-split-level"]').forEach((input) => {
@@ -3508,6 +3675,10 @@ import {
       file: null,
       preview: null,
       selectedLevel: 1,
+      folderName: "",
+      folderNameTouched: false,
+      metadataRecord: null,
+      selectedOutputFiles: new Set(),
       uploadInProgress: false,
     };
     if (pdfSplitModalTitle) {
@@ -3519,8 +3690,8 @@ import {
     if (pdfSplitPdfTitle) {
       pdfSplitPdfTitle.textContent = "";
     }
-    if (pdfSplitFolderName) {
-      pdfSplitFolderName.textContent = "";
+    if (pdfSplitFolderInput) {
+      pdfSplitFolderInput.value = "";
     }
     if (pdfSplitPageCount) {
       pdfSplitPageCount.textContent = "";
@@ -3531,10 +3702,225 @@ import {
     if (pdfSplitPreviewBody) {
       pdfSplitPreviewBody.innerHTML = "";
     }
+    if (pdfSplitSelectAllFiles) {
+      pdfSplitSelectAllFiles.checked = false;
+      pdfSplitSelectAllFiles.indeterminate = false;
+      pdfSplitSelectAllFiles.disabled = false;
+    }
     if (pdfSplitLevelOptions) {
       pdfSplitLevelOptions.innerHTML = "";
     }
+    if (pdfSplitMetadataFields) {
+      pdfSplitMetadataFields.innerHTML = "";
+    }
+    if (pdfSplitPreviewTab) {
+      bootstrap.Tab.getOrCreateInstance(pdfSplitPreviewTab).show();
+    }
     setPdfSplitModalBusyState(false, "");
+  };
+
+  const setPdfSplitMetadataFieldValue = (fieldName, value) => {
+    const record = pdfSplitState.metadataRecord;
+    if (!record) {
+      return;
+    }
+    if (fieldName === "document_type") {
+      record.document_type = normalizeDocumentType(value);
+      syncRecordCoreFields(record);
+      renderPdfSplitMetadataFields();
+      return;
+    }
+    if (fieldName === "citation_key") {
+      record.citation_key = normalizeText(value);
+    } else {
+      setBibtexFieldValue(record, fieldName, value);
+      if (fieldName === "booktitle" && !pdfSplitState.folderNameTouched) {
+        pdfSplitState.folderName = sanitizePdfSplitSegment(value, getPdfSplitFallbackFolderName());
+      }
+    }
+    updatePdfSplitModalSummary();
+    renderPdfSplitPreview();
+  };
+
+  const setPdfSplitMetadataAuthors = (authorEntries) => {
+    const record = pdfSplitState.metadataRecord;
+    if (!record) {
+      return;
+    }
+    record.authors = normalizeAuthorEntries(authorEntries);
+    const bibtexAuthorDisplay = formatAuthorsBibtex(record.authors);
+    setBibtexFieldValue(record, "author", bibtexAuthorDisplay, {
+      preserveStructuredAuthors: true,
+    });
+    updatePdfSplitModalSummary();
+  };
+
+  const createPdfSplitAuthorsFieldRow = (record, status) => {
+    const row = document.createElement("div");
+    row.className = "detail-field-row";
+    if (status && statusBadgeMeta[status]) {
+      row.classList.add(`detail-field-row-${status}`);
+    }
+
+    const labelWrap = document.createElement("div");
+    labelWrap.className = "d-flex align-items-center justify-content-between gap-2 mb-1";
+
+    const label = document.createElement("label");
+    label.className = "form-label mb-0 fw-semibold small";
+    label.textContent = "Authors";
+    labelWrap.appendChild(label);
+
+    if (status && statusBadgeMeta[status]) {
+      const badge = document.createElement("span");
+      badge.className = `badge rounded-pill bibtex-status-tag ${statusBadgeMeta[status].className}`;
+      badge.textContent = statusBadgeMeta[status].label;
+      labelWrap.appendChild(badge);
+    }
+    row.appendChild(labelWrap);
+
+    const hint = document.createElement("p");
+    hint.className = "small text-body-secondary mb-2";
+    hint.textContent =
+      "Uses BibTeX author format: Lastname, Suffix, Firstname and Lastname, Firstname.";
+    row.appendChild(hint);
+
+    const listWrap = document.createElement("div");
+    listWrap.className = "authors-editor-list d-flex flex-column gap-2";
+    row.appendChild(listWrap);
+
+    const addAuthorButton = document.createElement("button");
+    addAuthorButton.type = "button";
+    addAuthorButton.className = "btn btn-outline-secondary btn-sm align-self-start mt-2";
+    addAuthorButton.textContent = "Add Author";
+    let authorEntries = [...resolveRecordAuthorEntries(record)];
+
+    const renderAuthorRows = () => {
+      listWrap.innerHTML = "";
+      if (!authorEntries.length) {
+        const emptyState = document.createElement("p");
+        emptyState.className = "small text-body-secondary mb-0";
+        emptyState.textContent = "No authors added.";
+        listWrap.appendChild(emptyState);
+        return;
+      }
+
+      authorEntries.forEach((authorEntry, index) => {
+        const authorRow = document.createElement("div");
+        authorRow.className = "authors-editor-row row g-2 align-items-end";
+
+        authorRow.appendChild(
+          createAuthorNameInput("First Name", authorEntry.first_name, "First name", (nextValue) => {
+            authorEntries[index].first_name = normalizeText(nextValue);
+            setPdfSplitMetadataAuthors(authorEntries);
+          })
+        );
+        authorRow.appendChild(
+          createAuthorNameInput("Last Name", authorEntry.last_name, "Last name", (nextValue) => {
+            authorEntries[index].last_name = normalizeText(nextValue);
+            setPdfSplitMetadataAuthors(authorEntries);
+          })
+        );
+        authorRow.appendChild(
+          createAuthorNameInput("Suffix", authorEntry.suffix, "Suffix", (nextValue) => {
+            authorEntries[index].suffix = normalizeText(nextValue);
+            setPdfSplitMetadataAuthors(authorEntries);
+          })
+        );
+
+        const actionsCol = document.createElement("div");
+        actionsCol.className = "col-12 d-flex justify-content-end";
+        const removeButton = document.createElement("button");
+        removeButton.type = "button";
+        removeButton.className = "btn btn-outline-danger btn-sm";
+        removeButton.textContent = "Remove";
+        removeButton.addEventListener("click", () => {
+          authorEntries.splice(index, 1);
+          setPdfSplitMetadataAuthors(authorEntries);
+          renderAuthorRows();
+        });
+        actionsCol.appendChild(removeButton);
+        authorRow.appendChild(actionsCol);
+
+        listWrap.appendChild(authorRow);
+      });
+    };
+
+    addAuthorButton.addEventListener("click", () => {
+      authorEntries.push({ first_name: "", last_name: "", suffix: "" });
+      setPdfSplitMetadataAuthors(authorEntries);
+      renderAuthorRows();
+    });
+
+    row.appendChild(addAuthorButton);
+    renderAuthorRows();
+    return row;
+  };
+
+  const renderPdfSplitMetadataFields = () => {
+    if (!pdfSplitMetadataFields) {
+      return;
+    }
+    const record = pdfSplitState.metadataRecord;
+    pdfSplitMetadataFields.innerHTML = "";
+    if (!record) {
+      return;
+    }
+
+    const documentTypeRow = createFieldRow("Document Type", record.document_type, {
+      type: "select",
+      selectOptions: documentTypes,
+      onInput(nextValue) {
+        setPdfSplitMetadataFieldValue("document_type", nextValue);
+      },
+    });
+    pdfSplitMetadataFields.appendChild(documentTypeRow);
+
+    const citationKeyRow = createFieldRow("Citation Key", record.citation_key, {
+      placeholder: "citation_key",
+      onInput(nextValue) {
+        setPdfSplitMetadataFieldValue("citation_key", nextValue);
+      },
+    });
+    pdfSplitMetadataFields.appendChild(citationKeyRow);
+
+    getOrderedDetailBibtexFields(record.document_type).forEach((fieldName) => {
+      if (fieldName === "author") {
+        pdfSplitMetadataFields.appendChild(
+          createPdfSplitAuthorsFieldRow(record, getBibtexFieldStatus(record.document_type, fieldName))
+        );
+        return;
+      }
+      const fieldRow = createFieldRow(getBibtexFieldLabel(fieldName), record[fieldName], {
+        placeholder: fieldName,
+        status: getBibtexFieldStatus(record.document_type, fieldName),
+        onInput(nextValue) {
+          setPdfSplitMetadataFieldValue(fieldName, nextValue);
+        },
+      });
+      pdfSplitMetadataFields.appendChild(fieldRow);
+    });
+  };
+
+  const buildPdfSplitMetadataOverrides = () => {
+    const record = pdfSplitState.metadataRecord;
+    if (!record) {
+      return {};
+    }
+    const fullPayload = buildMetadataUpdatePayload(record);
+    const metadata = {};
+    metadataDiffFields.forEach((fieldName) => {
+      const fieldValue = fullPayload[fieldName];
+      if (fieldName === "authors") {
+        if (normalizeAuthorEntries(record.authors).length > 0) {
+          metadata[fieldName] = fieldValue;
+        }
+        return;
+      }
+      if (normalizeText(fieldValue)) {
+        metadata[fieldName] = fieldValue;
+      }
+    });
+    return metadata;
   };
 
   const renderPdfSplitPreview = () => {
@@ -3543,12 +3929,18 @@ import {
     }
     const levelPreview = getPdfSplitLevelPreview(pdfSplitState.preview, pdfSplitState.selectedLevel);
     const splits = Array.isArray(levelPreview?.splits) ? levelPreview.splits : [];
+    const resolvedFolderName = getResolvedPdfSplitFolderName();
 
     pdfSplitPreviewBody.innerHTML = "";
     if (!splits.length) {
+      if (pdfSplitSelectAllFiles) {
+        pdfSplitSelectAllFiles.checked = false;
+        pdfSplitSelectAllFiles.indeterminate = false;
+        pdfSplitSelectAllFiles.disabled = true;
+      }
       const emptyRow = document.createElement("tr");
       const cell = document.createElement("td");
-      cell.colSpan = 4;
+      cell.colSpan = 5;
       cell.className = "text-body-secondary small px-3 py-3";
       cell.textContent = `No level ${pdfSplitState.selectedLevel} headings were detected in this PDF.`;
       emptyRow.appendChild(cell);
@@ -3557,9 +3949,37 @@ import {
       return;
     }
 
-    pdfSplitPreviewCount.textContent = `${splits.length} chapter file${splits.length === 1 ? "" : "s"}`;
+    const selectedFiles = getPdfSplitSelectedFilesForCurrentLevel();
+    if (pdfSplitSelectAllFiles) {
+      pdfSplitSelectAllFiles.disabled = pdfSplitState.uploadInProgress;
+      pdfSplitSelectAllFiles.checked = selectedFiles.length === splits.length;
+      pdfSplitSelectAllFiles.indeterminate =
+        selectedFiles.length > 0 && selectedFiles.length < splits.length;
+    }
+    pdfSplitPreviewCount.textContent =
+      `${selectedFiles.length} of ${splits.length} chapter file${splits.length === 1 ? "" : "s"} selected`;
     splits.forEach((split, index) => {
       const row = document.createElement("tr");
+
+      const includeCell = document.createElement("td");
+      includeCell.className = "ps-3 text-nowrap";
+      const includeInput = document.createElement("input");
+      includeInput.type = "checkbox";
+      includeInput.className = "form-check-input pdf-split-file-toggle";
+      includeInput.checked = pdfSplitState.selectedOutputFiles.has(normalizeText(split.file_name));
+      includeInput.disabled = pdfSplitState.uploadInProgress;
+      includeInput.addEventListener("change", () => {
+        const splitFileName = normalizeText(split.file_name);
+        if (includeInput.checked) {
+          pdfSplitState.selectedOutputFiles.add(splitFileName);
+        } else {
+          pdfSplitState.selectedOutputFiles.delete(splitFileName);
+        }
+        renderPdfSplitPreview();
+        setPdfSplitModalBusyState(false, `Previewing level ${pdfSplitState.selectedLevel} chapter splits.`);
+      });
+      includeCell.appendChild(includeInput);
+      row.appendChild(includeCell);
 
       const indexCell = document.createElement("td");
       indexCell.className = "ps-3 text-body-secondary text-nowrap";
@@ -3590,7 +4010,7 @@ import {
       fileCell.className = "pe-3";
       const fileName = document.createElement("div");
       fileName.className = "pdf-split-file-name";
-      fileName.textContent = normalizeText(split.object_name);
+      fileName.textContent = `${resolvedFolderName}/${normalizeText(split.file_name)}`;
       fileCell.appendChild(fileName);
       row.appendChild(fileCell);
 
@@ -3618,6 +4038,7 @@ import {
       input.disabled = !levelPreview.available || pdfSplitState.uploadInProgress;
       input.addEventListener("change", () => {
         pdfSplitState.selectedLevel = levelPreview.level;
+        selectAllPdfSplitFilesForCurrentLevel();
         renderPdfSplitPreview();
         setPdfSplitModalBusyState(false, `Previewing level ${levelPreview.level} chapter splits.`);
       });
@@ -3650,7 +4071,7 @@ import {
       !preview ||
       !pdfSplitModalElement ||
       !pdfSplitPdfTitle ||
-      !pdfSplitFolderName ||
+      !pdfSplitFolderInput ||
       !pdfSplitPageCount
     ) {
       return;
@@ -3659,20 +4080,20 @@ import {
     pdfSplitState.file = file;
     pdfSplitState.preview = preview;
     pdfSplitState.selectedLevel = Number.parseInt(preview.default_heading_level, 10) || 1;
+    pdfSplitState.folderName = sanitizePdfSplitSegment(preview.folder_name, getPdfSplitFallbackFolderName());
+    pdfSplitState.folderNameTouched = false;
+    pdfSplitState.metadataRecord = createPdfSplitMetadataRecord({ file, preview });
+    pdfSplitState.selectedOutputFiles = new Set();
+    selectAllPdfSplitFilesForCurrentLevel();
 
     if (pdfSplitModalTitle) {
       pdfSplitModalTitle.textContent = "Split PDF by Chapter";
     }
-    if (pdfSplitModalSubtitle) {
-      pdfSplitModalSubtitle.textContent = `${normalizeText(file.name)} -> ${selectedBucketName}/${normalizeText(
-        preview.folder_name
-      )}`;
-    }
-    pdfSplitPdfTitle.textContent = normalizeText(preview.pdf_title) || filenameFromPath(file.name);
-    pdfSplitFolderName.textContent = normalizeText(preview.folder_name);
     pdfSplitPageCount.textContent = `${preview.page_count} page${Number(preview.page_count) === 1 ? "" : "s"}`;
 
+    updatePdfSplitModalSummary();
     renderPdfSplitLevelOptions();
+    renderPdfSplitMetadataFields();
     renderPdfSplitPreview();
     setPdfSplitModalBusyState(false, `Previewing level ${pdfSplitState.selectedLevel} chapter splits.`);
 
@@ -3748,6 +4169,11 @@ import {
       window.alert(`No level ${pdfSplitState.selectedLevel} headings are available for this PDF.`);
       return;
     }
+    const selectedOutputFiles = getPdfSplitSelectedFilesForCurrentLevel();
+    if (!selectedOutputFiles.length) {
+      window.alert("Select at least one output file to create.");
+      return;
+    }
 
     setPdfSplitModalBusyState(
       true,
@@ -3755,17 +4181,21 @@ import {
     );
 
     try {
+      const requestParams = new URLSearchParams({
+        file_name: normalizeText(pdfSplitState.file.name),
+        heading_level: String(pdfSplitState.selectedLevel),
+        folder_name: getResolvedPdfSplitFolderName(),
+      });
+      const metadataOverrides = buildPdfSplitMetadataOverrides();
       const payload = await apiRequest(
-        `/collections/${encodeURIComponent(
-          selectedBucketName
-        )}/documents/split/upload?file_name=${encodeURIComponent(
-          normalizeText(pdfSplitState.file.name)
-        )}&heading_level=${encodeURIComponent(String(pdfSplitState.selectedLevel))}`,
+        `/collections/${encodeURIComponent(selectedBucketName)}/documents/split/upload?${requestParams.toString()}`,
         {
           method: "POST",
           body: pdfSplitState.file,
           headers: {
             "Content-Type": pdfSplitState.file.type || "application/pdf",
+            "X-Evidencebase-Split-Metadata": JSON.stringify(metadataOverrides),
+            "X-Evidencebase-Split-Selected-Files": selectedOutputFiles.join(","),
           },
         }
       );
@@ -4278,6 +4708,50 @@ import {
     window.alert("Metadata cleared.");
   };
 
+  const reindexSelectedDocument = async () => {
+    if (!selectedBucketName) {
+      window.alert("Select a collection first.");
+      return;
+    }
+    const selectedDocument = getActionTargetDocument();
+    if (!selectedDocument) {
+      window.alert("Select a document first.");
+      return;
+    }
+
+    const fileName = filenameFromPath(selectedDocument.file_path);
+    if (!window.confirm(`Reindex '${fileName}'?`)) {
+      return;
+    }
+
+    const pendingSaveSuccessful = await flushPendingMetadataSaveForRecord(selectedDocument);
+    if (!pendingSaveSuccessful) {
+      window.alert(`Could not save pending metadata edits for '${fileName}'.`);
+      return;
+    }
+
+    try {
+      const payload = await apiRequest(
+        `/collections/${encodeURIComponent(selectedBucketName)}/documents/${encodeURIComponent(
+          selectedDocument.document_id
+        )}/reindex`,
+        { method: "POST" }
+      );
+      await refreshDocuments({ silent: true, preserveSelection: true });
+      if (payload.queued) {
+        window.alert(`Reindex queued for '${fileName}'.`);
+        return;
+      }
+      window.alert(
+        `Reindex requested for '${fileName}', but queueing failed: ${
+          normalizeText(payload.queue_error) || "Unknown error"
+        }`
+      );
+    } catch (error) {
+      window.alert(`Could not reindex '${fileName}': ${error.message}`);
+    }
+  };
+
   const removeSelectedDocument = async () => {
     if (!selectedBucketName) {
       window.alert("Select a collection first.");
@@ -4441,6 +4915,9 @@ import {
   detailUpdateCitationKeyButton?.addEventListener("click", () => {
     void updateCitationKeyForSelectedDocument();
   });
+  detailReindexButton?.addEventListener("click", () => {
+    void reindexSelectedDocument();
+  });
   detailClearMetaButton?.addEventListener("click", () => {
     void clearSelectedDocumentMetadata();
   });
@@ -4478,6 +4955,22 @@ import {
   });
   searchSectionNextButton?.addEventListener("click", () => {
     navigateSearchSectionModal(1);
+  });
+  pdfSplitFolderInput?.addEventListener("input", () => {
+    const nextFolderName = sanitizePdfSplitSegment(pdfSplitFolderInput.value, getPdfSplitFallbackFolderName());
+    pdfSplitState.folderName = nextFolderName;
+    pdfSplitState.folderNameTouched = true;
+    updatePdfSplitModalSummary();
+    renderPdfSplitPreview();
+  });
+  pdfSplitSelectAllFiles?.addEventListener("change", () => {
+    if (pdfSplitSelectAllFiles.checked) {
+      selectAllPdfSplitFilesForCurrentLevel();
+    } else {
+      clearAllPdfSplitFilesForCurrentLevel();
+    }
+    renderPdfSplitPreview();
+    setPdfSplitModalBusyState(false, `Previewing level ${pdfSplitState.selectedLevel} chapter splits.`);
   });
   pdfSplitUploadButton?.addEventListener("click", () => {
     void createPdfSplitFolder();

@@ -14,6 +14,7 @@ MAX_SPLIT_HEADING_LEVEL = 3
 
 _CONTROL_AND_PATH_PATTERN = re.compile(r"[\x00-\x1f\x7f/\\]+")
 _WHITESPACE_PATTERN = re.compile(r"\s+")
+_CHAPTER_HEADING_PATTERN = re.compile(r"^(?:chapter|part)\b", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -111,16 +112,27 @@ def load_pdf_reader(document_bytes: bytes) -> Any:
         raise ValueError(f"Could not parse PDF: {exc}") from exc
 
 
-def build_pdf_split_plan(reader: Any, file_name: str) -> PdfSplitPlan:
+def build_pdf_split_plan(
+    reader: Any,
+    file_name: str,
+    *,
+    folder_name_override: str | None = None,
+    pdf_title_override: str | None = None,
+) -> PdfSplitPlan:
     """Create preview data for heading-based PDF splitting."""
     normalized_file_name = _normalize_text(file_name)
     file_stem = PurePosixPath(normalized_file_name or "document.pdf").stem or "document"
-    pdf_title = _derive_pdf_title(reader, fallback_title=file_stem)
-    folder_name = _sanitize_object_segment(pdf_title, fallback=file_stem)
+    derived_pdf_title = _derive_pdf_title(reader, fallback_title=file_stem)
+    pdf_title = _normalize_text(pdf_title_override) or derived_pdf_title
+    folder_name = _sanitize_object_segment(
+        folder_name_override or pdf_title,
+        fallback=file_stem,
+    )
     page_count = len(reader.pages)
     outline_headings = _extract_outline_headings(reader)
 
     levels: list[PdfSplitLevel] = []
+    chapter_like_levels: list[int] = []
     for level in range(1, MAX_SPLIT_HEADING_LEVEL + 1):
         segments = _build_level_segments(
             outline_headings=outline_headings,
@@ -128,6 +140,13 @@ def build_pdf_split_plan(reader: Any, file_name: str) -> PdfSplitPlan:
             page_count=page_count,
             folder_name=folder_name,
         )
+        raw_level_headings = [
+            heading
+            for heading in outline_headings
+            if heading.level == level and heading.page_index < page_count
+        ]
+        if sum(1 for heading in raw_level_headings if _is_chapter_like_heading(heading.title)) >= 2:
+            chapter_like_levels.append(level)
         levels.append(
             PdfSplitLevel(
                 level=level,
@@ -140,22 +159,36 @@ def build_pdf_split_plan(reader: Any, file_name: str) -> PdfSplitPlan:
     available_levels = [level.level for level in levels if level.available]
     if not available_levels:
         raise ValueError("This PDF does not expose outline headings at levels 1, 2, or 3.")
+    preferred_levels = [level for level in chapter_like_levels if level in available_levels]
 
     return PdfSplitPlan(
         pdf_title=pdf_title,
         folder_name=folder_name,
         page_count=page_count,
-        default_heading_level=available_levels[0],
+        default_heading_level=preferred_levels[0] if preferred_levels else available_levels[0],
         levels=tuple(levels),
     )
 
 
-def render_pdf_split_segment(reader: Any, segment: PdfSplitSegment) -> bytes:
+def render_pdf_split_segment(
+    reader: Any,
+    segment: PdfSplitSegment,
+    *,
+    book_title: str | None = None,
+    author: str | None = None,
+) -> bytes:
     """Render one split segment as a standalone PDF."""
     writer = PdfWriter()
     for page_index in range(segment.page_start_index, segment.page_end_index + 1):
         writer.add_page(reader.pages[page_index])
-    writer.add_metadata({"/Title": segment.chapter_title})
+    metadata = {"/Title": segment.chapter_title}
+    normalized_author = _normalize_text(author)
+    normalized_book_title = _normalize_text(book_title)
+    if normalized_author:
+        metadata["/Author"] = normalized_author
+    if normalized_book_title:
+        metadata["/Subject"] = normalized_book_title
+    writer.add_metadata(metadata)
     output = BytesIO()
     writer.write(output)
     return output.getvalue()
@@ -228,6 +261,10 @@ def _derive_pdf_title(reader: Any, *, fallback_title: str) -> str:
     return title or _normalize_text(fallback_title) or "document"
 
 
+def _is_chapter_like_heading(title: str) -> bool:
+    return bool(_CHAPTER_HEADING_PATTERN.match(_normalize_text(title)))
+
+
 def _build_level_segments(
     *,
     outline_headings: list[PdfOutlineHeading],
@@ -242,6 +279,11 @@ def _build_level_segments(
     ]
     if not level_headings:
         return []
+    chapter_like_headings = [
+        heading for heading in level_headings if _is_chapter_like_heading(heading.title)
+    ]
+    if 2 <= len(chapter_like_headings) < len(level_headings):
+        level_headings = chapter_like_headings
 
     collapsed_headings: list[PdfOutlineHeading] = []
     seen_start_pages: set[int] = set()

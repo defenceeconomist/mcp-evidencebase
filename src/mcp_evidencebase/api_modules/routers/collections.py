@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import PurePosixPath
 from typing import Annotated, Any
@@ -22,6 +23,10 @@ from mcp_evidencebase.api_modules.task_dispatch import (
 )
 from mcp_evidencebase.citation_schema import get_citation_schema
 from mcp_evidencebase.ingestion import IngestionService
+from mcp_evidencebase.ingestion_modules.metadata import (
+    METADATA_FIELDS,
+    extract_pdf_metadata_seed,
+)
 from mcp_evidencebase.pdf_split import (
     MAX_SPLIT_HEADING_LEVEL,
     build_pdf_split_plan,
@@ -31,6 +36,41 @@ from mcp_evidencebase.pdf_split import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["collections"])
+
+
+def _parse_split_metadata_headers(request: Request) -> dict[str, str]:
+    """Read split metadata overrides from request headers."""
+    raw_metadata = request.headers.get("X-Evidencebase-Split-Metadata", "")
+    if not raw_metadata:
+        return {}
+
+    try:
+        payload = json.loads(raw_metadata)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid split metadata JSON: {exc.msg}.",
+        ) from exc
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Split metadata payload must be a JSON object.")
+
+    return {
+        field_name: str(payload.get(field_name, "")).strip()
+        for field_name in METADATA_FIELDS
+        if str(payload.get(field_name, "")).strip()
+    }
+
+
+def _parse_split_selected_files(request: Request) -> set[str] | None:
+    """Read the selected split output files from request headers."""
+    raw_selected_files = request.headers.get("X-Evidencebase-Split-Selected-Files", "")
+    if not raw_selected_files:
+        return None
+    return {
+        file_name.strip()
+        for file_name in raw_selected_files.split(",")
+        if file_name.strip()
+    }
 
 
 @router.get("/metadata/schema")
@@ -251,6 +291,7 @@ async def preview_document_split(
     bucket_name: str,
     file_name: str,
     request: Request,
+    service: Annotated[IngestionService, Depends(get_ingestion_service)],
 ) -> dict[str, Any]:
     """Preview how a PDF would be split by outline heading level."""
     normalized_bucket_name = bucket_name.strip()
@@ -265,9 +306,24 @@ async def preview_document_split(
     except Exception as exc:
         raise_document_http_error(exc)
 
+    metadata_seed = extract_pdf_metadata_seed(payload)
+    if "title" not in metadata_seed:
+        metadata_seed["title"] = plan.pdf_title
+    try:
+        crossref_result = service.lookup_metadata_seed_from_crossref(metadata=metadata_seed)
+    except Exception:
+        crossref_result = {}
+    crossref_metadata = crossref_result.get("metadata")
+    if isinstance(crossref_metadata, dict):
+        for field_name, field_value in crossref_metadata.items():
+            if field_value in ("", None, []):
+                continue
+            metadata_seed[field_name] = field_value
+
     return {
         "bucket_name": normalized_bucket_name,
         "file_name": normalized_file_name,
+        "metadata_seed": metadata_seed,
         **plan.to_dict(),
     }
 
@@ -279,6 +335,9 @@ async def upload_split_document(
     heading_level: int,
     request: Request,
     service: Annotated[IngestionService, Depends(get_ingestion_service)],
+    folder_name: str | None = None,
+    book_title: str | None = None,
+    author: str | None = None,
 ) -> dict[str, Any]:
     """Split one PDF by outline heading level, upload parts, and queue processing."""
     normalized_bucket_name = bucket_name.strip()
@@ -292,9 +351,25 @@ async def upload_split_document(
         )
 
     payload = await request.body()
+    metadata_overrides = _parse_split_metadata_headers(request)
+    selected_output_files = _parse_split_selected_files(request)
+    normalized_legacy_book_title = (book_title or "").strip()
+    normalized_legacy_author = (author or "").strip()
+    if normalized_legacy_book_title and "booktitle" not in metadata_overrides:
+        metadata_overrides["booktitle"] = normalized_legacy_book_title
+    if normalized_legacy_author and "author" not in metadata_overrides:
+        metadata_overrides["author"] = normalized_legacy_author
     try:
         reader = load_pdf_reader(payload)
-        plan = build_pdf_split_plan(reader, normalized_file_name)
+        plan = build_pdf_split_plan(
+            reader,
+            normalized_file_name,
+            folder_name_override=folder_name,
+            pdf_title_override=(
+                normalized_legacy_book_title
+                or metadata_overrides.get("booktitle", "")
+            ),
+        )
         level_preview = plan.get_level(heading_level)
     except Exception as exc:
         raise_document_http_error(exc)
@@ -304,12 +379,29 @@ async def upload_split_document(
             status_code=400,
             detail=f"No level {heading_level} outline headings were found in this PDF.",
         )
+    split_segments = list(level_preview.splits)
+    if selected_output_files is not None:
+        split_segments = [
+            split_segment
+            for split_segment in split_segments
+            if split_segment.file_name in selected_output_files
+        ]
+        if not split_segments:
+            raise HTTPException(
+                status_code=400,
+                detail="Select at least one split output file.",
+            )
 
     uploaded: list[dict[str, Any]] = []
     failures: list[dict[str, str]] = []
-    for split_segment in level_preview.splits:
+    for split_segment in split_segments:
         try:
-            split_payload = render_pdf_split_segment(reader, split_segment)
+            split_payload = render_pdf_split_segment(
+                reader,
+                split_segment,
+                book_title=metadata_overrides.get("booktitle", plan.pdf_title),
+                author=metadata_overrides.get("author", normalized_legacy_author),
+            )
             object_name = service.upload_document(
                 bucket_name=normalized_bucket_name,
                 object_name=split_segment.object_name,
@@ -330,7 +422,11 @@ async def upload_split_document(
         task_id: str | None = None
         queue_error = ""
         try:
-            task = enqueue_partition_task(normalized_bucket_name, object_name)
+            task = enqueue_partition_task(
+                normalized_bucket_name,
+                object_name,
+                metadata_overrides=metadata_overrides,
+            )
             task_id = task.id
         except Exception as exc:
             queued = False

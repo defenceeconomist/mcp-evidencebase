@@ -444,6 +444,23 @@ export const extractCitationFirstTitleWord = (value) => {
   return titleWordMatch ? titleWordMatch[0] : "";
 };
 
+export const extractCitationChapterTitleToken = (value) => {
+  const normalizedValue = stripOuterBraces(value);
+  if (!normalizedValue) {
+    return "";
+  }
+  const chapterMatch = normalizedValue.match(
+    /\bchapter\s*([0-9]+|[ivxlcdm]+)\b(?:\s*[-_:,.;)]*\s*([A-Za-z0-9]+))?/i
+  );
+  if (!chapterMatch) {
+    return "";
+  }
+  const chapterNumber = normalizeCitationToken(chapterMatch[1]);
+  const trailingWord = normalizeCitationToken(chapterMatch[2] || "");
+  const chapterToken = `ch${chapterNumber}${trailingWord}`;
+  return chapterToken === "ch" ? "" : chapterToken;
+};
+
 export const buildFallbackCitationKey = ({
   filePath,
   index,
@@ -454,13 +471,15 @@ export const buildFallbackCitationKey = ({
 }) => {
   const authorToken = normalizeCitationToken(authorLastName);
   const yearToken = extractCitationYearToken(year);
-  const titleToken = normalizeCitationToken(extractCitationFirstTitleWord(title));
+  const withoutExtension = filenameFromPath(filePath).replace(/\.[^/.]+$/, "");
+  const fileTitleToken = extractCitationChapterTitleToken(withoutExtension);
+  const metadataTitleToken = normalizeCitationToken(extractCitationFirstTitleWord(title));
+  const titleToken = fileTitleToken || metadataTitleToken;
   const candidate = `${authorToken}${yearToken}${titleToken}`;
   if (candidate) {
     return candidate;
   }
 
-  const withoutExtension = filenameFromPath(filePath).replace(/\.[^/.]+$/, "");
   const slug = withoutExtension
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")

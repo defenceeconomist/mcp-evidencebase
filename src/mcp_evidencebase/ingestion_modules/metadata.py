@@ -6,24 +6,14 @@ import hashlib
 import io
 import json
 import mimetypes
-import os
 import re
-import threading
-import time
 import uuid
-from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from collections.abc import Mapping
 from datetime import datetime, timezone
-from difflib import SequenceMatcher
 from pathlib import PurePosixPath
-from typing import Any, Protocol
-from urllib.parse import quote
-
-from minio import Minio
-from minio.error import S3Error
+from typing import Any
 
 from mcp_evidencebase.citation_schema import BIBTEX_FIELDS as SHARED_BIBTEX_FIELDS
-from mcp_evidencebase.minio_settings import MinioSettings, build_minio_settings
 
 BIBTEX_FIELDS: tuple[str, ...] = SHARED_BIBTEX_FIELDS
 
@@ -39,6 +29,10 @@ DOI_PATTERN = re.compile(r"\b10\.\d{4,9}/[-._;()/:A-Z0-9]+\b", re.IGNORECASE)
 ISBN_PATTERN = re.compile(r"\b(?:97[89][-\s]?)?(?:\d[-\s]?){9}[\dXx]\b")
 ISSN_PATTERN = re.compile(
     r"\b(?:e[-\s]?issn|p[-\s]?issn|issn)\s*[:#]?\s*(\d{4}[-\s]?\d{3}[\dXx])\b",
+    re.IGNORECASE,
+)
+CHAPTER_TITLE_PATTERN = re.compile(
+    r"\bchapter\s*([0-9]+|[ivxlcdm]+)\b(?:\s*[-_:,.;)]*\s*([A-Za-z0-9]+))?",
     re.IGNORECASE,
 )
 SEARCH_MODES: tuple[str, ...] = ("semantic", "keyword", "hybrid")
@@ -183,6 +177,20 @@ def _extract_first_title_word(value: str) -> str:
     return ""
 
 
+def _extract_chapter_title_token(value: str) -> str:
+    """Extract ``chN<word>`` token when a title contains an explicit chapter marker."""
+    normalized = _strip_outer_braces(value)
+    if not normalized:
+        return ""
+    chapter_match = CHAPTER_TITLE_PATTERN.search(normalized)
+    if not chapter_match:
+        return ""
+    chapter_number = _citation_token(chapter_match.group(1))
+    trailing_word = _citation_token(chapter_match.group(2) or "")
+    chapter_token = f"ch{chapter_number}{trailing_word}"
+    return "" if chapter_token == "ch" else chapter_token
+
+
 def build_default_citation_key(
     *,
     metadata: Mapping[str, Any],
@@ -192,13 +200,17 @@ def build_default_citation_key(
     """Build default citation key as ``firstAuthorLastName + year + firstTitleWord``."""
     author_token = _citation_token(_extract_first_author_last_name(metadata))
     year_token = _extract_year_token(str(metadata.get("year", "")))
-    title_token = _citation_token(_extract_first_title_word(str(metadata.get("title", ""))))
+    file_stem = PurePosixPath(file_path).stem
+    file_title_token = _extract_chapter_title_token(file_stem)
+    metadata_title_token = _citation_token(
+        _extract_first_title_word(str(metadata.get("title", "")))
+    )
+    title_token = file_title_token or metadata_title_token
 
     candidate = f"{author_token}{year_token}{title_token}"
     if candidate:
         return candidate
 
-    file_stem = PurePosixPath(file_path).stem
     return slugify(file_stem) or document_id[:12]
 
 
@@ -534,6 +546,48 @@ def extract_pdf_title_author(document_bytes: bytes) -> dict[str, str]:
     return extracted
 
 
+def extract_pdf_metadata_seed(document_bytes: bytes) -> dict[str, str]:
+    """Extract preview metadata using the same PDF/title identifier approach as ingestion."""
+    extracted = extract_pdf_title_author(document_bytes)
+    if not document_bytes:
+        return extracted
+
+    try:
+        from pypdf import PdfReader
+    except ImportError:
+        return extracted
+
+    try:
+        reader = PdfReader(io.BytesIO(document_bytes))
+    except Exception:
+        return extracted
+
+    if not reader.pages:
+        return extracted
+
+    try:
+        first_page_text = str(reader.pages[0].extract_text() or "").strip()
+    except Exception:
+        first_page_text = ""
+
+    if not first_page_text:
+        return extracted
+
+    doi_match = DOI_PATTERN.search(first_page_text)
+    if doi_match:
+        extracted["doi"] = _normalize_doi(doi_match.group(0))
+
+    extracted_isbn = _extract_isbn(first_page_text)
+    if extracted_isbn:
+        extracted["isbn"] = extracted_isbn
+
+    extracted_issn = _extract_issn(first_page_text)
+    if extracted_issn:
+        extracted["issn"] = extracted_issn
+
+    return extracted
+
+
 def extract_metadata_from_partitions(
     *,
     partitions: list[dict[str, Any]],
@@ -578,4 +632,3 @@ def extract_metadata_from_partitions(
         metadata["issn"] = extracted_issn
 
     return metadata
-

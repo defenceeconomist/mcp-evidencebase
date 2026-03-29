@@ -1365,6 +1365,7 @@ class IngestionService:
         bucket_name: str,
         document_id: str,
         metadata: Mapping[str, Any],
+        refresh_vectors: bool = True,
     ) -> dict[str, str]:
         """Upsert BibTeX-style metadata for a document.
 
@@ -1395,14 +1396,17 @@ class IngestionService:
             document_id=document_id,
             metadata=normalized,
         )
-        if self._indexed_metadata_has_changed(
+        should_refresh_vectors = refresh_vectors and self._indexed_metadata_has_changed(
             previous=existing_metadata,
             current=merged,
-        ):
+        )
+        if should_refresh_vectors:
             self._refresh_document_chunk_vectors(
                 bucket_name=bucket_name,
                 document_id=document_id,
             )
+        else:
+            self._normalize_state_after_metadata_only_update(document_id=document_id)
         return merged
 
     @staticmethod
@@ -1452,6 +1456,40 @@ class IngestionService:
             object_name=object_name,
             document_id=document_id,
             etag=state.get("etag", ""),
+        )
+
+    def _normalize_state_after_metadata_only_update(self, *, document_id: str) -> None:
+        """Clear stale upsert progress when metadata changes do not queue new work."""
+        state = self._repository.get_state(document_id)
+        processing_state = str(state.get("processing_state", "")).strip().lower()
+        processing_stage = str(state.get("processing_stage", "")).strip().lower()
+        processing_progress = self._safe_positive_int(state.get("processing_progress")) or 0
+        stage_progress = self._safe_positive_int(state.get("processing_stage_progress")) or 0
+
+        should_mark_processed = False
+        if processing_state == "processed":
+            should_mark_processed = (
+                processing_stage != "processed"
+                or processing_progress < 100
+                or stage_progress < 100
+            )
+        elif (
+            processing_state == "processing"
+            and processing_stage == "upsert"
+            and processing_progress >= 80
+        ):
+            should_mark_processed = True
+
+        if not should_mark_processed:
+            return
+
+        self._set_state(
+            document_id,
+            processing_state="processed",
+            processing_stage="processed",
+            processing_stage_progress=100,
+            processing_progress=100,
+            error="",
         )
 
     def resolve_document_object(
@@ -1650,15 +1688,13 @@ class IngestionService:
         )
         return scored
 
-    def fetch_metadata_from_crossref(
+    def _lookup_metadata_from_crossref(
         self,
         *,
-        bucket_name: str,
-        document_id: str,
+        existing_metadata: Mapping[str, Any],
+        require_changes: bool,
     ) -> dict[str, Any]:
-        """Fetch and persist document metadata from Crossref with confidence gating."""
-        _, existing_metadata = self._repository.get_document_metadata(bucket_name, document_id)
-
+        """Return one accepted Crossref metadata payload for existing seed metadata."""
         expected_doi = _normalize_doi_lookup_value(existing_metadata.get("doi", ""))
         expected_isbn = _normalize_isbn_value(existing_metadata.get("isbn", ""))
         expected_issn = _normalize_issn_value(existing_metadata.get("issn", ""))
@@ -1723,24 +1759,19 @@ class IngestionService:
                 if confidence > best_attempt_score:
                     best_attempt_score = confidence
                     best_attempt_field = lookup_field
-
                 if confidence < CROSSREF_CONFIDENCE_THRESHOLD:
                     continue
 
-                fetched_metadata = _crossref_map_item_to_metadata(
-                    candidate_item,
-                )
-                if not _metadata_update_changes(existing_metadata, fetched_metadata):
+                fetched_metadata = _crossref_map_item_to_metadata(candidate_item)
+                if require_changes and not _metadata_update_changes(
+                    existing_metadata,
+                    fetched_metadata,
+                ):
                     continue
-                merged = self.update_metadata(
-                    bucket_name=bucket_name,
-                    document_id=document_id,
-                    metadata=fetched_metadata,
-                )
                 return {
                     "lookup_field": lookup_field,
                     "confidence": round(confidence, 4),
-                    "metadata": merged,
+                    "metadata": fetched_metadata,
                 }
 
             items = self._crossref_extract_items(payload)
@@ -1760,25 +1791,19 @@ class IngestionService:
                 if confidence > best_attempt_score:
                     best_attempt_score = confidence
                     best_attempt_field = lookup_field
-
                 if confidence < CROSSREF_CONFIDENCE_THRESHOLD:
                     break
 
-                fetched_metadata = _crossref_map_item_to_metadata(
-                    candidate_item,
-                )
-                if not _metadata_update_changes(existing_metadata, fetched_metadata):
+                fetched_metadata = _crossref_map_item_to_metadata(candidate_item)
+                if require_changes and not _metadata_update_changes(
+                    existing_metadata,
+                    fetched_metadata,
+                ):
                     continue
-
-                merged = self.update_metadata(
-                    bucket_name=bucket_name,
-                    document_id=document_id,
-                    metadata=fetched_metadata,
-                )
                 return {
                     "lookup_field": lookup_field,
                     "confidence": round(confidence, 4),
-                    "metadata": merged,
+                    "metadata": fetched_metadata,
                 }
 
         if best_attempt_field:
@@ -1788,6 +1813,40 @@ class IngestionService:
                 f"{best_attempt_score:.2f}."
             )
         raise ValueError("No Crossref results were found for DOI/ISBN/ISSN/title lookups.")
+
+    def lookup_metadata_seed_from_crossref(
+        self,
+        *,
+        metadata: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Look up Crossref metadata for a transient metadata seed without persisting it."""
+        return self._lookup_metadata_from_crossref(
+            existing_metadata=metadata,
+            require_changes=False,
+        )
+
+    def fetch_metadata_from_crossref(
+        self,
+        *,
+        bucket_name: str,
+        document_id: str,
+    ) -> dict[str, Any]:
+        """Fetch and persist document metadata from Crossref with confidence gating."""
+        _, existing_metadata = self._repository.get_document_metadata(bucket_name, document_id)
+        result = self._lookup_metadata_from_crossref(
+            existing_metadata=existing_metadata,
+            require_changes=True,
+        )
+        merged = self.update_metadata(
+            bucket_name=bucket_name,
+            document_id=document_id,
+            metadata=result["metadata"],
+        )
+        return {
+            "lookup_field": result["lookup_field"],
+            "confidence": result["confidence"],
+            "metadata": merged,
+        }
 
     def delete_document(
         self,
