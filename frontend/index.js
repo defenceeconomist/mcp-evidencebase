@@ -4851,7 +4851,8 @@ import {
 
   document.querySelectorAll("[data-path]").forEach((anchor) => {
     const path = anchor.getAttribute("data-path") || "";
-    anchor.href = `${appBaseUrl}${path}`;
+    const hostRootPath = anchor.getAttribute("data-host-root-path") || "";
+    anchor.href = hostRootPath ? `${origin}${hostRootPath}` : `${appBaseUrl}${path}`;
     anchor.target = "_blank";
     anchor.rel = "noopener noreferrer";
   });
