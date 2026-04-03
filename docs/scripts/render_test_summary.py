@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Render a grouped test-and-coverage summary for Sphinx docs."""
+"""Render a grouped test-and-coverage summary for standalone test artifacts."""
 
 from __future__ import annotations
 
+import argparse
 import ast
 import json
 from collections import Counter, defaultdict
@@ -23,18 +24,20 @@ AREA_ORDER: list[str] = list(AREA_BY_FILE.values())
 
 
 def _escape_cell(value: str) -> str:
-    """Escape content for RST list-table cells."""
+    """Escape content for Markdown table cells."""
     sanitized = " ".join(value.split())
     return sanitized.replace("|", r"\|")
 
 
 def _load_test_docstrings(tests_dir: Path, repo_root: Path) -> dict[str, str]:
     """Read test function docstrings keyed by ``nodeid``."""
+    resolved_tests_dir = tests_dir.resolve()
+    resolved_repo_root = repo_root.resolve()
     docstrings: dict[str, str] = {}
-    for path in sorted(tests_dir.glob("test_*.py")):
+    for path in sorted(resolved_tests_dir.glob("test_*.py")):
         module = ast.parse(path.read_text(encoding="utf-8"))
         absolute_prefix = path.as_posix()
-        relative_prefix = path.relative_to(repo_root).as_posix()
+        relative_prefix = path.relative_to(resolved_repo_root).as_posix()
         for node in module.body:
             if not isinstance(node, ast.FunctionDef):
                 continue
@@ -113,7 +116,7 @@ def render_summary(
     repo_root: Path,
     output_path: Path,
 ) -> None:
-    """Render RST summary to ``output_path``."""
+    """Render Markdown summary to ``output_path``."""
     results = _load_results(report_json_path)
     docstrings = _load_test_docstrings(tests_dir, repo_root)
     covered_total, valid_total, modules = _parse_coverage(coverage_xml_path)
@@ -122,24 +125,23 @@ def render_summary(
     total = len(results)
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
-    lines: list[str] = []
-    lines.append(f"Generated: ``{generated_at}``")
-    lines.append("")
+    lines: list[str] = ["# Test Report Summary", "", f"Generated: `{generated_at}`", ""]
 
     if total == 0:
         lines.append(
-            "No test results were found. Run ``docs/build_docs.sh`` to regenerate test artifacts."
+            "No test results were found. Run `tests/build_test_reports.sh` to regenerate test artifacts."
         )
         lines.append("")
     else:
+        lines.append("## Overview")
+        lines.append("")
         lines.append(f"- Total tests: **{total}**")
         lines.append(f"- Passed: **{status_counts.get('passed', 0)}**")
         lines.append(f"- Failed: **{status_counts.get('failed', 0)}**")
         lines.append(f"- Skipped: **{status_counts.get('skipped', 0)}**")
         lines.append("")
 
-    lines.append("Coverage")
-    lines.append("~~~~~~~~")
+    lines.append("## Coverage")
     lines.append("")
     if valid_total > 0:
         total_percent = covered_total / valid_total * 100.0
@@ -152,27 +154,10 @@ def render_summary(
     lines.append("")
 
     if modules:
-        lines.extend(
-            [
-                ".. list-table:: Module coverage (``src/mcp_evidencebase``)",
-                "   :header-rows: 1",
-                "   :widths: 52 12 12 12",
-                "",
-                "   * - Module",
-                "     - Covered",
-                "     - Total",
-                "     - Coverage",
-            ]
-        )
+        lines.append("| Module | Covered | Total | Coverage |")
+        lines.append("| --- | ---: | ---: | ---: |")
         for filename, covered, valid, percent in modules:
-            lines.extend(
-                [
-                    f"   * - ``{_escape_cell(filename)}``",
-                    f"     - {covered}",
-                    f"     - {valid}",
-                    f"     - {percent:.1f}%",
-                ]
-            )
+            lines.append(f"| `{_escape_cell(filename)}` | {covered} | {valid} | {percent:.1f}% |")
         lines.append("")
 
     grouped_results: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -181,16 +166,14 @@ def render_summary(
         area = AREA_BY_FILE.get(file_name, "Other")
         grouped_results[area].append(result)
 
-    lines.append("Grouped Test Results")
-    lines.append("~~~~~~~~~~~~~~~~~~~~")
+    lines.append("## Grouped Test Results")
     lines.append("")
     for area in AREA_ORDER + sorted(set(grouped_results) - set(AREA_ORDER)):
         area_results = grouped_results.get(area, [])
         if not area_results:
             continue
         area_counts = Counter(str(result.get("status", "unknown")) for result in area_results)
-        lines.append(area)
-        lines.append("^" * len(area))
+        lines.append(f"### {area}")
         lines.append("")
         lines.append(
             f"- Tests: **{len(area_results)}** | "
@@ -199,30 +182,15 @@ def render_summary(
             f"Skipped: **{area_counts.get('skipped', 0)}**"
         )
         lines.append("")
-        lines.extend(
-            [
-                ".. list-table:: What each test validates",
-                "   :header-rows: 1",
-                "   :widths: 40 10 10 40",
-                "",
-                "   * - Test",
-                "     - Status",
-                "     - Duration (ms)",
-                "     - What is tested and expected result",
-            ]
-        )
+        lines.append("| Test | Status | Duration (ms) | What is tested and expected result |")
+        lines.append("| --- | --- | ---: | --- |")
         for result in sorted(area_results, key=lambda item: str(item.get("nodeid", ""))):
             nodeid = str(result.get("nodeid", ""))
             status = str(result.get("status", "unknown"))
             duration_ms = float(result.get("duration", 0.0)) * 1000.0
             commentary = _commentary_for_result(result, docstrings)
-            lines.extend(
-                [
-                    f"   * - ``{_escape_cell(nodeid)}``",
-                    f"     - {status}",
-                    f"     - {duration_ms:.2f}",
-                    f"     - {_escape_cell(commentary)}",
-                ]
+            lines.append(
+                f"| `{_escape_cell(nodeid)}` | {status} | {duration_ms:.2f} | {_escape_cell(commentary)} |"
             )
         lines.append("")
 
@@ -230,20 +198,29 @@ def render_summary(
     output_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
 
 
+def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments."""
+    root = Path(__file__).resolve().parents[2]
+    report_dir = root / "build/test-reports"
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--report-json", type=Path, default=report_dir / "final_report.json")
+    parser.add_argument("--coverage-xml", type=Path, default=report_dir / "coverage.xml")
+    parser.add_argument("--tests-dir", type=Path, default=root / "tests")
+    parser.add_argument("--output", type=Path, default=report_dir / "summary.md")
+    return parser.parse_args()
+
+
 def main() -> int:
     """Run summary rendering with repository-default paths."""
     root = Path(__file__).resolve().parents[2]
-    report_json_path = root / "docs/source/_static/tests/final_report.json"
-    coverage_xml_path = root / "docs/source/_static/tests/coverage.xml"
-    tests_dir = root / "tests"
-    output_path = root / "docs/source/_static/tests/summary.rst"
+    args = parse_args()
 
     render_summary(
-        report_json_path=report_json_path,
-        coverage_xml_path=coverage_xml_path,
-        tests_dir=tests_dir,
+        report_json_path=args.report_json,
+        coverage_xml_path=args.coverage_xml,
+        tests_dir=args.tests_dir,
         repo_root=root,
-        output_path=output_path,
+        output_path=args.output,
     )
     return 0
 

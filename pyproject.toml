@@ -36,9 +36,6 @@ docs = [
   "Sphinx>=8.1.3",
   "httpx>=0.27.0",
   "myst-parser>=4.0.1",
-  "pytest>=8.3.4",
-  "pytest-cov>=6.0.0",
-  "pytest-html-plus",
 ]
 
 [project.scripts]
@@ -48,7 +45,7 @@ mcp-evidencebase = "mcp_evidencebase.cli:main"
 packages = ["src/mcp_evidencebase"]
 
 [tool.pytest.ini_options]
-addopts = "-ra --strict-config --strict-markers --cov=mcp_evidencebase --cov-report=term-missing --cov-report=xml:docs/source/_static/tests/coverage.xml --html-output=docs/source/_static/tests --should-open-report=never"
+addopts = "-ra --strict-config --strict-markers --cov=mcp_evidencebase --cov-report=term-missing"
 testpaths = ["tests"]
 markers = [
   "area_cli: CLI and package-level behavior tests",

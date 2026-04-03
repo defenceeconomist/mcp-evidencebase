@@ -60,7 +60,7 @@ Evidence Base is a Python-first stack for:
 - embedding/chunk retrieval in an external Qdrant deployment,
 - unified operations UI/docs behind an NGINX proxy.
 
-The repository includes local Docker orchestration, Sphinx documentation, API/CLI examples, and automated test reporting with grouped summaries and coverage.
+The repository includes local Docker orchestration, Sphinx documentation, API/CLI examples, and standalone test reporting with grouped summaries and coverage.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -307,7 +307,6 @@ http://localhost:52180
 http://localhost:52180/docs/
 http://localhost:52180/docs/readme.html
 http://localhost:52180/docs/reference.html
-http://localhost:52180/docs/tests.html
 http://localhost:52180/minio/
 http://localhost:52180/minio-console/
 http://localhost:52180/redisinsight/
@@ -327,7 +326,6 @@ https://evidencebase.heley.uk
 https://evidencebase.heley.uk/docs/
 https://evidencebase.heley.uk/docs/readme.html
 https://evidencebase.heley.uk/docs/reference.html
-https://evidencebase.heley.uk/docs/tests.html
 https://evidencebase.heley.uk/minio/
 https://evidencebase.heley.uk/minio-console/
 https://evidencebase.heley.uk/redisinsight/
@@ -601,20 +599,29 @@ Operational guidance:
 - Re-run section/chunk/upsert stages when chunking strategy changes and partition payload is still valid.
 - Keep stage payloads deterministic so retries remain idempotent.
 
-### Documentation And Test Reporting
+### Documentation
 
-Build docs locally (includes full test run, grouped summary, and coverage):
+Build docs locally:
 
 ```bash
 docs/build_docs.sh
 ```
 
-The docs test page includes:
+### Test Reporting
+
+Generate standalone test artifacts locally:
+
+```bash
+tests/build_test_reports.sh
+```
+
+The test report bundle includes:
 
 - grouped tests by key areas,
 - per-test commentary (what is validated and expected result),
 - module and total line coverage,
-- full HTML test report embed.
+- full HTML report in `build/test-reports/report.html`,
+- summary in `build/test-reports/summary.md`.
 
 ### Environment Overrides
 
@@ -716,6 +723,7 @@ Search results are hydrated from Redis section mappings (when available) to incl
 ├── src/
 │   └── mcp_evidencebase/
 └── tests/
+    └── build_test_reports.sh
 ```
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
@@ -725,7 +733,7 @@ Search results are hydrated from Redis section mappings (when available) to incl
 - [x] Unified proxy-based local stack for UI/API/docs/ops services
 - [x] End-to-end ingestion flow (upload -> partition -> metadata -> chunks -> vectors)
 - [x] Sphinx docs with API reference and CLI vignette
-- [x] Test reporting with grouped areas and coverage summary in docs
+- [x] Standalone test reporting with grouped areas and coverage summary
 - [ ] Add automated deployment workflow for docs and services
 - [ ] Implement parent-child context retrieval
 - [ ] Add prompt rewriting for query refinement

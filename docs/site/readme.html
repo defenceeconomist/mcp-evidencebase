@@ -92,7 +92,7 @@
 <li><p>embedding/chunk retrieval in an external Qdrant deployment,</p></li>
 <li><p>unified operations UI/docs behind an NGINX proxy.</p></li>
 </ul>
-<p>The repository includes local Docker orchestration, Sphinx documentation, API/CLI examples, and automated test reporting with grouped summaries and coverage.</p>
+<p>The repository includes local Docker orchestration, Sphinx documentation, API/CLI examples, and standalone test reporting with grouped summaries and coverage.</p>
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 <section id="built-with">
 <h3>Built With<a class="headerlink" href="#built-with" title="Link to this heading">¶</a></h3>
@@ -318,7 +318,6 @@ SHARED_DATASTORE_NETWORK_NAME=shared-datastores
 http://localhost:52180/docs/
 http://localhost:52180/docs/readme.html
 http://localhost:52180/docs/reference.html
-http://localhost:52180/docs/tests.html
 http://localhost:52180/minio/
 http://localhost:52180/minio-console/
 http://localhost:52180/redisinsight/
@@ -335,7 +334,6 @@ shared datastore stack to be running and reachable on the external
 https://evidencebase.heley.uk/docs/
 https://evidencebase.heley.uk/docs/readme.html
 https://evidencebase.heley.uk/docs/reference.html
-https://evidencebase.heley.uk/docs/tests.html
 https://evidencebase.heley.uk/minio/
 https://evidencebase.heley.uk/minio-console/
 https://evidencebase.heley.uk/redisinsight/
@@ -581,18 +579,26 @@ run a beat process (or worker with beat enabled). The current API endpoint
 <li><p>Keep stage payloads deterministic so retries remain idempotent.</p></li>
 </ul>
 </section>
-<section id="documentation-and-test-reporting">
-<h3>Documentation And Test Reporting<a class="headerlink" href="#documentation-and-test-reporting" title="Link to this heading">¶</a></h3>
-<p>Build docs locally (includes full test run, grouped summary, and coverage):</p>
+<section id="documentation">
+<h3>Documentation<a class="headerlink" href="#documentation" title="Link to this heading">¶</a></h3>
+<p>Build docs locally:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docs/build_docs.sh
 </pre></div>
 </div>
-<p>The docs test page includes:</p>
+</section>
+<section id="test-reporting">
+<h3>Test Reporting<a class="headerlink" href="#test-reporting" title="Link to this heading">¶</a></h3>
+<p>Generate standalone test artifacts locally:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>tests/build_test_reports.sh
+</pre></div>
+</div>
+<p>The test report bundle includes:</p>
 <ul class="simple">
 <li><p>grouped tests by key areas,</p></li>
 <li><p>per-test commentary (what is validated and expected result),</p></li>
 <li><p>module and total line coverage,</p></li>
-<li><p>full HTML test report embed.</p></li>
+<li><p>full HTML report in <code class="docutils literal notranslate"><span class="pre">build/test-reports/report.html</span></code>,</p></li>
+<li><p>summary in <code class="docutils literal notranslate"><span class="pre">build/test-reports/summary.md</span></code>.</p></li>
 </ul>
 </section>
 <section id="environment-overrides">
@@ -692,6 +698,7 @@ and <code class="docutils literal notranslate"><span class="pre">QDRANT_URL</spa
 ├── src/
 │   └── mcp_evidencebase/
 └── tests/
+    └── build_test_reports.sh
 </pre></div>
 </div>
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
@@ -702,7 +709,7 @@ and <code class="docutils literal notranslate"><span class="pre">QDRANT_URL</spa
 <li><p>[x] Unified proxy-based local stack for UI/API/docs/ops services</p></li>
 <li><p>[x] End-to-end ingestion flow (upload -&gt; partition -&gt; metadata -&gt; chunks -&gt; vectors)</p></li>
 <li><p>[x] Sphinx docs with API reference and CLI vignette</p></li>
-<li><p>[x] Test reporting with grouped areas and coverage summary in docs</p></li>
+<li><p>[x] Standalone test reporting with grouped areas and coverage summary</p></li>
 <li><p>[ ] Add automated deployment workflow for docs and services</p></li>
 <li><p>[ ] Implement parent-child context retrieval</p></li>
 <li><p>[ ] Add prompt rewriting for query refinement</p></li>
@@ -791,7 +798,6 @@ and <code class="docutils literal notranslate"><span class="pre">QDRANT_URL</spa
 <li class="toctree-l1"><a class="reference internal" href="vignette_cli.html">Command-Line Vignette: End-To-End Workflow</a></li>
 <li class="toctree-l1"><a class="reference internal" href="gpt_actions.html">GPT Actions API</a></li>
 <li class="toctree-l1"><a class="reference internal" href="reference.html">Reference</a></li>
-<li class="toctree-l1"><a class="reference internal" href="tests.html">Tests</a></li>
 </ul>
 
 <div class="relations">

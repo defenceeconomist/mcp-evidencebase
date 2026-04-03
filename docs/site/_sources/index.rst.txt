@@ -9,4 +9,3 @@ mcp-evidencebase Documentation
    vignette_cli
    gpt_actions
    reference
-   tests
