@@ -38,61 +38,17 @@ x-backend-environment: &backend-environment
   CHUNK_PRESERVE_PAGE_BREAKS: ${CHUNK_PRESERVE_PAGE_BREAKS:-true}
   MINIO_SCAN_INTERVAL_SECONDS: ${MINIO_SCAN_INTERVAL_SECONDS:-15}
 
-x-flower-environment: &flower-environment
-  CELERY_BROKER_URL: ${CELERY_BROKER_URL:?CELERY_BROKER_URL must be set in .env or the environment}
-  CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:?CELERY_RESULT_BACKEND must be set in .env or the environment}
-  CELERY_APP: ${CELERY_APP:-mcp_evidencebase.celery_app}
-
 services:
-  minio:
-    image: minio/minio:latest
-    container_name: evidencebase-minio
-    restart: unless-stopped
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
-      MINIO_SERVER_URL: ${MINIO_SERVER_URL:-http://minio:9000}
-      MINIO_BROWSER_REDIRECT_URL: ${MINIO_BROWSER_REDIRECT_URL:-http://localhost:${PROXY_PORT:-52180}/minio-console}
-    command: server /data --console-address ":9001"
-    volumes:
-      - minio-data:/data
-
   celery:
     <<: *app-image
     container_name: evidencebase-celery
     restart: unless-stopped
-    depends_on:
-      minio:
-        condition: service_started
     environment:
       <<: *backend-environment
       CELERY_APP: ${CELERY_APP:-mcp_evidencebase.celery_app}
     volumes:
       - model-cache:/model-cache
     command: ["celery", "-A", "mcp_evidencebase.celery_app", "worker", "--loglevel=info"]
-    networks:
-      - default
-      - datastores
-
-  flower:
-    <<: *app-image
-    profiles: ["ops"]
-    container_name: evidencebase-flower
-    restart: unless-stopped
-    depends_on:
-      celery:
-        condition: service_started
-    environment:
-      <<: *flower-environment
-    command:
-      [
-        "celery",
-        "-A",
-        "mcp_evidencebase.celery_app",
-        "flower",
-        "--port=5555",
-        "--url_prefix=/flower",
-      ]
     networks:
       - default
       - datastores
@@ -108,9 +64,6 @@ services:
       GPT_ACTIONS_LINK_BASE_URL: ${GPT_ACTIONS_LINK_BASE_URL:-https://evidencebase.heley.uk}
     volumes:
       - model-cache:/model-cache
-    depends_on:
-      minio:
-        condition: service_started
     networks:
       - default
       - datastores
@@ -120,8 +73,6 @@ services:
     container_name: evidencebase-proxy
     restart: unless-stopped
     depends_on:
-      minio:
-        condition: service_started
       api:
         condition: service_started
     ports:
@@ -146,7 +97,6 @@ services:
       - "${CLOUDFLARE_TUNNEL_TOKEN:?CLOUDFLARE_TUNNEL_TOKEN is required for the cloudflared service}"
 
 volumes:
-  minio-data:
   model-cache:
 
 networks:

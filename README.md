@@ -143,12 +143,9 @@ MinIO/Redis/Qdrant):
 cd /Users/lukeheley/Developer/shared-datastores
 docker compose up -d
 
-# 2) Start the local MinIO service in mcp-evidencebase.
+# 2) Run pytest in a one-off api container on the compose network.
+#    Use the shared datastore hostnames for MinIO, Redis, and Qdrant.
 cd /Users/lukeheley/Developer/mcp-evidencebase
-docker compose up -d minio
-
-# 3) Run pytest in a one-off api container on the compose network.
-#    Use the shared datastore hostnames plus the local MinIO hostname.
 docker compose run --rm --no-deps \
   -v "$PWD:/app" \
   -e MCP_EVIDENCEBASE_RUN_LIVE_INTEGRATION=1 \
@@ -158,8 +155,8 @@ docker compose run --rm --no-deps \
   api sh -lc 'python -m pip install -e ".[dev]" && pytest -m integration_live tests/test_live_datastores_integration.py'
 ```
 
-This uses `minio` from the local compose network and `redis`/`qdrant` from the
-external `shared-datastores` network without requiring repo-owned datastore containers.
+This uses shared `minio`, `redis`, and `qdrant` services from the external
+`shared-datastores` network without requiring repo-owned datastore containers.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -206,11 +203,8 @@ Run CLI search inside the Compose network:
 cd /Users/lukeheley/Developer/shared-datastores
 docker compose up -d
 
-# Start local MinIO in the Evidence Base repo.
-cd /Users/lukeheley/Developer/mcp-evidencebase
-docker compose up -d minio
-
 # Run CLI in a one-off api container on the same Docker network.
+cd /Users/lukeheley/Developer/mcp-evidencebase
 docker compose run --rm --no-deps \
   -v "$PWD:/app" \
   api python -m mcp_evidencebase \
@@ -244,7 +238,7 @@ Start the full local stack:
 # Copy the template and set the external datastore endpoints.
 cp .env.example .env
 
-# Start shared Redis, RedisInsight, and Qdrant first.
+# Start shared MinIO, Redis, RedisInsight, and Qdrant first.
 cd /Users/lukeheley/Developer/shared-datastores
 docker compose up -d
 
@@ -262,12 +256,12 @@ Services include:
 - Frontend dashboard
 - API service
 - Documentation site
-- MinIO + MinIO Console
-- Celery worker + Flower
+- Celery worker
 - Cloudflare Tunnel (`cloudflared`)
 
 External dependencies consumed from `shared-datastores`:
 
+- MinIO + MinIO Console
 - Redis + RedisInsight
 - Qdrant
 
@@ -314,16 +308,17 @@ http://localhost:52180/docs/
 http://localhost:52180/docs/readme.html
 http://localhost:52180/docs/reference.html
 http://localhost:52180/docs/tests.html
+http://localhost:52180/minio/
 http://localhost:52180/minio-console/
 http://localhost:52180/redisinsight/
 http://localhost:52180/dashboard/
-http://localhost:52180/flower/
 http://localhost:52180/api/gpt/openapi.json
 http://localhost:52180/api/gpt/ping?message=hello
 ```
 
-`/redisinsight/` and `/dashboard/` require the shared datastore stack to be running
-and reachable on the external `shared-datastores` network.
+`/minio/`, `/minio-console/`, `/redisinsight/`, and `/dashboard/` require the
+shared datastore stack to be running and reachable on the external
+`shared-datastores` network.
 
 Public equivalents currently configured:
 
@@ -333,10 +328,10 @@ https://evidencebase.heley.uk/docs/
 https://evidencebase.heley.uk/docs/readme.html
 https://evidencebase.heley.uk/docs/reference.html
 https://evidencebase.heley.uk/docs/tests.html
+https://evidencebase.heley.uk/minio/
 https://evidencebase.heley.uk/minio-console/
 https://evidencebase.heley.uk/redisinsight/
 https://evidencebase.heley.uk/dashboard/
-https://evidencebase.heley.uk/flower/
 https://evidencebase.heley.uk/api/gpt/openapi.json
 https://evidencebase.heley.uk/api/gpt/ping?message=hello
 ```
@@ -628,8 +623,9 @@ PROXY_PORT=52180
 SHARED_DATASTORE_NETWORK_NAME=shared-datastores
 MINIO_ROOT_USER=minioadmin
 MINIO_ROOT_PASSWORD=minioadmin
-MINIO_SERVER_URL=http://127.0.0.1:9000
-MINIO_BROWSER_REDIRECT_URL=http://localhost:52180/minio-console
+MINIO_ENDPOINT=minio:9000
+MINIO_SECURE=false
+MINIO_REGION=
 # External datastore URLs are required in `.env` or the shell environment.
 CELERY_BROKER_URL=redis://redis:6379/0
 CELERY_RESULT_BACKEND=redis://redis:6379/1
@@ -672,8 +668,9 @@ GPT_ACTIONS_LINK_BASE_URL=https://evidencebase.heley.uk
 
 The checked-in template is `.env.example`. If you use a different
 external Docker network or hostnames, update `SHARED_DATASTORE_NETWORK_NAME`,
-`CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND`, `REDIS_URL`, and `QDRANT_URL`
-together.
+`MINIO_ENDPOINT`, `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND`, `REDIS_URL`,
+and `QDRANT_URL` together. Configure `MINIO_SERVER_URL` and
+`MINIO_BROWSER_REDIRECT_URL` in the shared datastore stack instead.
 
 ### Data Model Snapshot (Redis + Qdrant)
 

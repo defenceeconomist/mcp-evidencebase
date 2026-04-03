@@ -176,12 +176,9 @@ MinIO/Redis/Qdrant):</p>
 <span class="nb">cd</span><span class="w"> </span>/Users/lukeheley/Developer/shared-datastores
 docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>-d
 
-<span class="c1"># 2) Start the local MinIO service in mcp-evidencebase.</span>
+<span class="c1"># 2) Run pytest in a one-off api container on the compose network.</span>
+<span class="c1">#    Use the shared datastore hostnames for MinIO, Redis, and Qdrant.</span>
 <span class="nb">cd</span><span class="w"> </span>/Users/lukeheley/Developer/mcp-evidencebase
-docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>-d<span class="w"> </span>minio
-
-<span class="c1"># 3) Run pytest in a one-off api container on the compose network.</span>
-<span class="c1">#    Use the shared datastore hostnames plus the local MinIO hostname.</span>
 docker<span class="w"> </span>compose<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>--no-deps<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-v<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$PWD</span><span class="s2">:/app&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-e<span class="w"> </span><span class="nv">MCP_EVIDENCEBASE_RUN_LIVE_INTEGRATION</span><span class="o">=</span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
@@ -191,8 +188,8 @@ docker<span class="w"> </span>compose<span class="w"> </span>run<span class="w">
 <span class="w">  </span>api<span class="w"> </span>sh<span class="w"> </span>-lc<span class="w"> </span><span class="s1">&#39;python -m pip install -e &quot;.[dev]&quot; &amp;&amp; pytest -m integration_live tests/test_live_datastores_integration.py&#39;</span>
 </pre></div>
 </div>
-<p>This uses <code class="docutils literal notranslate"><span class="pre">minio</span></code> from the local compose network and <code class="docutils literal notranslate"><span class="pre">redis</span></code>/<code class="docutils literal notranslate"><span class="pre">qdrant</span></code> from the
-external <code class="docutils literal notranslate"><span class="pre">shared-datastores</span></code> network without requiring repo-owned datastore containers.</p>
+<p>This uses shared <code class="docutils literal notranslate"><span class="pre">minio</span></code>, <code class="docutils literal notranslate"><span class="pre">redis</span></code>, and <code class="docutils literal notranslate"><span class="pre">qdrant</span></code> services from the external
+<code class="docutils literal notranslate"><span class="pre">shared-datastores</span></code> network without requiring repo-owned datastore containers.</p>
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 </section>
 </section>
@@ -229,11 +226,8 @@ reachable. When your <code class="docutils literal notranslate"><span class="pre
 <span class="nb">cd</span><span class="w"> </span>/Users/lukeheley/Developer/shared-datastores
 docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>-d
 
-<span class="c1"># Start local MinIO in the Evidence Base repo.</span>
-<span class="nb">cd</span><span class="w"> </span>/Users/lukeheley/Developer/mcp-evidencebase
-docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>-d<span class="w"> </span>minio
-
 <span class="c1"># Run CLI in a one-off api container on the same Docker network.</span>
+<span class="nb">cd</span><span class="w"> </span>/Users/lukeheley/Developer/mcp-evidencebase
 docker<span class="w"> </span>compose<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>--no-deps<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-v<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$PWD</span><span class="s2">:/app&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>api<span class="w"> </span>python<span class="w"> </span>-m<span class="w"> </span>mcp_evidencebase<span class="w"> </span><span class="se">\</span>
@@ -263,7 +257,7 @@ direct <code class="docutils literal notranslate"><span class="pre">localhost:63
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Copy the template and set the external datastore endpoints.</span>
 cp<span class="w"> </span>.env.example<span class="w"> </span>.env
 
-<span class="c1"># Start shared Redis, RedisInsight, and Qdrant first.</span>
+<span class="c1"># Start shared MinIO, Redis, RedisInsight, and Qdrant first.</span>
 <span class="nb">cd</span><span class="w"> </span>/Users/lukeheley/Developer/shared-datastores
 docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>-d
 
@@ -272,18 +266,20 @@ docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> 
 docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>-d<span class="w"> </span>--build
 </pre></div>
 </div>
+<p>The default local workflow uses the shared base file plus
+<code class="docutils literal notranslate"><span class="pre">docker-compose.override.yml</span></code>, which supplies the local <code class="docutils literal notranslate"><span class="pre">build:</span></code> directives.</p>
 <p>Services include:</p>
 <ul class="simple">
 <li><p>NGINX reverse proxy (<code class="docutils literal notranslate"><span class="pre">52180</span></code> default)</p></li>
 <li><p>Frontend dashboard</p></li>
 <li><p>API service</p></li>
 <li><p>Documentation site</p></li>
-<li><p>MinIO + MinIO Console</p></li>
-<li><p>Celery worker + Flower</p></li>
+<li><p>Celery worker</p></li>
 <li><p>Cloudflare Tunnel (<code class="docutils literal notranslate"><span class="pre">cloudflared</span></code>)</p></li>
 </ul>
 <p>External dependencies consumed from <code class="docutils literal notranslate"><span class="pre">shared-datastores</span></code>:</p>
 <ul class="simple">
+<li><p>MinIO + MinIO Console</p></li>
 <li><p>Redis + RedisInsight</p></li>
 <li><p>Qdrant</p></li>
 </ul>
@@ -302,14 +298,18 @@ docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> 
 </section>
 <section id="prebuilt-image-stack">
 <h3>Prebuilt Image Stack<a class="headerlink" href="#prebuilt-image-stack" title="Link to this heading">¶</a></h3>
-<p>Use <code class="docutils literal notranslate"><span class="pre">docker-compose.images.yml</span></code> when deploying with prebuilt images.
-It removes local <code class="docutils literal notranslate"><span class="pre">build:</span></code> steps and expects image tags to be provided instead:</p>
+<p>Use the shared base file plus <code class="docutils literal notranslate"><span class="pre">docker-compose.images.yml</span></code> when deploying with
+prebuilt images. The images override replaces the local build settings and
+expects image tags to be provided instead:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>APP_IMAGE=ghcr.io/your-org/mcp-evidencebase-app:latest
 PROXY_IMAGE=ghcr.io/your-org/mcp-evidencebase-proxy:latest
 SHARED_DATASTORE_NETWORK_NAME=shared-datastores
 </pre></div>
 </div>
-<p>Set those variables in your deployment environment before starting the stack.</p>
+<p>Set those variables in your deployment environment before starting the stack:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docker<span class="w"> </span>compose<span class="w"> </span>-f<span class="w"> </span>docker-compose.yml<span class="w"> </span>-f<span class="w"> </span>docker-compose.images.yml<span class="w"> </span>up<span class="w"> </span>-d
+</pre></div>
+</div>
 </section>
 <section id="service-urls">
 <h3>Service URLs<a class="headerlink" href="#service-urls" title="Link to this heading">¶</a></h3>
@@ -319,26 +319,27 @@ http://localhost:52180/docs/
 http://localhost:52180/docs/readme.html
 http://localhost:52180/docs/reference.html
 http://localhost:52180/docs/tests.html
+http://localhost:52180/minio/
 http://localhost:52180/minio-console/
 http://localhost:52180/redisinsight/
 http://localhost:52180/dashboard/
-http://localhost:52180/flower/
 http://localhost:52180/api/gpt/openapi.json
 http://localhost:52180/api/gpt/ping?message=hello
 </pre></div>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">/redisinsight/</span></code> and <code class="docutils literal notranslate"><span class="pre">/dashboard/</span></code> require the shared datastore stack to be running
-and reachable on the external <code class="docutils literal notranslate"><span class="pre">shared-datastores</span></code> network.</p>
+<p><code class="docutils literal notranslate"><span class="pre">/minio/</span></code>, <code class="docutils literal notranslate"><span class="pre">/minio-console/</span></code>, <code class="docutils literal notranslate"><span class="pre">/redisinsight/</span></code>, and <code class="docutils literal notranslate"><span class="pre">/dashboard/</span></code> require the
+shared datastore stack to be running and reachable on the external
+<code class="docutils literal notranslate"><span class="pre">shared-datastores</span></code> network.</p>
 <p>Public equivalents currently configured:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>https://evidencebase.heley.uk
 https://evidencebase.heley.uk/docs/
 https://evidencebase.heley.uk/docs/readme.html
 https://evidencebase.heley.uk/docs/reference.html
 https://evidencebase.heley.uk/docs/tests.html
+https://evidencebase.heley.uk/minio/
 https://evidencebase.heley.uk/minio-console/
 https://evidencebase.heley.uk/redisinsight/
 https://evidencebase.heley.uk/dashboard/
-https://evidencebase.heley.uk/flower/
 https://evidencebase.heley.uk/api/gpt/openapi.json
 https://evidencebase.heley.uk/api/gpt/ping?message=hello
 </pre></div>
@@ -600,8 +601,9 @@ run a beat process (or worker with beat enabled). The current API endpoint
 <span class="nv">SHARED_DATASTORE_NETWORK_NAME</span><span class="o">=</span>shared-datastores
 <span class="nv">MINIO_ROOT_USER</span><span class="o">=</span>minioadmin
 <span class="nv">MINIO_ROOT_PASSWORD</span><span class="o">=</span>minioadmin
-<span class="nv">MINIO_SERVER_URL</span><span class="o">=</span>http://127.0.0.1:9000
-<span class="nv">MINIO_BROWSER_REDIRECT_URL</span><span class="o">=</span>http://localhost:52180/minio-console
+<span class="nv">MINIO_ENDPOINT</span><span class="o">=</span>minio:9000
+<span class="nv">MINIO_SECURE</span><span class="o">=</span><span class="nb">false</span>
+<span class="nv">MINIO_REGION</span><span class="o">=</span>
 <span class="c1"># External datastore URLs are required in `.env` or the shell environment.</span>
 <span class="nv">CELERY_BROKER_URL</span><span class="o">=</span>redis://redis:6379/0
 <span class="nv">CELERY_RESULT_BACKEND</span><span class="o">=</span>redis://redis:6379/1
@@ -644,8 +646,9 @@ run a beat process (or worker with beat enabled). The current API endpoint
 </div>
 <p>The checked-in template is <code class="docutils literal notranslate"><span class="pre">.env.example</span></code>. If you use a different
 external Docker network or hostnames, update <code class="docutils literal notranslate"><span class="pre">SHARED_DATASTORE_NETWORK_NAME</span></code>,
-<code class="docutils literal notranslate"><span class="pre">CELERY_BROKER_URL</span></code>, <code class="docutils literal notranslate"><span class="pre">CELERY_RESULT_BACKEND</span></code>, <code class="docutils literal notranslate"><span class="pre">REDIS_URL</span></code>, and <code class="docutils literal notranslate"><span class="pre">QDRANT_URL</span></code>
-together.</p>
+<code class="docutils literal notranslate"><span class="pre">MINIO_ENDPOINT</span></code>, <code class="docutils literal notranslate"><span class="pre">CELERY_BROKER_URL</span></code>, <code class="docutils literal notranslate"><span class="pre">CELERY_RESULT_BACKEND</span></code>, <code class="docutils literal notranslate"><span class="pre">REDIS_URL</span></code>,
+and <code class="docutils literal notranslate"><span class="pre">QDRANT_URL</span></code> together. Configure <code class="docutils literal notranslate"><span class="pre">MINIO_SERVER_URL</span></code> and
+<code class="docutils literal notranslate"><span class="pre">MINIO_BROWSER_REDIRECT_URL</span></code> in the shared datastore stack instead.</p>
 </section>
 <section id="data-model-snapshot-redis-qdrant">
 <h3>Data Model Snapshot (Redis + Qdrant)<a class="headerlink" href="#data-model-snapshot-redis-qdrant" title="Link to this heading">¶</a></h3>

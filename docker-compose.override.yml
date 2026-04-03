@@ -7,9 +7,6 @@ services:
   celery:
     <<: *app-build
 
-  flower:
-    <<: *app-build
-
   api:
     <<: *app-build
 
