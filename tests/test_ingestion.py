@@ -7,7 +7,7 @@ from collections import defaultdict
 from collections.abc import Mapping
 from dataclasses import dataclass
 from fnmatch import fnmatch
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 
@@ -17,6 +17,7 @@ from mcp_evidencebase.ingestion import (
     QdrantIndexer,
     RedisDocumentRepository,
     UnstructuredPartitionClient,
+    build_ingestion_service,
     build_ingestion_settings,
     build_partition_chunks,
     chunk_partition_texts,
@@ -26,6 +27,7 @@ from mcp_evidencebase.ingestion import (
     extract_partition_bounding_box,
     extract_pdf_title_author,
 )
+from mcp_evidencebase.ingestion_modules.service import DependencyConfigurationError
 
 pytestmark = pytest.mark.area_ingestion
 
@@ -354,7 +356,9 @@ def install_qdrant_client_stub() -> None:
         SparseVector=StubSparseVector,
         SparseVectorParams=StubSparseVectorParams,
     )
-    sys.modules["qdrant_client"] = types.SimpleNamespace(models=models)
+    stub_module = types.ModuleType("qdrant_client")
+    stub_module.models = models  # type: ignore[attr-defined]
+    sys.modules["qdrant_client"] = stub_module
 
 
 def test_compute_document_id_is_deterministic() -> None:
@@ -389,6 +393,60 @@ def test_build_ingestion_settings_supports_qdrant_timeout_override() -> None:
 
     fallback_default = build_ingestion_settings({"QDRANT_TIMEOUT_SECONDS": "invalid"})
     assert fallback_default.qdrant_timeout_seconds == 30.0
+
+
+def test_build_ingestion_settings_do_not_default_redis_or_qdrant_urls() -> None:
+    """Redis and Qdrant targets should be empty until explicitly configured."""
+    settings = build_ingestion_settings({})
+
+    assert settings.redis_url == ""
+    assert settings.qdrant_url == ""
+
+
+def test_build_ingestion_service_rejects_missing_required_redis_url() -> None:
+    """Required Redis should fail fast before route/task execution."""
+    with pytest.raises(DependencyConfigurationError, match="REDIS_URL"):
+        build_ingestion_service(
+            settings=build_ingestion_settings(
+                {
+                    "QDRANT_URL": "http://qdrant:6333",
+                }
+            ),
+            env={
+                "MCP_EVIDENCEBASE_REQUIRE_REDIS": "true",
+                "MCP_EVIDENCEBASE_REQUIRE_QDRANT": "false",
+            },
+        )
+
+
+def test_build_ingestion_service_rejects_missing_required_qdrant_url() -> None:
+    """Required Qdrant should fail fast before route/task execution."""
+    with pytest.raises(DependencyConfigurationError, match="QDRANT_URL"):
+        build_ingestion_service(
+            settings=build_ingestion_settings(
+                {
+                    "REDIS_URL": "redis://redis:6379/2",
+                }
+            ),
+            env={
+                "MCP_EVIDENCEBASE_REQUIRE_REDIS": "false",
+                "MCP_EVIDENCEBASE_REQUIRE_QDRANT": "true",
+            },
+        )
+
+
+def test_build_ingestion_service_allows_disabled_redis_and_qdrant() -> None:
+    """Reduced-capability mode should build without Redis and Qdrant clients."""
+    service = build_ingestion_service(
+        settings=build_ingestion_settings({}),
+        env={
+            "MCP_EVIDENCEBASE_REQUIRE_REDIS": "false",
+            "MCP_EVIDENCEBASE_REQUIRE_QDRANT": "false",
+        },
+    )
+
+    assert getattr(service._repository, "is_disabled", False) is True
+    assert getattr(service._qdrant_indexer, "is_disabled", False) is True
 
 
 def test_build_ingestion_settings_supports_chunking_element_overrides() -> None:
@@ -429,7 +487,7 @@ def test_unstructured_partition_client_wraps_read_timeout(monkeypatch: pytest.Mo
         def __enter__(self) -> StubClient:
             return self
 
-        def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> bool:
+        def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> Literal[False]:
             del exc_type, exc, tb
             return False
 

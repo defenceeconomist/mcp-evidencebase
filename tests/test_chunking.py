@@ -329,7 +329,12 @@ def test_chunking_parent_section_text_prefers_table_html_and_image_markdown() ->
             element_id="tbl1",
             element_type="Table",
             page_number=1,
-            metadata_extra={"text_as_html": "<table><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr></table>"},
+            metadata_extra={
+                "text_as_html": (
+                    "<table><tr><th>A</th><th>B</th></tr>"
+                    "<tr><td>1</td><td>2</td></tr></table>"
+                )
+            },
         ),
         _element(
             text="Microscope image",
@@ -481,7 +486,10 @@ def test_chunking_parent_section_text_keeps_page_break_paragraphs() -> None:
     ]
     assert methods_chunks
     parent_text = str(methods_chunks[0]["metadata"].get("parent_section_text", ""))
-    assert "First paragraph on the methods page.\n\nSecond paragraph starts on the next page." in parent_text
+    assert (
+        "First paragraph on the methods page.\n\nSecond paragraph starts on the next page."
+        in parent_text
+    )
 
 
 def test_chunking_element_inclusion_is_configurable() -> None:

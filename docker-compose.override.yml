@@ -1,0 +1,19 @@
+x-app-build: &app-build
+  build:
+    context: .
+    dockerfile: docker/app/Dockerfile
+
+services:
+  celery:
+    <<: *app-build
+
+  flower:
+    <<: *app-build
+
+  api:
+    <<: *app-build
+
+  proxy:
+    build:
+      context: .
+      dockerfile: docker/proxy/Dockerfile

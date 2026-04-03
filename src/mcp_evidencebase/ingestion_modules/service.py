@@ -7,10 +7,9 @@ import threading
 import time
 from collections.abc import Mapping
 from pathlib import PurePosixPath
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Protocol, cast
 from urllib.parse import quote
 
-from minio import Minio
 from minio.error import S3Error
 
 from mcp_evidencebase.ingestion_modules.chunking import build_partition_chunks
@@ -44,6 +43,178 @@ from mcp_evidencebase.ingestion_modules.metadata import (
 )
 from mcp_evidencebase.ingestion_modules.qdrant import QdrantIndexer
 from mcp_evidencebase.ingestion_modules.repository import RedisDocumentRepository
+
+
+class DependencyConfigurationError(RuntimeError):
+    """Raised when a required external dependency is misconfigured."""
+
+
+class DependencyDisabledError(RuntimeError):
+    """Raised when code attempts to use an explicitly disabled dependency."""
+
+    def __init__(self, *, component: str, feature: str, hint: str) -> None:
+        self.component = component
+        self.feature = feature
+        super().__init__(f"{component} is disabled for {feature}. {hint}")
+
+
+class DisabledRedisDocumentRepository:
+    """Explicitly disabled Redis repository used for reduced-capability mode."""
+
+    is_disabled = True
+
+    @staticmethod
+    def _raise(method_name: str) -> None:
+        raise DependencyDisabledError(
+            component="Redis",
+            feature=f"repository method '{method_name}'",
+            hint=(
+                "Set REDIS_URL and enable MCP_EVIDENCEBASE_REQUIRE_REDIS=true "
+                "to use Redis-backed document state, metadata, and section features."
+            ),
+        )
+
+    def purge_prefix_data(self) -> int:
+        """Return zero deleted keys when Redis is disabled."""
+        return 0
+
+    def __getattr__(self, name: str) -> Any:
+        def _disabled(*args: Any, **kwargs: Any) -> Any:
+            del args, kwargs
+            self._raise(name)
+
+        return _disabled
+
+
+class DisabledQdrantIndexer:
+    """Explicitly disabled Qdrant adapter used for reduced-capability mode."""
+
+    is_disabled = True
+
+    @staticmethod
+    def _raise(method_name: str) -> None:
+        raise DependencyDisabledError(
+            component="Qdrant",
+            feature=f"index method '{method_name}'",
+            hint=(
+                "Set QDRANT_URL and enable MCP_EVIDENCEBASE_REQUIRE_QDRANT=true "
+                "to use vector indexing and search features."
+            ),
+        )
+
+    def ensure_bucket_collection(self, bucket_name: str) -> bool:
+        del bucket_name
+        return False
+
+    def delete_bucket_collection(self, bucket_name: str) -> bool:
+        del bucket_name
+        return False
+
+    def purge_prefixed_collections(self) -> int:
+        return 0
+
+    def delete_document(self, bucket_name: str, document_id: str) -> None:
+        del bucket_name, document_id
+
+    def upsert_document_chunks(self, *args: Any, **kwargs: Any) -> None:
+        del args, kwargs
+        self._raise("upsert_document_chunks")
+
+    def search_chunks(self, *args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+        del args, kwargs
+        self._raise("search_chunks")
+        raise AssertionError("unreachable")
+
+
+class MinioBucketLike(Protocol):
+    """Subset of MinIO bucket summary fields used by ingestion operations."""
+
+    name: str
+
+
+class MinioObjectResponseLike(Protocol):
+    """Subset of streamed object response methods used by ingestion operations."""
+
+    def read(self) -> bytes:
+        """Read object bytes."""
+        ...
+
+    def close(self) -> None:
+        """Close the underlying response object."""
+        ...
+
+    def release_conn(self) -> None:
+        """Release the connection back to the pool."""
+        ...
+
+
+class MinioObjectStatLike(Protocol):
+    """Subset of object stat fields used by ingestion operations."""
+
+    etag: str | None
+    content_type: str | None
+
+
+class MinioObjectLike(Protocol):
+    """Subset of object listing fields used by ingestion operations."""
+
+    object_name: str
+    etag: str | None
+    is_dir: bool
+
+
+class MinioClientLike(Protocol):
+    """Structural MinIO client interface used by ``IngestionService``."""
+
+    def get_object(self, bucket_name: str, object_name: str) -> MinioObjectResponseLike:
+        """Return a readable object response."""
+        ...
+
+    def stat_object(self, bucket_name: str, object_name: str) -> MinioObjectStatLike:
+        """Return object stat metadata."""
+        ...
+
+    def remove_object(self, bucket_name: str, object_name: str) -> None:
+        """Delete one object."""
+        ...
+
+    def list_buckets(self) -> list[MinioBucketLike] | tuple[MinioBucketLike, ...]:
+        """List bucket summaries."""
+        ...
+
+    def list_objects(
+        self,
+        bucket_name: str,
+        recursive: bool = False,
+    ) -> list[MinioObjectLike] | tuple[MinioObjectLike, ...]:
+        """List objects inside one bucket."""
+        ...
+
+    def put_object(
+        self,
+        bucket_name: str,
+        object_name: str,
+        *,
+        data: Any,
+        length: int,
+        content_type: str,
+    ) -> Any:
+        """Upload one object."""
+        ...
+
+
+class PartitionClientLike(Protocol):
+    """Structural partition client interface used by ``IngestionService``."""
+
+    def partition_file(
+        self,
+        *,
+        file_name: str,
+        file_bytes: bytes,
+        content_type: str,
+    ) -> list[dict[str, Any]]:
+        """Partition one file into structured elements."""
+        ...
 
 
 class UnstructuredPartitionClient:
@@ -136,10 +307,10 @@ class IngestionService:
     def __init__(
         self,
         *,
-        minio_client: Minio,
-        repository: RedisDocumentRepository,
-        partition_client: UnstructuredPartitionClient,
-        qdrant_indexer: QdrantIndexer,
+        minio_client: Any,
+        repository: Any,
+        partition_client: PartitionClientLike,
+        qdrant_indexer: Any,
         chunk_size_chars: int,
         chunk_overlap_chars: int,
         chunk_exclude_element_types: tuple[str, ...] | None = None,
@@ -154,9 +325,9 @@ class IngestionService:
         """Construct ingestion service dependencies.
 
         Args:
-            minio_client: Configured MinIO SDK client.
+            minio_client: Configured MinIO-compatible client.
             repository: Redis-backed document repository.
-            partition_client: Unstructured API client used for partition extraction.
+            partition_client: Partition client used for partition extraction.
             qdrant_indexer: Qdrant index adapter for chunk embeddings.
             chunk_size_chars: Maximum chunk size for text chunking.
             chunk_overlap_chars: Overlap size for adjacent chunks.
@@ -236,15 +407,18 @@ class IngestionService:
         **values: Any,
     ) -> None:
         """Mark one stage as failed and persist the error message."""
-        self._set_state(
-            document_id,
-            processing_state="failed",
-            processing_stage=stage,
-            processing_stage_progress=100,
-            processing_progress=100,
-            error=str(error),
-            **values,
-        )
+        try:
+            self._set_state(
+                document_id,
+                processing_state="failed",
+                processing_stage=stage,
+                processing_stage_progress=100,
+                processing_progress=100,
+                error=str(error),
+                **values,
+            )
+        except DependencyDisabledError:
+            return
 
     @staticmethod
     def _build_stage_payload(
@@ -526,7 +700,7 @@ class IngestionService:
         """Read and return object bytes from MinIO."""
         object_response = self._minio_client.get_object(bucket_name, object_name)
         try:
-            return object_response.read()
+            return cast(bytes, object_response.read())
         finally:
             object_response.close()
             object_response.release_conn()
@@ -570,7 +744,7 @@ class IngestionService:
         Returns:
             List of document records for the bucket.
         """
-        records = self._repository.list_documents(bucket_name)
+        records = cast(list[dict[str, Any]], self._repository.list_documents(bucket_name))
         for record in records:
             processing_state = str(record.get("processing_state", "")).strip().lower()
             if processing_state != "processed":
@@ -616,7 +790,7 @@ class IngestionService:
         Returns:
             ``True`` when a collection is created, otherwise ``False``.
         """
-        return self._qdrant_indexer.ensure_bucket_collection(bucket_name)
+        return cast(bool, self._qdrant_indexer.ensure_bucket_collection(bucket_name))
 
     def delete_bucket_qdrant_collection(self, bucket_name: str) -> bool:
         """Delete the bucket-level Qdrant collection when present.
@@ -627,7 +801,7 @@ class IngestionService:
         Returns:
             ``True`` when a collection is removed, otherwise ``False``.
         """
-        return self._qdrant_indexer.delete_bucket_collection(bucket_name)
+        return cast(bool, self._qdrant_indexer.delete_bucket_collection(bucket_name))
 
     def list_bucket_objects(self, bucket_name: str) -> list[tuple[str, str]]:
         """Return non-directory object names and ETags for one bucket.
@@ -667,7 +841,10 @@ class IngestionService:
         Returns:
             ``True`` when processing is required.
         """
-        return self._repository.object_requires_processing(bucket_name, object_name, etag)
+        return cast(
+            bool,
+            self._repository.object_requires_processing(bucket_name, object_name, etag),
+        )
 
     def upload_document(
         self,
@@ -1181,7 +1358,7 @@ class IngestionService:
                 f"Section '{normalized_section_id}' was not found for document "
                 f"'{normalized_document_id}'."
             )
-        return section
+        return cast(dict[str, Any], section)
 
     def list_document_sections(
         self,
@@ -1207,7 +1384,10 @@ class IngestionService:
                 f"'{normalized_bucket_name}'."
             )
 
-        sections = self._repository.get_document_sections(normalized_document_id)
+        sections = cast(
+            list[dict[str, Any]],
+            self._repository.get_document_sections(normalized_document_id),
+        )
         sections.sort(
             key=lambda section: (
                 self._safe_positive_int(section.get("section_index")) or 0,
@@ -1391,14 +1571,21 @@ class IngestionService:
 
         _, existing_metadata = self._repository.get_document_metadata(bucket_name, document_id)
 
-        merged = self._repository.update_document_metadata(
-            bucket_name=bucket_name,
-            document_id=document_id,
-            metadata=normalized,
+        merged = cast(
+            dict[str, str],
+            self._repository.update_document_metadata(
+                bucket_name=bucket_name,
+                document_id=document_id,
+                metadata=normalized,
+            ),
         )
-        should_refresh_vectors = refresh_vectors and self._indexed_metadata_has_changed(
-            previous=existing_metadata,
-            current=merged,
+        should_refresh_vectors = (
+            refresh_vectors
+            and not bool(getattr(self._qdrant_indexer, "is_disabled", False))
+            and self._indexed_metadata_has_changed(
+                previous=existing_metadata,
+                current=merged,
+            )
         )
         if should_refresh_vectors:
             self._refresh_document_chunk_vectors(
@@ -1432,6 +1619,9 @@ class IngestionService:
         document_id: str,
     ) -> None:
         """Re-upsert one document's vectors when metadata affecting payload changes."""
+        if bool(getattr(self._qdrant_indexer, "is_disabled", False)):
+            return
+
         state = self._repository.get_state(document_id)
         partition_key = str(state.get("partition_key", "")).strip()
         if not partition_key:
@@ -1871,10 +2061,13 @@ class IngestionService:
 
         self._qdrant_indexer.delete_document(bucket_name, document_id)
 
-        return self._repository.remove_document(
-            bucket_name=bucket_name,
-            document_id=document_id,
-            keep_partitions=keep_partitions,
+        return cast(
+            bool,
+            self._repository.remove_document(
+                bucket_name=bucket_name,
+                document_id=document_id,
+                keep_partitions=keep_partitions,
+            ),
         )
 
     def purge_datastores(self) -> dict[str, int]:

@@ -139,7 +139,16 @@ BIBTEX_TYPE_RULES: dict[str, dict[str, list[str]]] = {
     },
     "manual": {
         "required": ["title"],
-        "recommended": ["author", "organization", "address", "edition", "month", "year", "note", "isbn"],
+        "recommended": [
+            "author",
+            "organization",
+            "address",
+            "edition",
+            "month",
+            "year",
+            "note",
+            "isbn",
+        ],
     },
     "mastersthesis": {
         "required": ["author", "title", "school", "year"],

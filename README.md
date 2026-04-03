@@ -12,7 +12,7 @@
   <h3 align="center">Evidence Base</h3>
 
   <p align="center">
-    Evidence ingestion, metadata management, and semantic retrieval over MinIO, Redis, and Qdrant.
+    Evidence ingestion, metadata management, and semantic retrieval over MinIO with externally managed Redis and Qdrant.
     <br />
     <a href="https://github.com/defenceeconomist/mcp-evidencebase"><strong>Explore the repo »</strong></a>
     <br />
@@ -56,8 +56,8 @@ Evidence Base is a Python-first stack for:
 
 - bucket and document management through a FastAPI service,
 - asynchronous ingestion and processing via Celery,
-- partition and metadata state in Redis,
-- embedding/chunk retrieval in Qdrant,
+- partition and metadata state in an external Redis deployment,
+- embedding/chunk retrieval in an external Qdrant deployment,
 - unified operations UI/docs behind an NGINX proxy.
 
 The repository includes local Docker orchestration, Sphinx documentation, API/CLI examples, and automated test reporting with grouped summaries and coverage.
@@ -101,7 +101,11 @@ The repository includes local Docker orchestration, Sphinx documentation, API/CL
    ```bash
    python -m pip install -e ".[dev]"
    ```
-4. Verify local tooling.
+4. Copy the environment template and set the external datastore endpoints.
+   ```bash
+   cp .env.example .env
+   ```
+5. Verify local tooling.
    ```bash
    ruff check .
    mypy .
@@ -135,11 +139,16 @@ Run live integration tests inside Docker Compose (recommended, same network as
 MinIO/Redis/Qdrant):
 
 ```bash
-# 1) Start only required datastores (avoids cloudflared dependency).
-docker compose up -d minio redis qdrant
+# 1) Start the shared datastores stack in a separate folder.
+cd /Users/lukeheley/Developer/shared-datastores
+docker compose up -d
 
-# 2) Run pytest in a one-off api container on the compose network.
-#    Use compose service hostnames for live endpoints.
+# 2) Start the local MinIO service in mcp-evidencebase.
+cd /Users/lukeheley/Developer/mcp-evidencebase
+docker compose up -d minio
+
+# 3) Run pytest in a one-off api container on the compose network.
+#    Use the shared datastore hostnames plus the local MinIO hostname.
 docker compose run --rm --no-deps \
   -v "$PWD:/app" \
   -e MCP_EVIDENCEBASE_RUN_LIVE_INTEGRATION=1 \
@@ -149,8 +158,8 @@ docker compose run --rm --no-deps \
   api sh -lc 'python -m pip install -e ".[dev]" && pytest -m integration_live tests/test_live_datastores_integration.py'
 ```
 
-This uses service-hostnames from `docker-compose.yml` (`minio`, `redis`, `qdrant`)
-without exposing datastore ports to localhost.
+This uses `minio` from the local compose network and `redis`/`qdrant` from the
+external `shared-datastores` network without requiring repo-owned datastore containers.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -165,6 +174,16 @@ python -m mcp_evidencebase --healthcheck
 # ok
 ```
 
+Run the full dependency preflight:
+
+```bash
+python -m mcp_evidencebase --doctor
+```
+
+`--healthcheck` returns only `ok` or `error`. `--doctor` prints structured
+component status for MinIO, Redis, Qdrant, the Celery broker, and the Celery
+result backend.
+
 Run hybrid search from the CLI:
 
 ```bash
@@ -176,15 +195,20 @@ python -m mcp_evidencebase \
   --search-rrf-k 80
 ```
 
-If you run this on your host while using Docker Compose defaults, `connection refused`
-is expected unless your datastore endpoints are reachable from the host. Compose uses
-internal hostnames (`minio`, `redis`, `qdrant`) for container-to-container traffic.
+If you run this on your host, the configured datastore endpoints must also be host
+reachable. When your `.env` uses Docker-only hostnames such as `minio`, `redis`, or
+`qdrant`, run the CLI inside the Compose network instead.
 
 Run CLI search inside the Compose network:
 
 ```bash
-# Start only required services.
-docker compose up -d minio redis qdrant
+# Start shared datastores once.
+cd /Users/lukeheley/Developer/shared-datastores
+docker compose up -d
+
+# Start local MinIO in the Evidence Base repo.
+cd /Users/lukeheley/Developer/mcp-evidencebase
+docker compose up -d minio
 
 # Run CLI in a one-off api container on the same Docker network.
 docker compose run --rm --no-deps \
@@ -217,8 +241,20 @@ direct `localhost:6333` access.
 Start the full local stack:
 
 ```bash
+# Copy the template and set the external datastore endpoints.
+cp .env.example .env
+
+# Start shared Redis, RedisInsight, and Qdrant first.
+cd /Users/lukeheley/Developer/shared-datastores
+docker compose up -d
+
+# Then start the Evidence Base application stack.
+cd /Users/lukeheley/Developer/mcp-evidencebase
 docker compose up -d --build
 ```
+
+The default local workflow uses the shared base file plus
+`docker-compose.override.yml`, which supplies the local `build:` directives.
 
 Services include:
 
@@ -227,30 +263,46 @@ Services include:
 - API service
 - Documentation site
 - MinIO + MinIO Console
-- Redis + RedisInsight
-- Qdrant
 - Celery worker + Flower
 - Cloudflare Tunnel (`cloudflared`)
+
+External dependencies consumed from `shared-datastores`:
+
+- Redis + RedisInsight
+- Qdrant
+
+Readiness endpoints:
+
+- `GET /livez`: process liveness only
+- `GET /healthz`: dependency-aware readiness
+- `GET /readyz`: dependency-aware readiness alias
 
 Start stack (including Cloudflare Tunnel):
 
 ```bash
+# Shared datastores must already be running.
 docker compose up -d
 ```
 
 `CLOUDFLARE_TUNNEL_TOKEN` is required because `cloudflared` always starts.
 
-### Portainer Stack
+### Prebuilt Image Stack
 
-Use [`docker-compose.portainer.yml`](docker-compose.portainer.yml) when deploying through Portainer.
-It removes local `build:` steps and expects prebuilt images instead:
+Use the shared base file plus `docker-compose.images.yml` when deploying with
+prebuilt images. The images override replaces the local build settings and
+expects image tags to be provided instead:
 
 ```text
 APP_IMAGE=ghcr.io/your-org/mcp-evidencebase-app:latest
 PROXY_IMAGE=ghcr.io/your-org/mcp-evidencebase-proxy:latest
+SHARED_DATASTORE_NETWORK_NAME=shared-datastores
 ```
 
-Use [`deploy/portainer.env.example`](deploy/portainer.env.example) as the variable template for the stack environment in Portainer.
+Set those variables in your deployment environment before starting the stack:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.images.yml up -d
+```
 
 ### Service URLs
 
@@ -269,6 +321,9 @@ http://localhost:52180/flower/
 http://localhost:52180/api/gpt/openapi.json
 http://localhost:52180/api/gpt/ping?message=hello
 ```
+
+`/redisinsight/` and `/dashboard/` require the shared datastore stack to be running
+and reachable on the external `shared-datastores` network.
 
 Public equivalents currently configured:
 
@@ -570,17 +625,25 @@ The docs test page includes:
 
 ```bash
 PROXY_PORT=52180
+SHARED_DATASTORE_NETWORK_NAME=shared-datastores
 MINIO_ROOT_USER=minioadmin
 MINIO_ROOT_PASSWORD=minioadmin
 MINIO_SERVER_URL=http://127.0.0.1:9000
 MINIO_BROWSER_REDIRECT_URL=http://localhost:52180/minio-console
+# External datastore URLs are required in `.env` or the shell environment.
 CELERY_BROKER_URL=redis://redis:6379/0
 CELERY_RESULT_BACKEND=redis://redis:6379/1
 REDIS_URL=redis://redis:6379/2
 REDIS_PREFIX=evidencebase
 QDRANT_URL=http://qdrant:6333
+QDRANT_API_KEY=
 QDRANT_COLLECTION_PREFIX=evidencebase
 QDRANT_TIMEOUT_SECONDS=30
+MCP_EVIDENCEBASE_REQUIRE_MINIO=true
+MCP_EVIDENCEBASE_REQUIRE_REDIS=true
+MCP_EVIDENCEBASE_REQUIRE_QDRANT=true
+MCP_EVIDENCEBASE_REQUIRE_CELERY_BROKER=true
+MCP_EVIDENCEBASE_REQUIRE_CELERY_RESULT_BACKEND=true
 UNSTRUCTURED_API_URL=https://api.unstructuredapp.io/general/v0/general
 UNSTRUCTURED_API_KEY=<your-unstructured-api-key>
 UNSTRUCTURED_STRATEGY=hi_res
@@ -606,6 +669,11 @@ CLOUDFLARE_TUNNEL_TOKEN=<your-cloudflare-tunnel-token>
 GPT_ACTIONS_API_KEY=<your-api-key>
 GPT_ACTIONS_LINK_BASE_URL=https://evidencebase.heley.uk
 ```
+
+The checked-in template is `.env.example`. If you use a different
+external Docker network or hostnames, update `SHARED_DATASTORE_NETWORK_NAME`,
+`CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND`, `REDIS_URL`, and `QDRANT_URL`
+together.
 
 ### Data Model Snapshot (Redis + Qdrant)
 

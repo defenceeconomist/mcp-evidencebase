@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Request
@@ -12,8 +12,8 @@ from mcp_evidencebase.api_modules.models import GptSearchRequest
 from mcp_evidencebase.api_modules.services import (
     build_gpt_openapi_document,
     perform_gpt_collection_search,
-    prepare_minimal_gpt_search_response,
     prepare_gpt_search_response,
+    prepare_minimal_gpt_search_response,
     resolve_gpt_links_base_url,
     resolve_gpt_search_bucket_name,
 )
@@ -34,7 +34,7 @@ def gpt_ping(
         "status": "ok",
         "reply": "pong",
         "echo": normalized_message,
-        "timestamp_utc": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+        "timestamp_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
     }
 
 

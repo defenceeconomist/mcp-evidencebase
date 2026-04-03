@@ -17,6 +17,7 @@ from mcp_evidencebase.ingestion_modules.metadata import (
     normalize_metadata,
 )
 
+
 def _normalize_doi_lookup_value(value: str) -> str:
     """Normalize DOI metadata values for Crossref lookup and comparisons."""
     normalized = str(value).strip()

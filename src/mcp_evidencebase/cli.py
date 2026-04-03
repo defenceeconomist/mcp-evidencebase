@@ -7,6 +7,11 @@ import json
 
 from mcp_evidencebase.core import healthcheck
 from mcp_evidencebase.ingestion import SEARCH_MODES, build_ingestion_service
+from mcp_evidencebase.ingestion_modules.service import (
+    DependencyConfigurationError,
+    DependencyDisabledError,
+)
+from mcp_evidencebase.runtime_diagnostics import collect_runtime_health
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -19,7 +24,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--healthcheck",
         action="store_true",
-        help="Run a basic package health check.",
+        help="Run a dependency-aware health check and print `ok` or `error`.",
+    )
+    parser.add_argument(
+        "--doctor",
+        action="store_true",
+        help="Print a full runtime dependency report and exit non-zero when required checks fail.",
     )
     parser.add_argument(
         "--purge-datastores",
@@ -63,24 +73,37 @@ def main() -> int:
     """
     parser = build_parser()
     args = parser.parse_args()
+    if args.doctor:
+        report = collect_runtime_health()
+        print(json.dumps(report, sort_keys=True))
+        return 0 if bool(report.get("ready")) else 1
     if args.healthcheck:
-        print(healthcheck())
-        return 0
+        status = healthcheck()
+        print(status)
+        return 0 if status == "ok" else 1
     if args.purge_datastores:
-        summary = build_ingestion_service().purge_datastores()
+        try:
+            summary = build_ingestion_service().purge_datastores()
+        except (DependencyConfigurationError, DependencyDisabledError) as exc:
+            print(str(exc))
+            return 1
         print(summary)
         return 0
     if args.search_bucket or args.search_query:
         if not args.search_bucket or not args.search_query:
             parser.error("--search-bucket and --search-query must be provided together.")
 
-        results = build_ingestion_service().search_documents(
-            bucket_name=args.search_bucket,
-            query=args.search_query,
-            limit=args.search_limit,
-            mode=args.search_mode,
-            rrf_k=args.search_rrf_k,
-        )
+        try:
+            results = build_ingestion_service().search_documents(
+                bucket_name=args.search_bucket,
+                query=args.search_query,
+                limit=args.search_limit,
+                mode=args.search_mode,
+                rrf_k=args.search_rrf_k,
+            )
+        except (DependencyConfigurationError, DependencyDisabledError) as exc:
+            print(str(exc))
+            return 1
         print(
             json.dumps(
                 {

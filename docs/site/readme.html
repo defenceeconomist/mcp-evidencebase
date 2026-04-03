@@ -5,7 +5,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>About The Project &#8212; mcp-evidencebase 0.1.0 documentation</title>
+    <title>Project README &#8212; mcp-evidencebase 0.1.0 documentation</title>
     <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=5ecbeea2" />
     <link rel="stylesheet" type="text/css" href="_static/basic.css?v=b08954a9" />
     <link rel="stylesheet" type="text/css" href="_static/alabaster.css?v=27fed22d" />
@@ -33,7 +33,9 @@
 
           <div class="body" role="main">
             
-  <p><a id="readme-top"></a></p>
+  <section id="project-readme">
+<h1>Project README<a class="headerlink" href="#project-readme" title="Link to this heading">¶</a></h1>
+<p><a id="readme-top"></a></p>
 <!-- PROJECT SHIELDS -->
 <p><a class="reference external" href="https://github.com/defenceeconomist/mcp-evidencebase/graphs/contributors"><img alt="Contributors" src="https://img.shields.io/github/contributors/defenceeconomist/mcp-evidencebase.svg?style=for-the-badge" /></a>
 <a class="reference external" href="https://github.com/defenceeconomist/mcp-evidencebase/network/members"><img alt="Forks" src="https://img.shields.io/github/forks/defenceeconomist/mcp-evidencebase.svg?style=for-the-badge" /></a>
@@ -44,7 +46,7 @@
 <div align="center">
   <h3 align="center">Evidence Base</h3>
   <p align="center">
-    Evidence ingestion, metadata management, and semantic retrieval over MinIO, Redis, and Qdrant.
+    Evidence ingestion, metadata management, and semantic retrieval over MinIO with externally managed Redis and Qdrant.
     <br />
     <a href="https://github.com/defenceeconomist/mcp-evidencebase"><strong>Explore the repo »</strong></a>
     <br />
@@ -81,19 +83,19 @@
   </ol>
 </details>
 <section id="about-the-project">
-<h1>About The Project<a class="headerlink" href="#about-the-project" title="Link to this heading">¶</a></h1>
+<h2>About The Project<a class="headerlink" href="#about-the-project" title="Link to this heading">¶</a></h2>
 <p>Evidence Base is a Python-first stack for:</p>
 <ul class="simple">
 <li><p>bucket and document management through a FastAPI service,</p></li>
 <li><p>asynchronous ingestion and processing via Celery,</p></li>
-<li><p>partition and metadata state in Redis,</p></li>
-<li><p>embedding/chunk retrieval in Qdrant,</p></li>
+<li><p>partition and metadata state in an external Redis deployment,</p></li>
+<li><p>embedding/chunk retrieval in an external Qdrant deployment,</p></li>
 <li><p>unified operations UI/docs behind an NGINX proxy.</p></li>
 </ul>
 <p>The repository includes local Docker orchestration, Sphinx documentation, API/CLI examples, and automated test reporting with grouped summaries and coverage.</p>
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 <section id="built-with">
-<h2>Built With<a class="headerlink" href="#built-with" title="Link to this heading">¶</a></h2>
+<h3>Built With<a class="headerlink" href="#built-with" title="Link to this heading">¶</a></h3>
 <ul class="simple">
 <li><p><a class="reference external" href="https://www.python.org/">Python</a></p></li>
 <li><p><a class="reference external" href="https://fastapi.tiangolo.com/">FastAPI</a></p></li>
@@ -108,9 +110,9 @@
 </section>
 </section>
 <section id="getting-started">
-<h1>Getting Started<a class="headerlink" href="#getting-started" title="Link to this heading">¶</a></h1>
+<h2>Getting Started<a class="headerlink" href="#getting-started" title="Link to this heading">¶</a></h2>
 <section id="prerequisites">
-<h2>Prerequisites<a class="headerlink" href="#prerequisites" title="Link to this heading">¶</a></h2>
+<h3>Prerequisites<a class="headerlink" href="#prerequisites" title="Link to this heading">¶</a></h3>
 <ul class="simple">
 <li><p>Python 3.10+</p></li>
 <li><p>Docker + Docker Compose</p></li>
@@ -118,7 +120,7 @@
 </ul>
 </section>
 <section id="installation">
-<h2>Installation<a class="headerlink" href="#installation" title="Link to this heading">¶</a></h2>
+<h3>Installation<a class="headerlink" href="#installation" title="Link to this heading">¶</a></h3>
 <ol class="arabic">
 <li><p>Clone the repo.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/defenceeconomist/mcp-evidencebase.git
@@ -137,6 +139,11 @@
 </pre></div>
 </div>
 </li>
+<li><p>Copy the environment template and set the external datastore endpoints.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>cp<span class="w"> </span>.env.example<span class="w"> </span>.env
+</pre></div>
+</div>
+</li>
 <li><p>Verify local tooling.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>ruff<span class="w"> </span>check<span class="w"> </span>.
 mypy<span class="w"> </span>.
@@ -147,7 +154,7 @@ pytest
 </ol>
 </section>
 <section id="ui-e2e-test-playwright">
-<h2>UI E2E Test (Playwright)<a class="headerlink" href="#ui-e2e-test-playwright" title="Link to this heading">¶</a></h2>
+<h3>UI E2E Test (Playwright)<a class="headerlink" href="#ui-e2e-test-playwright" title="Link to this heading">¶</a></h3>
 <p>Run the frontend Playwright test:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">cd</span><span class="w"> </span>frontend
 npm<span class="w"> </span>install
@@ -165,11 +172,16 @@ pytest<span class="w"> </span>-m<span class="w"> </span>integration_live<span cl
 <code class="docutils literal notranslate"><span class="pre">MINIO_ENDPOINT</span></code>, <code class="docutils literal notranslate"><span class="pre">REDIS_URL</span></code>, and <code class="docutils literal notranslate"><span class="pre">QDRANT_URL</span></code>).</p>
 <p>Run live integration tests inside Docker Compose (recommended, same network as
 MinIO/Redis/Qdrant):</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># 1) Start only required datastores (avoids cloudflared dependency).</span>
-docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>-d<span class="w"> </span>minio<span class="w"> </span>redis<span class="w"> </span>qdrant
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># 1) Start the shared datastores stack in a separate folder.</span>
+<span class="nb">cd</span><span class="w"> </span>/Users/lukeheley/Developer/shared-datastores
+docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>-d
 
-<span class="c1"># 2) Run pytest in a one-off api container on the compose network.</span>
-<span class="c1">#    Use compose service hostnames for live endpoints.</span>
+<span class="c1"># 2) Start the local MinIO service in mcp-evidencebase.</span>
+<span class="nb">cd</span><span class="w"> </span>/Users/lukeheley/Developer/mcp-evidencebase
+docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>-d<span class="w"> </span>minio
+
+<span class="c1"># 3) Run pytest in a one-off api container on the compose network.</span>
+<span class="c1">#    Use the shared datastore hostnames plus the local MinIO hostname.</span>
 docker<span class="w"> </span>compose<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>--no-deps<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-v<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$PWD</span><span class="s2">:/app&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-e<span class="w"> </span><span class="nv">MCP_EVIDENCEBASE_RUN_LIVE_INTEGRATION</span><span class="o">=</span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
@@ -179,20 +191,27 @@ docker<span class="w"> </span>compose<span class="w"> </span>run<span class="w">
 <span class="w">  </span>api<span class="w"> </span>sh<span class="w"> </span>-lc<span class="w"> </span><span class="s1">&#39;python -m pip install -e &quot;.[dev]&quot; &amp;&amp; pytest -m integration_live tests/test_live_datastores_integration.py&#39;</span>
 </pre></div>
 </div>
-<p>This uses service-hostnames from <code class="docutils literal notranslate"><span class="pre">docker-compose.yml</span></code> (<code class="docutils literal notranslate"><span class="pre">minio</span></code>, <code class="docutils literal notranslate"><span class="pre">redis</span></code>, <code class="docutils literal notranslate"><span class="pre">qdrant</span></code>)
-without exposing datastore ports to localhost.</p>
+<p>This uses <code class="docutils literal notranslate"><span class="pre">minio</span></code> from the local compose network and <code class="docutils literal notranslate"><span class="pre">redis</span></code>/<code class="docutils literal notranslate"><span class="pre">qdrant</span></code> from the
+external <code class="docutils literal notranslate"><span class="pre">shared-datastores</span></code> network without requiring repo-owned datastore containers.</p>
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 </section>
 </section>
 <section id="usage">
-<h1>Usage<a class="headerlink" href="#usage" title="Link to this heading">¶</a></h1>
+<h2>Usage<a class="headerlink" href="#usage" title="Link to this heading">¶</a></h2>
 <section id="cli">
-<h2>CLI<a class="headerlink" href="#cli" title="Link to this heading">¶</a></h2>
+<h3>CLI<a class="headerlink" href="#cli" title="Link to this heading">¶</a></h3>
 <p>Run the package healthcheck:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-m<span class="w"> </span>mcp_evidencebase<span class="w"> </span>--healthcheck
 <span class="c1"># ok</span>
 </pre></div>
 </div>
+<p>Run the full dependency preflight:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-m<span class="w"> </span>mcp_evidencebase<span class="w"> </span>--doctor
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">--healthcheck</span></code> returns only <code class="docutils literal notranslate"><span class="pre">ok</span></code> or <code class="docutils literal notranslate"><span class="pre">error</span></code>. <code class="docutils literal notranslate"><span class="pre">--doctor</span></code> prints structured
+component status for MinIO, Redis, Qdrant, the Celery broker, and the Celery
+result backend.</p>
 <p>Run hybrid search from the CLI:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-m<span class="w"> </span>mcp_evidencebase<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--search-bucket<span class="w"> </span>offsets<span class="w"> </span><span class="se">\</span>
@@ -202,12 +221,17 @@ without exposing datastore ports to localhost.</p>
 <span class="w">  </span>--search-rrf-k<span class="w"> </span><span class="m">80</span>
 </pre></div>
 </div>
-<p>If you run this on your host while using Docker Compose defaults, <code class="docutils literal notranslate"><span class="pre">connection</span> <span class="pre">refused</span></code>
-is expected unless your datastore endpoints are reachable from the host. Compose uses
-internal hostnames (<code class="docutils literal notranslate"><span class="pre">minio</span></code>, <code class="docutils literal notranslate"><span class="pre">redis</span></code>, <code class="docutils literal notranslate"><span class="pre">qdrant</span></code>) for container-to-container traffic.</p>
+<p>If you run this on your host, the configured datastore endpoints must also be host
+reachable. When your <code class="docutils literal notranslate"><span class="pre">.env</span></code> uses Docker-only hostnames such as <code class="docutils literal notranslate"><span class="pre">minio</span></code>, <code class="docutils literal notranslate"><span class="pre">redis</span></code>, or
+<code class="docutils literal notranslate"><span class="pre">qdrant</span></code>, run the CLI inside the Compose network instead.</p>
 <p>Run CLI search inside the Compose network:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Start only required services.</span>
-docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>-d<span class="w"> </span>minio<span class="w"> </span>redis<span class="w"> </span>qdrant
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Start shared datastores once.</span>
+<span class="nb">cd</span><span class="w"> </span>/Users/lukeheley/Developer/shared-datastores
+docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>-d
+
+<span class="c1"># Start local MinIO in the Evidence Base repo.</span>
+<span class="nb">cd</span><span class="w"> </span>/Users/lukeheley/Developer/mcp-evidencebase
+docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>-d<span class="w"> </span>minio
 
 <span class="c1"># Run CLI in a one-off api container on the same Docker network.</span>
 docker<span class="w"> </span>compose<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>--no-deps<span class="w"> </span><span class="se">\</span>
@@ -234,9 +258,18 @@ python<span class="w"> </span>-m<span class="w"> </span>mcp_evidencebase<span cl
 direct <code class="docutils literal notranslate"><span class="pre">localhost:6333</span></code> access.</p>
 </section>
 <section id="docker-compose-stack">
-<h2>Docker Compose Stack<a class="headerlink" href="#docker-compose-stack" title="Link to this heading">¶</a></h2>
+<h3>Docker Compose Stack<a class="headerlink" href="#docker-compose-stack" title="Link to this heading">¶</a></h3>
 <p>Start the full local stack:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>-d<span class="w"> </span>--build
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Copy the template and set the external datastore endpoints.</span>
+cp<span class="w"> </span>.env.example<span class="w"> </span>.env
+
+<span class="c1"># Start shared Redis, RedisInsight, and Qdrant first.</span>
+<span class="nb">cd</span><span class="w"> </span>/Users/lukeheley/Developer/shared-datastores
+docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>-d
+
+<span class="c1"># Then start the Evidence Base application stack.</span>
+<span class="nb">cd</span><span class="w"> </span>/Users/lukeheley/Developer/mcp-evidencebase
+docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>-d<span class="w"> </span>--build
 </pre></div>
 </div>
 <p>Services include:</p>
@@ -246,19 +279,40 @@ direct <code class="docutils literal notranslate"><span class="pre">localhost:63
 <li><p>API service</p></li>
 <li><p>Documentation site</p></li>
 <li><p>MinIO + MinIO Console</p></li>
-<li><p>Redis + RedisInsight</p></li>
-<li><p>Qdrant</p></li>
 <li><p>Celery worker + Flower</p></li>
 <li><p>Cloudflare Tunnel (<code class="docutils literal notranslate"><span class="pre">cloudflared</span></code>)</p></li>
 </ul>
+<p>External dependencies consumed from <code class="docutils literal notranslate"><span class="pre">shared-datastores</span></code>:</p>
+<ul class="simple">
+<li><p>Redis + RedisInsight</p></li>
+<li><p>Qdrant</p></li>
+</ul>
+<p>Readiness endpoints:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/livez</span></code>: process liveness only</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/healthz</span></code>: dependency-aware readiness</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/readyz</span></code>: dependency-aware readiness alias</p></li>
+</ul>
 <p>Start stack (including Cloudflare Tunnel):</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>-d
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Shared datastores must already be running.</span>
+docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>-d
 </pre></div>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">CLOUDFLARE_TUNNEL_TOKEN</span></code> is required because <code class="docutils literal notranslate"><span class="pre">cloudflared</span></code> always starts.</p>
 </section>
+<section id="prebuilt-image-stack">
+<h3>Prebuilt Image Stack<a class="headerlink" href="#prebuilt-image-stack" title="Link to this heading">¶</a></h3>
+<p>Use <code class="docutils literal notranslate"><span class="pre">docker-compose.images.yml</span></code> when deploying with prebuilt images.
+It removes local <code class="docutils literal notranslate"><span class="pre">build:</span></code> steps and expects image tags to be provided instead:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>APP_IMAGE=ghcr.io/your-org/mcp-evidencebase-app:latest
+PROXY_IMAGE=ghcr.io/your-org/mcp-evidencebase-proxy:latest
+SHARED_DATASTORE_NETWORK_NAME=shared-datastores
+</pre></div>
+</div>
+<p>Set those variables in your deployment environment before starting the stack.</p>
+</section>
 <section id="service-urls">
-<h2>Service URLs<a class="headerlink" href="#service-urls" title="Link to this heading">¶</a></h2>
+<h3>Service URLs<a class="headerlink" href="#service-urls" title="Link to this heading">¶</a></h3>
 <p>All services are proxied through one host port (<code class="docutils literal notranslate"><span class="pre">${PROXY_PORT:-52180}</span></code>):</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>http://localhost:52180
 http://localhost:52180/docs/
@@ -273,6 +327,8 @@ http://localhost:52180/api/gpt/openapi.json
 http://localhost:52180/api/gpt/ping?message=hello
 </pre></div>
 </div>
+<p><code class="docutils literal notranslate"><span class="pre">/redisinsight/</span></code> and <code class="docutils literal notranslate"><span class="pre">/dashboard/</span></code> require the shared datastore stack to be running
+and reachable on the external <code class="docutils literal notranslate"><span class="pre">shared-datastores</span></code> network.</p>
 <p>Public equivalents currently configured:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>https://evidencebase.heley.uk
 https://evidencebase.heley.uk/docs/
@@ -294,7 +350,7 @@ https://open.heley.uk/api/gpt/ping?message=hello
 </div>
 </section>
 <section id="cloudflare-split-protected-ui-open-gpt-api">
-<h2>Cloudflare Split: Protected UI + Open GPT API<a class="headerlink" href="#cloudflare-split-protected-ui-open-gpt-api" title="Link to this heading">¶</a></h2>
+<h3>Cloudflare Split: Protected UI + Open GPT API<a class="headerlink" href="#cloudflare-split-protected-ui-open-gpt-api" title="Link to this heading">¶</a></h3>
 <p>To keep <code class="docutils literal notranslate"><span class="pre">evidencebase.heley.uk</span></code> behind Cloudflare Access while exposing only the GPT action API:</p>
 <ol class="arabic simple">
 <li><p>In Cloudflare Zero Trust -&gt; Networks -&gt; Tunnels -&gt; your named tunnel -&gt; Public hostnames, add:</p>
@@ -310,7 +366,7 @@ https://open.heley.uk/api/gpt/ping?message=hello
 <p>NGINX already restricts <code class="docutils literal notranslate"><span class="pre">open.heley.uk</span></code> to <code class="docutils literal notranslate"><span class="pre">/api/gpt/*</span></code> and returns <code class="docutils literal notranslate"><span class="pre">404</span></code> for all other paths.</p>
 </section>
 <section id="api-workflow-examples">
-<h2>API Workflow Examples<a class="headerlink" href="#api-workflow-examples" title="Link to this heading">¶</a></h2>
+<h3>API Workflow Examples<a class="headerlink" href="#api-workflow-examples" title="Link to this heading">¶</a></h3>
 <p>Set base URL:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">BASE_URL</span><span class="o">=</span><span class="s2">&quot;http://localhost:52180/api&quot;</span>
 </pre></div>
@@ -349,6 +405,24 @@ is attempted during the metadata stage when a high-confidence match is found.</p
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$BASE_URL</span><span class="s2">/collections/research-raw/documents/&lt;document_id&gt;/metadata/fetch&quot;</span>
 </pre></div>
 </div>
+<p>Reindex a document explicitly:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$BASE_URL</span><span class="s2">/collections/research-raw/documents/&lt;document_id&gt;/reindex&quot;</span>
+</pre></div>
+</div>
+<p>Recover documents stuck at <code class="docutils literal notranslate"><span class="pre">processing/upsert</span></code> with <code class="docutils literal notranslate"><span class="pre">80%</span></code> progress:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>-d<span class="w"> </span>--build<span class="w"> </span>api<span class="w"> </span>celery
+curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$BASE_URL</span><span class="s2">/collections/&lt;bucket&gt;/documents/&lt;document_id&gt;/reindex&quot;</span>
+</pre></div>
+</div>
+<p>If you need to requeue several stuck documents at once:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="k">for</span><span class="w"> </span>document_id<span class="w"> </span><span class="k">in</span><span class="w"> </span>&lt;doc1&gt;<span class="w"> </span>&lt;doc2&gt;<span class="w"> </span>&lt;doc3&gt;<span class="p">;</span><span class="w"> </span><span class="k">do</span>
+<span class="w">  </span>curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$BASE_URL</span><span class="s2">/collections/&lt;bucket&gt;/documents/</span><span class="nv">$document_id</span><span class="s2">/reindex&quot;</span>
+<span class="k">done</span>
+</pre></div>
+</div>
+<p>The reindex endpoint rebuilds the stored upsert payload for the existing document and queues
+<code class="docutils literal notranslate"><span class="pre">upsert_minio_object</span></code> directly. This is the preferred recovery path when metadata edits or a slow
+Qdrant write leave a document stuck in the final ingestion stage.</p>
 <p>Run hybrid search:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$BASE_URL</span><span class="s2">/collections/research-raw/search?query=causal%20inference&amp;mode=hybrid&amp;limit=5&amp;rrf_k=80&quot;</span>
 </pre></div>
@@ -363,7 +437,7 @@ is attempted during the metadata stage when a high-confidence match is found.</p
 </div>
 </section>
 <section id="custom-gpt-ping-action-api-key-bearer">
-<h2>Custom GPT Ping Action (API Key + Bearer)<a class="headerlink" href="#custom-gpt-ping-action-api-key-bearer" title="Link to this heading">¶</a></h2>
+<h3>Custom GPT Ping Action (API Key + Bearer)<a class="headerlink" href="#custom-gpt-ping-action-api-key-bearer" title="Link to this heading">¶</a></h3>
 <p>Use this when creating an Action in the ChatGPT UI.</p>
 <ol class="arabic">
 <li><p>Start named tunnel:</p>
@@ -403,9 +477,63 @@ is attempted during the metadata stage when a high-confidence match is found.</p
 <p><code class="docutils literal notranslate"><span class="pre">bucket_name</span></code> is optional for GPT search. If exactly one bucket exists, it is auto-selected.
 <code class="docutils literal notranslate"><span class="pre">minimal_response</span></code> defaults to <code class="docutils literal notranslate"><span class="pre">true</span></code> to keep GPT payloads small; set <code class="docutils literal notranslate"><span class="pre">minimal_response=false</span></code>
 when you need full retrieval diagnostics and expanded section fields.</p>
+<section id="gpt-search-staged-retrieval-behaviour">
+<h4>GPT Search: Staged Retrieval Behaviour<a class="headerlink" href="#gpt-search-staged-retrieval-behaviour" title="Link to this heading">¶</a></h4>
+<p><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/gpt/search</span></code> uses staged retrieval by default (<code class="docutils literal notranslate"><span class="pre">use_staged_retrieval=true</span></code>).</p>
+<p>When enabled, retrieval runs as:</p>
+<ol class="arabic simple">
+<li><p>Query variant expansion (<code class="docutils literal notranslate"><span class="pre">query_variant_limit</span></code>, default <code class="docutils literal notranslate"><span class="pre">6</span></code>, clamped to <code class="docutils literal notranslate"><span class="pre">3..8</span></code>)</p></li>
+<li><p>Wide chunk recall per variant (<code class="docutils literal notranslate"><span class="pre">wide_limit_per_variant</span></code>, default <code class="docutils literal notranslate"><span class="pre">75</span></code>, clamped to <code class="docutils literal notranslate"><span class="pre">50..100</span></code>)</p></li>
+<li><p>Section grouping and shortlist (<code class="docutils literal notranslate"><span class="pre">section_shortlist_limit</span></code>, default <code class="docutils literal notranslate"><span class="pre">20</span></code>, clamped to <code class="docutils literal notranslate"><span class="pre">10..30</span></code>)</p></li>
+<li><p>Section-level rerank with hard-filter boosts (country/year/programme signals extracted from query)</p></li>
+<li><p>Final top <code class="docutils literal notranslate"><span class="pre">limit</span></code> section-centric results with citation anchors (<code class="docutils literal notranslate"><span class="pre">chunk_ids_used</span></code>)</p></li>
+</ol>
+<p>When disabled (<code class="docutils literal notranslate"><span class="pre">use_staged_retrieval=false</span></code>), the endpoint falls back to one-pass
+collection search (semantic/keyword/hybrid) without variant expansion, shortlist, or
+section-level reranking.</p>
+<p>Tunable staged retrieval parameters:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">query_variant_limit</span></code>: number of generated query variants (<code class="docutils literal notranslate"><span class="pre">3..8</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">wide_limit_per_variant</span></code>: chunk recall depth per variant (<code class="docutils literal notranslate"><span class="pre">50..100</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">section_shortlist_limit</span></code>: number of section groups kept for deep scoring (<code class="docutils literal notranslate"><span class="pre">10..30</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">max_section_text_chars</span></code>: per-result section text cap in full response mode (<code class="docutils literal notranslate"><span class="pre">250..12000</span></code>)</p></li>
+</ul>
+<p>Response behavior:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">minimal_response=true</span></code> (default): compact payload for lower token usage</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">minimal_response=false</span></code>: includes <code class="docutils literal notranslate"><span class="pre">query_variants</span></code>, <code class="docutils literal notranslate"><span class="pre">hard_filters</span></code>, <code class="docutils literal notranslate"><span class="pre">stage_stats</span></code>, and <code class="docutils literal notranslate"><span class="pre">citations</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">minimal_result_text_chars</span></code> controls snippet truncation for minimal mode (default <code class="docutils literal notranslate"><span class="pre">500</span></code>, clamped to <code class="docutils literal notranslate"><span class="pre">25..2000</span></code>)</p></li>
+</ul>
+<p>Example with staged retrieval enabled (default):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s2">&quot;https://open.heley.uk/api/gpt/search&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Authorization: Bearer &lt;your-api-key&gt;&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{</span>
+<span class="s1">    &quot;bucket_name&quot;: &quot;research-raw&quot;,</span>
+<span class="s1">    &quot;query&quot;: &quot;UK offsets programme 2020&quot;,</span>
+<span class="s1">    &quot;mode&quot;: &quot;hybrid&quot;,</span>
+<span class="s1">    &quot;limit&quot;: 5,</span>
+<span class="s1">    &quot;minimal_response&quot;: false</span>
+<span class="s1">  }&#39;</span>
+</pre></div>
+</div>
+<p>Example fallback to one-pass retrieval:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s2">&quot;https://open.heley.uk/api/gpt/search&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Authorization: Bearer &lt;your-api-key&gt;&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{</span>
+<span class="s1">    &quot;bucket_name&quot;: &quot;research-raw&quot;,</span>
+<span class="s1">    &quot;query&quot;: &quot;UK offsets programme 2020&quot;,</span>
+<span class="s1">    &quot;mode&quot;: &quot;hybrid&quot;,</span>
+<span class="s1">    &quot;limit&quot;: 5,</span>
+<span class="s1">    &quot;use_staged_retrieval&quot;: false</span>
+<span class="s1">  }&#39;</span>
+</pre></div>
+</div>
+</section>
 </section>
 <section id="ingestion-pipeline-atomic-stages">
-<h2>Ingestion Pipeline: Atomic Stages<a class="headerlink" href="#ingestion-pipeline-atomic-stages" title="Link to this heading">¶</a></h2>
+<h3>Ingestion Pipeline: Atomic Stages<a class="headerlink" href="#ingestion-pipeline-atomic-stages" title="Link to this heading">¶</a></h3>
 <p>The ingestion flow now uses five explicit stages that run sequentially:</p>
 <ol class="arabic simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">partition_minio_object</span></code> -&gt; <code class="docutils literal notranslate"><span class="pre">IngestionService.partition_stage_object()</span></code></p></li>
@@ -426,7 +554,7 @@ when you need full retrieval diagnostics and expanded section fields.</p>
 <p>The document state now exposes both global progress (<code class="docutils literal notranslate"><span class="pre">processing_progress</span></code>) and stage-local progress (<code class="docutils literal notranslate"><span class="pre">processing_stage</span></code>, <code class="docutils literal notranslate"><span class="pre">processing_stage_progress</span></code>) so UI progress bars can reflect which stage each document is currently in.</p>
 </section>
 <section id="celery-tasks">
-<h2>Celery Tasks<a class="headerlink" href="#celery-tasks" title="Link to this heading">¶</a></h2>
+<h3>Celery Tasks<a class="headerlink" href="#celery-tasks" title="Link to this heading">¶</a></h3>
 <p>Defined in <code class="docutils literal notranslate"><span class="pre">src/mcp_evidencebase/tasks.py</span></code>:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">mcp_evidencebase.ping</span></code>: worker health probe (<code class="docutils literal notranslate"><span class="pre">pong</span></code>).</p></li>
@@ -453,7 +581,7 @@ run a beat process (or worker with beat enabled). The current API endpoint
 </ul>
 </section>
 <section id="documentation-and-test-reporting">
-<h2>Documentation And Test Reporting<a class="headerlink" href="#documentation-and-test-reporting" title="Link to this heading">¶</a></h2>
+<h3>Documentation And Test Reporting<a class="headerlink" href="#documentation-and-test-reporting" title="Link to this heading">¶</a></h3>
 <p>Build docs locally (includes full test run, grouped summary, and coverage):</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docs/build_docs.sh
 </pre></div>
@@ -467,22 +595,32 @@ run a beat process (or worker with beat enabled). The current API endpoint
 </ul>
 </section>
 <section id="environment-overrides">
-<h2>Environment Overrides<a class="headerlink" href="#environment-overrides" title="Link to this heading">¶</a></h2>
+<h3>Environment Overrides<a class="headerlink" href="#environment-overrides" title="Link to this heading">¶</a></h3>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">PROXY_PORT</span><span class="o">=</span><span class="m">52180</span>
+<span class="nv">SHARED_DATASTORE_NETWORK_NAME</span><span class="o">=</span>shared-datastores
 <span class="nv">MINIO_ROOT_USER</span><span class="o">=</span>minioadmin
 <span class="nv">MINIO_ROOT_PASSWORD</span><span class="o">=</span>minioadmin
 <span class="nv">MINIO_SERVER_URL</span><span class="o">=</span>http://127.0.0.1:9000
 <span class="nv">MINIO_BROWSER_REDIRECT_URL</span><span class="o">=</span>http://localhost:52180/minio-console
+<span class="c1"># External datastore URLs are required in `.env` or the shell environment.</span>
 <span class="nv">CELERY_BROKER_URL</span><span class="o">=</span>redis://redis:6379/0
 <span class="nv">CELERY_RESULT_BACKEND</span><span class="o">=</span>redis://redis:6379/1
 <span class="nv">REDIS_URL</span><span class="o">=</span>redis://redis:6379/2
 <span class="nv">REDIS_PREFIX</span><span class="o">=</span>evidencebase
 <span class="nv">QDRANT_URL</span><span class="o">=</span>http://qdrant:6333
+<span class="nv">QDRANT_API_KEY</span><span class="o">=</span>
 <span class="nv">QDRANT_COLLECTION_PREFIX</span><span class="o">=</span>evidencebase
+<span class="nv">QDRANT_TIMEOUT_SECONDS</span><span class="o">=</span><span class="m">30</span>
+<span class="nv">MCP_EVIDENCEBASE_REQUIRE_MINIO</span><span class="o">=</span><span class="nb">true</span>
+<span class="nv">MCP_EVIDENCEBASE_REQUIRE_REDIS</span><span class="o">=</span><span class="nb">true</span>
+<span class="nv">MCP_EVIDENCEBASE_REQUIRE_QDRANT</span><span class="o">=</span><span class="nb">true</span>
+<span class="nv">MCP_EVIDENCEBASE_REQUIRE_CELERY_BROKER</span><span class="o">=</span><span class="nb">true</span>
+<span class="nv">MCP_EVIDENCEBASE_REQUIRE_CELERY_RESULT_BACKEND</span><span class="o">=</span><span class="nb">true</span>
 <span class="nv">UNSTRUCTURED_API_URL</span><span class="o">=</span>https://api.unstructuredapp.io/general/v0/general
 <span class="nv">UNSTRUCTURED_API_KEY</span><span class="o">=</span>&lt;your-unstructured-api-key&gt;
 <span class="nv">UNSTRUCTURED_STRATEGY</span><span class="o">=</span>hi_res
-<span class="nv">UNSTRUCTURED_TIMEOUT_SECONDS</span><span class="o">=</span><span class="m">300</span>
+<span class="c1"># For very large PDFs, raise this further (for example 1200-1800) or set UNSTRUCTURED_STRATEGY=fast.</span>
+<span class="nv">UNSTRUCTURED_TIMEOUT_SECONDS</span><span class="o">=</span><span class="m">900</span>
 <span class="nv">FASTEMBED_MODEL</span><span class="o">=</span>BAAI/bge-small-en-v1.5
 <span class="nv">FASTEMBED_KEYWORD_MODEL</span><span class="o">=</span>Qdrant/bm25
 <span class="nv">HF_HOME</span><span class="o">=</span>/model-cache/huggingface
@@ -504,9 +642,13 @@ run a beat process (or worker with beat enabled). The current API endpoint
 <span class="nv">GPT_ACTIONS_LINK_BASE_URL</span><span class="o">=</span>https://evidencebase.heley.uk
 </pre></div>
 </div>
+<p>The checked-in template is <code class="docutils literal notranslate"><span class="pre">.env.example</span></code>. If you use a different
+external Docker network or hostnames, update <code class="docutils literal notranslate"><span class="pre">SHARED_DATASTORE_NETWORK_NAME</span></code>,
+<code class="docutils literal notranslate"><span class="pre">CELERY_BROKER_URL</span></code>, <code class="docutils literal notranslate"><span class="pre">CELERY_RESULT_BACKEND</span></code>, <code class="docutils literal notranslate"><span class="pre">REDIS_URL</span></code>, and <code class="docutils literal notranslate"><span class="pre">QDRANT_URL</span></code>
+together.</p>
 </section>
 <section id="data-model-snapshot-redis-qdrant">
-<h2>Data Model Snapshot (Redis + Qdrant)<a class="headerlink" href="#data-model-snapshot-redis-qdrant" title="Link to this heading">¶</a></h2>
+<h3>Data Model Snapshot (Redis + Qdrant)<a class="headerlink" href="#data-model-snapshot-redis-qdrant" title="Link to this heading">¶</a></h3>
 <p><code class="docutils literal notranslate"><span class="pre">document_id</span></code> is the SHA-256 hash of file bytes.</p>
 <p>Redis keys (prefix default: <code class="docutils literal notranslate"><span class="pre">evidencebase</span></code>):</p>
 <ul class="simple">
@@ -535,7 +677,7 @@ run a beat process (or worker with beat enabled). The current API endpoint
 </section>
 </section>
 <section id="project-structure">
-<h1>Project Structure<a class="headerlink" href="#project-structure" title="Link to this heading">¶</a></h1>
+<h2>Project Structure<a class="headerlink" href="#project-structure" title="Link to this heading">¶</a></h2>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>.
 ├── deploy/
 │   └── nginx/
@@ -552,7 +694,7 @@ run a beat process (or worker with beat enabled). The current API endpoint
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 </section>
 <section id="roadmap">
-<h1>Roadmap<a class="headerlink" href="#roadmap" title="Link to this heading">¶</a></h1>
+<h2>Roadmap<a class="headerlink" href="#roadmap" title="Link to this heading">¶</a></h2>
 <ul class="simple">
 <li><p>[x] Unified proxy-based local stack for UI/API/docs/ops services</p></li>
 <li><p>[x] End-to-end ingestion flow (upload -&gt; partition -&gt; metadata -&gt; chunks -&gt; vectors)</p></li>
@@ -567,7 +709,7 @@ run a beat process (or worker with beat enabled). The current API endpoint
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 </section>
 <section id="contributing">
-<h1>Contributing<a class="headerlink" href="#contributing" title="Link to this heading">¶</a></h1>
+<h2>Contributing<a class="headerlink" href="#contributing" title="Link to this heading">¶</a></h2>
 <p>Contributions are welcome.</p>
 <ol class="arabic simple">
 <li><p>Fork the project</p></li>
@@ -579,18 +721,18 @@ run a beat process (or worker with beat enabled). The current API endpoint
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 </section>
 <section id="license">
-<h1>License<a class="headerlink" href="#license" title="Link to this heading">¶</a></h1>
+<h2>License<a class="headerlink" href="#license" title="Link to this heading">¶</a></h2>
 <p>No license file is currently included in this repository.</p>
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 </section>
 <section id="contact">
-<h1>Contact<a class="headerlink" href="#contact" title="Link to this heading">¶</a></h1>
+<h2>Contact<a class="headerlink" href="#contact" title="Link to this heading">¶</a></h2>
 <p>Project repository: <a class="reference external" href="https://github.com/defenceeconomist/mcp-evidencebase">https://github.com/defenceeconomist/mcp-evidencebase</a></p>
 <p>Issues: <a class="reference external" href="https://github.com/defenceeconomist/mcp-evidencebase/issues">https://github.com/defenceeconomist/mcp-evidencebase/issues</a></p>
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 </section>
 <section id="acknowledgments">
-<h1>Acknowledgments<a class="headerlink" href="#acknowledgments" title="Link to this heading">¶</a></h1>
+<h2>Acknowledgments<a class="headerlink" href="#acknowledgments" title="Link to this heading">¶</a></h2>
 <ul class="simple">
 <li><p><a class="reference external" href="https://github.com/othneildrew/Best-README-Template">Best-README-Template</a></p></li>
 <li><p><a class="reference external" href="https://fastapi.tiangolo.com/">FastAPI</a></p></li>
@@ -600,6 +742,7 @@ run a beat process (or worker with beat enabled). The current API endpoint
 </ul>
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 <!-- MARKDOWN LINKS & IMAGES -->
+</section>
 </section>
 
 
@@ -630,36 +773,18 @@ run a beat process (or worker with beat enabled). The current API endpoint
 <script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
 <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
 <ul class="current">
-<li class="toctree-l1 current"><a class="current reference internal" href="#">About The Project</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="#built-with">Built With</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Project README</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#about-the-project">About The Project</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#getting-started">Getting Started</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#usage">Usage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#project-structure">Project Structure</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#roadmap">Roadmap</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#contributing">Contributing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#license">License</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#contact">Contact</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#acknowledgments">Acknowledgments</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="#getting-started">Getting Started</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="#prerequisites">Prerequisites</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#installation">Installation</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#ui-e2e-test-playwright">UI E2E Test (Playwright)</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="#usage">Usage</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="#cli">CLI</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#docker-compose-stack">Docker Compose Stack</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#service-urls">Service URLs</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#cloudflare-split-protected-ui-open-gpt-api">Cloudflare Split: Protected UI + Open GPT API</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#api-workflow-examples">API Workflow Examples</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#custom-gpt-ping-action-api-key-bearer">Custom GPT Ping Action (API Key + Bearer)</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#ingestion-pipeline-atomic-stages">Ingestion Pipeline: Atomic Stages</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#celery-tasks">Celery Tasks</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#documentation-and-test-reporting">Documentation And Test Reporting</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#environment-overrides">Environment Overrides</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#data-model-snapshot-redis-qdrant">Data Model Snapshot (Redis + Qdrant)</a></li>
-</ul>
-</li>
-<li class="toctree-l1"><a class="reference internal" href="#project-structure">Project Structure</a></li>
-<li class="toctree-l1"><a class="reference internal" href="#roadmap">Roadmap</a></li>
-<li class="toctree-l1"><a class="reference internal" href="#contributing">Contributing</a></li>
-<li class="toctree-l1"><a class="reference internal" href="#license">License</a></li>
-<li class="toctree-l1"><a class="reference internal" href="#contact">Contact</a></li>
-<li class="toctree-l1"><a class="reference internal" href="#acknowledgments">Acknowledgments</a></li>
 <li class="toctree-l1"><a class="reference internal" href="vignette_cli.html">Command-Line Vignette: End-To-End Workflow</a></li>
 <li class="toctree-l1"><a class="reference internal" href="gpt_actions.html">GPT Actions API</a></li>
 <li class="toctree-l1"><a class="reference internal" href="reference.html">Reference</a></li>

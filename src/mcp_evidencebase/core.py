@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import importlib
-from typing import Protocol
+from typing import Protocol, cast
+
+from mcp_evidencebase.runtime_diagnostics import collect_runtime_health
 
 
 class BucketSummaryLike(Protocol):
@@ -27,14 +29,15 @@ class MinioClientLike(Protocol):
         """Remove ``bucket_name``."""
         ...
 
-    def list_buckets(self) -> list[BucketSummaryLike]:
+    def list_buckets(self) -> tuple[BucketSummaryLike, ...] | list[BucketSummaryLike]:
         """List available buckets."""
         ...
 
 
 def healthcheck() -> str:
-    """Return a simple status message."""
-    return "ok"
+    """Return a dependency-aware overall runtime status."""
+    report = collect_runtime_health()
+    return "ok" if bool(report.get("ready")) else "error"
 
 
 def _normalize_bucket_name(bucket_name: str) -> str:
@@ -65,12 +68,15 @@ def _resolve_minio_client(
             "MinIO SDK is required to manage buckets. Install dependency 'minio'."
         ) from exc
 
-    return minio_module.Minio(
-        endpoint,
-        access_key=access_key,
-        secret_key=secret_key,
-        secure=secure,
-        region=region,
+    return cast(
+        MinioClientLike,
+        minio_module.Minio(
+            endpoint,
+            access_key=access_key,
+            secret_key=secret_key,
+            secure=secure,
+            region=region,
+        ),
     )
 
 

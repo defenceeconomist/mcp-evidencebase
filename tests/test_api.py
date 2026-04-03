@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Generator
 from dataclasses import dataclass, field
 from io import BytesIO
 from typing import Any
@@ -11,6 +12,7 @@ from minio.error import S3Error
 from pypdf import PdfReader, PdfWriter
 
 from mcp_evidencebase.api import app, get_bucket_service, get_ingestion_service
+from mcp_evidencebase.ingestion_modules.service import DependencyDisabledError
 
 pytestmark = pytest.mark.area_api
 
@@ -56,6 +58,7 @@ class FakeIngestionService:
     section_list_calls: list[tuple[str, str]] = field(default_factory=list)
     section_rebuild_calls: list[tuple[str, str | None]] = field(default_factory=list)
     reindex_payload_calls: list[tuple[str, str]] = field(default_factory=list)
+    documents_error: Exception | None = None
     upload_error: Exception | None = None
     delete_error: Exception | None = None
     metadata_error: Exception | None = None
@@ -76,6 +79,8 @@ class FakeIngestionService:
         return self.bucket_names
 
     def list_documents(self, bucket_name: str) -> list[dict[str, Any]]:
+        if self.documents_error is not None:
+            raise self.documents_error
         return self.documents
 
     def search_documents(
@@ -268,13 +273,27 @@ class FakeIngestionService:
 
 
 @pytest.fixture
-def client() -> TestClient:
+def client(monkeypatch: pytest.MonkeyPatch) -> Generator[TestClient, None, None]:
     # Ensure local environment doesn't influence TestClient behavior
     os.environ.pop("GPT_ACTIONS_LINK_BASE_URL", None)
+    monkeypatch.setattr(
+        "mcp_evidencebase.api.collect_runtime_health",
+        lambda: {
+            "status": "ok",
+            "ready": True,
+            "summary": "All required runtime dependencies are reachable.",
+            "failed_required_checks": [],
+            "contract": {},
+            "checks": {},
+        },
+    )
     app.dependency_overrides[get_ingestion_service] = lambda: FakeIngestionService()
-    with TestClient(app) as test_client:
-        yield test_client
-    app.dependency_overrides.clear()
+    app.dependency_overrides[get_bucket_service] = lambda: FakeBucketService()
+    try:
+        with TestClient(app) as test_client:
+            yield test_client
+    finally:
+        app.dependency_overrides.clear()
 
 
 def _override_bucket_service(service: FakeBucketService) -> None:
@@ -310,14 +329,7 @@ class FailingTask:
 
 
 def _make_s3_error() -> S3Error:
-    return S3Error(
-        None,
-        "AccessDenied",
-        "Denied",
-        None,
-        None,
-        None,
-    )
+    return S3Error(None, "AccessDenied", "Denied", None, None, None)  # type: ignore[arg-type]
 
 
 def _build_outlined_pdf_bytes() -> bytes:
@@ -356,11 +368,92 @@ def _build_mixed_chapter_outline_pdf_bytes() -> bytes:
     return output.getvalue()
 
 
-def test_healthz_returns_ok(client: TestClient) -> None:
-    """Assert ``/healthz`` returns HTTP 200 with ``{\"status\": \"ok\"}``."""
+def test_healthz_returns_ok(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Assert ``/healthz`` returns a dependency-aware readiness payload."""
+    monkeypatch.setattr(
+        "mcp_evidencebase.api.collect_runtime_health",
+        lambda: {
+            "status": "ok",
+            "ready": True,
+            "summary": "All required runtime dependencies are reachable.",
+            "failed_required_checks": [],
+            "contract": {},
+            "checks": {},
+        },
+    )
     response = client.get("/healthz")
     assert response.status_code == 200
+    assert response.json()["ready"] is True
+    assert response.json()["status"] == "ok"
+
+
+def test_livez_returns_ok(client: TestClient) -> None:
+    """Assert ``/livez`` returns process liveness without dependency probes."""
+    response = client.get("/livez")
+    assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def test_readyz_returns_service_unavailable_when_not_ready(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Assert ``/readyz`` returns HTTP 503 when required dependencies fail."""
+    monkeypatch.setattr(
+        "mcp_evidencebase.api.collect_runtime_health",
+        lambda: {
+            "status": "error",
+            "ready": False,
+            "summary": "Required runtime dependencies are unavailable.",
+            "failed_required_checks": ["redis"],
+            "contract": {},
+            "checks": {
+                "redis": {
+                    "required": True,
+                    "configured": True,
+                    "status": "error",
+                    "target": "redis://redis:6379/2",
+                    "detail": "ConnectionError: unavailable",
+                }
+            },
+        },
+    )
+    response = client.get("/readyz")
+    assert response.status_code == 503
+    assert response.json()["ready"] is False
+    assert response.json()["failed_required_checks"] == ["redis"]
+
+
+def test_api_startup_raises_when_required_dependencies_fail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Startup should fail fast when required dependency checks are not ready."""
+    monkeypatch.setattr(
+        "mcp_evidencebase.api.collect_runtime_health",
+        lambda: {
+            "status": "error",
+            "ready": False,
+            "summary": "Required runtime dependencies are unavailable.",
+            "failed_required_checks": ["redis"],
+            "contract": {},
+            "checks": {
+                "redis": {
+                    "required": True,
+                    "configured": True,
+                    "status": "error",
+                    "target": "redis://redis:6379/2",
+                    "detail": "ConnectionError: unavailable",
+                }
+            },
+        },
+    )
+
+    with pytest.raises(RuntimeError, match="api startup blocked"):
+        with TestClient(app):
+            pass
 
 
 def test_gpt_ping_requires_basic_auth(
@@ -928,9 +1021,8 @@ def test_get_buckets_maps_s3_errors_to_bad_request(client: TestClient) -> None:
 
 
 def test_create_bucket_returns_created_result(client: TestClient) -> None:
-    """Check bucket creation normalizes whitespace and reports Qdrant sync status."""
+    """Check bucket creation normalizes whitespace without requiring Qdrant sync."""
     _override_bucket_service(FakeBucketService(created=True))
-    _override_ingestion_service(FakeIngestionService(qdrant_create_result=True))
 
     response = client.post("/buckets", json={"bucket_name": "  research-raw  "})
 
@@ -938,7 +1030,6 @@ def test_create_bucket_returns_created_result(client: TestClient) -> None:
     assert response.json() == {
         "bucket_name": "research-raw",
         "created": True,
-        "qdrant_collection_created": True,
     }
 
 
@@ -955,9 +1046,8 @@ def test_create_bucket_maps_value_error_to_bad_request(client: TestClient) -> No
 
 
 def test_delete_bucket_returns_removed_result(client: TestClient) -> None:
-    """Ensure successful deletion returns both bucket and Qdrant removal flags."""
+    """Ensure successful deletion returns bucket removal status only."""
     _override_bucket_service(FakeBucketService(removed=True))
-    _override_ingestion_service(FakeIngestionService(qdrant_delete_result=True))
 
     response = client.delete("/buckets/research-raw")
 
@@ -965,7 +1055,6 @@ def test_delete_bucket_returns_removed_result(client: TestClient) -> None:
     assert response.json() == {
         "bucket_name": "research-raw",
         "removed": True,
-        "qdrant_collection_removed": True,
     }
 
 
@@ -977,32 +1066,6 @@ def test_delete_bucket_maps_s3_errors_to_bad_request(client: TestClient) -> None
 
     assert response.status_code == 400
     assert response.json() == {"detail": "AccessDenied: Denied"}
-
-
-def test_create_bucket_returns_bad_gateway_when_qdrant_sync_fails(client: TestClient) -> None:
-    """Check Qdrant sync failures during create map to HTTP 502."""
-    _override_bucket_service(FakeBucketService(created=True))
-    _override_ingestion_service(
-        FakeIngestionService(qdrant_create_error=RuntimeError("qdrant unavailable"))
-    )
-
-    response = client.post("/buckets", json={"bucket_name": "research-raw"})
-
-    assert response.status_code == 502
-    assert "Qdrant sync failed while creating collection" in response.json()["detail"]
-
-
-def test_delete_bucket_returns_bad_gateway_when_qdrant_sync_fails(client: TestClient) -> None:
-    """Check Qdrant sync failures during delete map to HTTP 502."""
-    _override_bucket_service(FakeBucketService(removed=True))
-    _override_ingestion_service(
-        FakeIngestionService(qdrant_delete_error=RuntimeError("qdrant unavailable"))
-    )
-
-    response = client.delete("/buckets/research-raw")
-
-    assert response.status_code == 502
-    assert "Qdrant sync failed while deleting collection" in response.json()["detail"]
 
 
 def test_get_documents_returns_documents(client: TestClient) -> None:
@@ -1027,6 +1090,23 @@ def test_get_documents_returns_documents(client: TestClient) -> None:
     assert response.status_code == 200
     assert response.json()["bucket_name"] == "research-raw"
     assert response.json()["documents"][0]["document_id"] == "doc-1"
+
+
+def test_get_documents_returns_503_when_redis_is_disabled(client: TestClient) -> None:
+    """Disabled Redis-backed document listing should surface as HTTP 503."""
+    service = FakeIngestionService(
+        documents_error=DependencyDisabledError(
+            component="Redis",
+            feature="document listing",
+            hint="Enable Redis to list processed documents.",
+        )
+    )
+    _override_ingestion_service(service)
+
+    response = client.get("/collections/research-raw/documents")
+
+    assert response.status_code == 503
+    assert "Redis is disabled for document listing." in response.json()["detail"]
 
 
 def test_download_collection_bibliography_returns_bibtex_attachment(client: TestClient) -> None:
@@ -1162,6 +1242,25 @@ def test_search_collection_rejects_invalid_mode(client: TestClient) -> None:
     assert response.status_code == 400
     assert "mode must be one of" in response.json()["detail"]
     assert service.search_calls == []
+
+
+def test_search_collection_returns_503_when_qdrant_is_disabled(client: TestClient) -> None:
+    """Disabled search dependencies should surface as HTTP 503."""
+    service = FakeIngestionService()
+    service.search_error = DependencyDisabledError(
+        component="Qdrant",
+        feature="search",
+        hint="Enable Qdrant to use search.",
+    )
+    _override_ingestion_service(service)
+
+    response = client.get(
+        "/collections/research-raw/search",
+        params={"query": "causal inference"},
+    )
+
+    assert response.status_code == 503
+    assert "Qdrant is disabled for search." in response.json()["detail"]
 
 
 def test_resolve_document_returns_pdf_payload(client: TestClient) -> None:
@@ -1415,8 +1514,10 @@ def test_upload_split_document_honors_custom_folder_and_embeds_author_metadata(
         "Edited Book/Chapter 1.pdf",
     ]
     uploaded_reader = PdfReader(BytesIO(service.uploaded[0][2]))
-    assert uploaded_reader.metadata.title == "Chapter 1"
-    assert uploaded_reader.metadata.author == "Jane Editor"
+    metadata = uploaded_reader.metadata
+    assert metadata is not None
+    assert metadata.title == "Chapter 1"
+    assert metadata.author == "Jane Editor"
     assert fake_task.calls == [
         (
             "research-raw",
@@ -1703,6 +1804,23 @@ def test_rebuild_sections_can_target_single_document(client: TestClient) -> None
         "chunk_sections_count": 12,
     }
     assert service.section_rebuild_calls == [("research-raw", "doc-1")]
+
+
+def test_rebuild_sections_returns_503_when_redis_is_disabled(client: TestClient) -> None:
+    """Disabled Redis-backed section rebuild should surface as HTTP 503."""
+    service = FakeIngestionService(
+        section_rebuild_error=DependencyDisabledError(
+            component="Redis",
+            feature="section rebuild",
+            hint="Enable Redis to rebuild stored section mappings.",
+        )
+    )
+    _override_ingestion_service(service)
+
+    response = client.post("/collections/research-raw/sections/rebuild")
+
+    assert response.status_code == 503
+    assert "Redis is disabled for section rebuild." in response.json()["detail"]
 
 
 def test_delete_document_keeps_partitions(client: TestClient) -> None:

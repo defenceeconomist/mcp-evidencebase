@@ -14,10 +14,11 @@ from mcp_evidencebase.ingestion_modules.chunking import (
 )
 from mcp_evidencebase.ingestion_modules.metadata import (
     SEARCH_MODES,
+    _normalize_coordinate_points,
     build_resolver_url,
     compute_chunk_point_id,
-    _normalize_coordinate_points,
 )
+
 
 class QdrantIndexer:
     """Qdrant upsert/search/delete operations with dense and keyword vectors."""
@@ -379,8 +380,8 @@ class QdrantIndexer:
             file_path = self._extract_file_path_from_minio_location(minio_location)
         resolver_url = str(payload.get("resolver_url", ""))
         if not bucket_name or not file_path:
-            resolver_bucket_name, resolver_file_path = self._extract_bucket_and_path_from_resolver_url(
-                resolver_url
+            resolver_bucket_name, resolver_file_path = (
+                self._extract_bucket_and_path_from_resolver_url(resolver_url)
             )
             if not bucket_name:
                 bucket_name = resolver_bucket_name

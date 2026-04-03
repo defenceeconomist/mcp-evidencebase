@@ -1,21 +1,23 @@
-x-app-build: &app-build
-  image: mcp-evidencebase-app:latest
-  build:
-    context: .
-    dockerfile: docker/app/Dockerfile
+x-app-image: &app-image
+  image: ${APP_IMAGE:-mcp-evidencebase-app:latest}
 
 x-backend-environment: &backend-environment
-  CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
-  CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
+  CELERY_BROKER_URL: ${CELERY_BROKER_URL:?CELERY_BROKER_URL must be set in .env or the environment}
+  CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:?CELERY_RESULT_BACKEND must be set in .env or the environment}
   MINIO_ENDPOINT: ${MINIO_ENDPOINT:-minio:9000}
   MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
   MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
   MINIO_SECURE: ${MINIO_SECURE:-false}
-  REDIS_URL: ${REDIS_URL:-redis://redis:6379/2}
+  REDIS_URL: ${REDIS_URL:?REDIS_URL must be set in .env or the environment}
   REDIS_PREFIX: ${REDIS_PREFIX:-evidencebase}
-  QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
+  QDRANT_URL: ${QDRANT_URL:?QDRANT_URL must be set in .env or the environment}
   QDRANT_API_KEY: ${QDRANT_API_KEY:-}
   QDRANT_COLLECTION_PREFIX: ${QDRANT_COLLECTION_PREFIX:-evidencebase}
+  MCP_EVIDENCEBASE_REQUIRE_MINIO: ${MCP_EVIDENCEBASE_REQUIRE_MINIO:-true}
+  MCP_EVIDENCEBASE_REQUIRE_REDIS: ${MCP_EVIDENCEBASE_REQUIRE_REDIS:-true}
+  MCP_EVIDENCEBASE_REQUIRE_QDRANT: ${MCP_EVIDENCEBASE_REQUIRE_QDRANT:-true}
+  MCP_EVIDENCEBASE_REQUIRE_CELERY_BROKER: ${MCP_EVIDENCEBASE_REQUIRE_CELERY_BROKER:-true}
+  MCP_EVIDENCEBASE_REQUIRE_CELERY_RESULT_BACKEND: ${MCP_EVIDENCEBASE_REQUIRE_CELERY_RESULT_BACKEND:-true}
   UNSTRUCTURED_API_URL: ${UNSTRUCTURED_API_URL:-https://api.unstructuredapp.io/general/v0/general}
   UNSTRUCTURED_API_KEY: ${UNSTRUCTURED_API_KEY:-}
   UNSTRUCTURED_STRATEGY: ${UNSTRUCTURED_STRATEGY:-hi_res}
@@ -36,31 +38,12 @@ x-backend-environment: &backend-environment
   CHUNK_PRESERVE_PAGE_BREAKS: ${CHUNK_PRESERVE_PAGE_BREAKS:-true}
   MINIO_SCAN_INTERVAL_SECONDS: ${MINIO_SCAN_INTERVAL_SECONDS:-15}
 
-services:
-  redis:
-    image: redis:7.4-alpine
-    container_name: evidencebase-redis
-    restart: unless-stopped
-    volumes:
-      - redis-data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-  redisinsight:
-    image: redis/redisinsight:latest
-    profiles: ["ops"]
-    container_name: evidencebase-redisinsight
-    restart: unless-stopped
-    environment:
-      RIPROXYPATH: /redisinsight
-    depends_on:
-      redis:
-        condition: service_healthy
-    volumes:
-      - redisinsight-data:/data
+x-flower-environment: &flower-environment
+  CELERY_BROKER_URL: ${CELERY_BROKER_URL:?CELERY_BROKER_URL must be set in .env or the environment}
+  CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:?CELERY_RESULT_BACKEND must be set in .env or the environment}
+  CELERY_APP: ${CELERY_APP:-mcp_evidencebase.celery_app}
 
+services:
   minio:
     image: minio/minio:latest
     container_name: evidencebase-minio
@@ -74,23 +57,12 @@ services:
     volumes:
       - minio-data:/data
 
-  qdrant:
-    image: qdrant/qdrant:latest
-    container_name: evidencebase-qdrant
-    restart: unless-stopped
-    volumes:
-      - qdrant-storage:/qdrant/storage
-
   celery:
-    <<: *app-build
+    <<: *app-image
     container_name: evidencebase-celery
     restart: unless-stopped
     depends_on:
-      redis:
-        condition: service_healthy
       minio:
-        condition: service_started
-      qdrant:
         condition: service_started
     environment:
       <<: *backend-environment
@@ -98,21 +70,20 @@ services:
     volumes:
       - model-cache:/model-cache
     command: ["celery", "-A", "mcp_evidencebase.celery_app", "worker", "--loglevel=info"]
+    networks:
+      - default
+      - datastores
 
   flower:
-    <<: *app-build
+    <<: *app-image
     profiles: ["ops"]
     container_name: evidencebase-flower
     restart: unless-stopped
     depends_on:
-      redis:
-        condition: service_healthy
       celery:
         condition: service_started
     environment:
-      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
-      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
-      CELERY_APP: ${CELERY_APP:-mcp_evidencebase.celery_app}
+      <<: *flower-environment
     command:
       [
         "celery",
@@ -122,9 +93,12 @@ services:
         "--port=5555",
         "--url_prefix=/flower",
       ]
+    networks:
+      - default
+      - datastores
 
   api:
-    <<: *app-build
+    <<: *app-image
     container_name: evidencebase-api
     restart: unless-stopped
     environment:
@@ -137,27 +111,24 @@ services:
     depends_on:
       minio:
         condition: service_started
-      redis:
-        condition: service_healthy
-      qdrant:
-        condition: service_started
+    networks:
+      - default
+      - datastores
 
   proxy:
-    image: mcp-evidencebase-proxy:latest
-    build:
-      context: .
-      dockerfile: docker/proxy/Dockerfile
+    image: ${PROXY_IMAGE:-mcp-evidencebase-proxy:latest}
     container_name: evidencebase-proxy
     restart: unless-stopped
     depends_on:
       minio:
         condition: service_started
-      qdrant:
-        condition: service_started
       api:
         condition: service_started
     ports:
       - "${PROXY_PORT:-52180}:80"
+    networks:
+      - default
+      - datastores
 
   cloudflared:
     image: cloudflare/cloudflared:latest
@@ -173,9 +144,12 @@ services:
       - run
       - --token
       - "${CLOUDFLARE_TUNNEL_TOKEN:?CLOUDFLARE_TUNNEL_TOKEN is required for the cloudflared service}"
+
 volumes:
   minio-data:
-  qdrant-storage:
-  redis-data:
-  redisinsight-data:
   model-cache:
+
+networks:
+  datastores:
+    external: true
+    name: ${SHARED_DATASTORE_NETWORK_NAME:-shared-datastores}

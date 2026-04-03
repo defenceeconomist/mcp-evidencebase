@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 
 from mcp_evidencebase import tasks as task_module
+from mcp_evidencebase.ingestion_modules.service import DependencyDisabledError
 
 pytestmark = pytest.mark.area_ingestion
 
@@ -39,7 +40,13 @@ class FakeScanService:
 
 
 class FakeStageService:
-    def __init__(self, crossref_error: Exception | None = None) -> None:
+    def __init__(
+        self,
+        crossref_error: Exception | None = None,
+        *,
+        section_error: Exception | None = None,
+        upsert_error: Exception | None = None,
+    ) -> None:
         self.partition_calls: list[tuple[str, str, str | None]] = []
         self.meta_calls: list[tuple[str, str, str, str | None]] = []
         self.section_calls: list[tuple[str, str, str, str | None]] = []
@@ -47,6 +54,8 @@ class FakeStageService:
         self.upsert_calls: list[tuple[str, str, str, str | None]] = []
         self.crossref_calls: list[tuple[str, str]] = []
         self.crossref_error = crossref_error
+        self.section_error = section_error
+        self.upsert_error = upsert_error
 
     def partition_stage_object(
         self,
@@ -91,6 +100,8 @@ class FakeStageService:
         document_id: str,
         etag: str | None = None,
     ) -> dict[str, str]:
+        if self.section_error is not None:
+            raise self.section_error
         self.section_calls.append((bucket_name, object_name, document_id, etag))
         return {
             "bucket_name": bucket_name,
@@ -127,6 +138,8 @@ class FakeStageService:
         document_id: str,
         etag: str | None = None,
     ) -> dict[str, str]:
+        if self.upsert_error is not None:
+            raise self.upsert_error
         self.upsert_calls.append((bucket_name, object_name, document_id, etag))
         return {
             "bucket_name": bucket_name,
@@ -292,6 +305,60 @@ def test_upsert_task_calls_upsert_stage(monkeypatch: pytest.MonkeyPatch) -> None
 
     assert result["document_id"] == "doc-123"
     assert fake_service.upsert_calls == [("research-raw", "paper.pdf", "doc-123", "etag-1")]
+
+
+def test_section_task_propagates_disabled_redis_dependency(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Redis-disabled section rebuilds should fail explicitly in worker tasks."""
+    fake_service = FakeStageService(
+        section_error=DependencyDisabledError(
+            component="Redis",
+            feature="section mapping",
+            hint="Enable Redis to store section mappings.",
+        )
+    )
+    monkeypatch.setattr(task_module, "build_ingestion_service", lambda: fake_service)
+
+    with pytest.raises(
+        DependencyDisabledError,
+        match=r"Redis is disabled for section mapping\.",
+    ):
+        task_module.section_minio_object.run(
+            {
+                "bucket_name": "research-raw",
+                "object_name": "paper.pdf",
+                "document_id": "doc-123",
+                "etag": "etag-1",
+            }
+        )
+
+
+def test_upsert_task_propagates_disabled_qdrant_dependency(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Qdrant-disabled upserts should fail explicitly in worker tasks."""
+    fake_service = FakeStageService(
+        upsert_error=DependencyDisabledError(
+            component="Qdrant",
+            feature="vector upsert",
+            hint="Enable Qdrant to store vectors.",
+        )
+    )
+    monkeypatch.setattr(task_module, "build_ingestion_service", lambda: fake_service)
+
+    with pytest.raises(
+        DependencyDisabledError,
+        match=r"Qdrant is disabled for vector upsert\.",
+    ):
+        task_module.upsert_minio_object.run(
+            {
+                "bucket_name": "research-raw",
+                "object_name": "paper.pdf",
+                "document_id": "doc-123",
+                "etag": "etag-1",
+            }
+        )
 
 
 def test_process_task_update_meta_fetches_crossref_before_tail_stages(

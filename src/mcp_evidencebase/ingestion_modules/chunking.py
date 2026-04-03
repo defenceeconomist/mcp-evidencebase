@@ -12,6 +12,7 @@ from mcp_evidencebase.ingestion_modules.metadata import (
     extract_partition_bounding_box,
 )
 
+
 @dataclass(frozen=True)
 class _NormalizedElement:
     """Normalized Unstructured element used by the chunking pipeline."""
@@ -156,9 +157,9 @@ def _resolve_table_markdown(
     metadata_mapping: Mapping[str, Any],
 ) -> str:
     """Return render-markdown for a table element, preferring HTML when provided."""
-    table_html = _safe_non_empty_string(metadata_mapping.get("text_as_html")) or _safe_non_empty_string(
-        raw_element.get("text_as_html")
-    )
+    table_html = _safe_non_empty_string(
+        metadata_mapping.get("text_as_html")
+    ) or _safe_non_empty_string(raw_element.get("text_as_html"))
     if table_html and "<table" in table_html.lower():
         return table_html
     return fallback_text
@@ -216,7 +217,7 @@ def _normalize_chunking_elements(
         metadata_mapping = metadata if isinstance(metadata, Mapping) else {}
         text = _safe_non_empty_string(raw_element.get("text")) or ""
 
-        raw_type, kind, type_key = _normalize_element_type(
+        raw_type, kind, _type_key = _normalize_element_type(
             raw_element,
             excluded_type_keys=exclude_element_type_keys,
         )
@@ -425,10 +426,17 @@ def _resolve_text_join_separator(
     if right_first_char and right_first_char in _NO_LEADING_SPACE_PUNCTUATION:
         return ""
 
-    if preserve_page_breaks and left_page is not None and right_page is not None and left_page != right_page:
+    if (
+        preserve_page_breaks
+        and left_page is not None
+        and right_page is not None
+        and left_page != right_page
+    ):
         return "\n\n"
 
-    normalized_strategy = str(paragraph_break_strategy or _DEFAULT_PARAGRAPH_BREAK_STRATEGY).strip().lower()
+    normalized_strategy = str(
+        paragraph_break_strategy or _DEFAULT_PARAGRAPH_BREAK_STRATEGY
+    ).strip().lower()
     if normalized_strategy == "coordinates" and _is_likely_paragraph_break(
         left_page=left_page,
         right_page=right_page,
@@ -986,9 +994,9 @@ def _assemble_parent_section_text(
 
     for chunk in run_chunks:
         metadata = _resolve_chunk_metadata_mapping(chunk)
-        rendered_part = _safe_non_empty_string(metadata.get("render_markdown")) or _safe_non_empty_string(
-            chunk.get("text")
-        )
+        rendered_part = _safe_non_empty_string(
+            metadata.get("render_markdown")
+        ) or _safe_non_empty_string(chunk.get("text"))
         if rendered_part is None:
             continue
 
@@ -1013,7 +1021,9 @@ def _assemble_parent_section_text(
 
         previous_chunk_type = chunk_type
         previous_page = last_page if last_page is not None else current_page
-        previous_coordinates = last_coordinates if last_coordinates is not None else current_coordinates
+        previous_coordinates = (
+            last_coordinates if last_coordinates is not None else current_coordinates
+        )
 
     return section_text.strip()
 
@@ -1115,7 +1125,9 @@ def _attach_parent_sections_from_raw_elements(
         metadata["parent_section_index"] = section_index
         metadata["parent_section_title"] = payload.get("parent_section_title")
         metadata["parent_section_text"] = str(payload.get("parent_section_text", "")).strip()
-        metadata["parent_section_markdown"] = str(payload.get("parent_section_markdown", "")).strip()
+        metadata["parent_section_markdown"] = str(
+            payload.get("parent_section_markdown", "")
+        ).strip()
         chunk["metadata"] = metadata
     return chunks
 
@@ -1199,7 +1211,9 @@ def chunk_unstructured_elements(
     new_after_n_chars = max(1, min(int(params.get("new_after_n_chars", 1500)), max_characters))
     combine_under_n_chars = max(0, int(params.get("combine_under_n_chars", 500)))
     overlap_chars = max(0, min(int(params.get("overlap_chars", 0)), max_characters - 1))
-    chunking_strategy = str(params.get("chunking_strategy", _DEFAULT_CHUNKING_STRATEGY)).strip().lower()
+    chunking_strategy = str(
+        params.get("chunking_strategy", _DEFAULT_CHUNKING_STRATEGY)
+    ).strip().lower()
     if chunking_strategy not in {"by_title", "none"}:
         chunking_strategy = _DEFAULT_CHUNKING_STRATEGY
     split_on_titles = chunking_strategy == "by_title"

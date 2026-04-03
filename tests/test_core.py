@@ -1,5 +1,6 @@
 import pytest
 
+import mcp_evidencebase.core as core
 from mcp_evidencebase.core import (
     add_minio_bucket,
     healthcheck,
@@ -10,9 +11,20 @@ from mcp_evidencebase.core import (
 pytestmark = pytest.mark.area_core
 
 
-def test_healthcheck() -> None:
-    """Verify the healthcheck helper returns the stable ``ok`` status."""
+def test_healthcheck_returns_ok_when_runtime_is_ready(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify the healthcheck helper reports ``ok`` when required checks pass."""
+    monkeypatch.setattr(core, "collect_runtime_health", lambda: {"ready": True})
     assert healthcheck() == "ok"
+
+
+def test_healthcheck_returns_error_when_runtime_is_not_ready(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify the healthcheck helper reports ``error`` when required checks fail."""
+    monkeypatch.setattr(core, "collect_runtime_health", lambda: {"ready": False})
+    assert healthcheck() == "error"
 
 
 class FakeBucketSummary:
@@ -39,8 +51,8 @@ class FakeMinioClient:
         self.bucket_names.remove(bucket_name)
         self.removed_bucket_names.append(bucket_name)
 
-    def list_buckets(self) -> list[FakeBucketSummary]:
-        return [FakeBucketSummary(name) for name in self.bucket_names]
+    def list_buckets(self) -> tuple[FakeBucketSummary, ...]:
+        return tuple(FakeBucketSummary(name) for name in self.bucket_names)
 
 
 def test_add_minio_bucket_creates_when_missing() -> None:

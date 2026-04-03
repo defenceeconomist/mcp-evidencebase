@@ -12,8 +12,8 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from mcp_evidencebase.api_modules.errors import unauthorized_basic_auth_error
 from mcp_evidencebase.bucket_service import BucketService
 from mcp_evidencebase.ingestion import IngestionService, build_ingestion_service
+from mcp_evidencebase.ingestion_modules.service import DependencyConfigurationError
 from mcp_evidencebase.minio_settings import MinioSettings, build_minio_settings
-
 
 gpt_basic_auth = HTTPBasic(auto_error=False)
 
@@ -32,7 +32,10 @@ def get_bucket_service(
 
 def get_ingestion_service() -> IngestionService:
     """Resolve document ingestion service dependency."""
-    return build_ingestion_service()
+    try:
+        return build_ingestion_service()
+    except DependencyConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 def matches_api_key(candidate: str | None, expected_api_key: str) -> bool:

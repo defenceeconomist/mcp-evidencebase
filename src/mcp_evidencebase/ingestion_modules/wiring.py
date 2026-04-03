@@ -5,14 +5,21 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
 from minio import Minio
 
 from mcp_evidencebase.ingestion_modules.qdrant import QdrantIndexer
 from mcp_evidencebase.ingestion_modules.repository import RedisDocumentRepository
-from mcp_evidencebase.ingestion_modules.service import IngestionService, UnstructuredPartitionClient
+from mcp_evidencebase.ingestion_modules.service import (
+    DependencyConfigurationError,
+    DisabledQdrantIndexer,
+    DisabledRedisDocumentRepository,
+    IngestionService,
+    UnstructuredPartitionClient,
+)
 from mcp_evidencebase.minio_settings import MinioSettings, build_minio_settings
+from mcp_evidencebase.runtime_diagnostics import build_runtime_contract
 
 
 class MinioObjectLike(Protocol):
@@ -103,9 +110,9 @@ def build_ingestion_settings(env: Mapping[str, str] | None = None) -> IngestionS
 
     return IngestionSettings(
         minio=minio_settings,
-        redis_url=source.get("REDIS_URL", "redis://localhost:6379/2"),
+        redis_url=str(source.get("REDIS_URL", "")).strip(),
         redis_prefix=source.get("REDIS_PREFIX", "evidencebase"),
-        qdrant_url=source.get("QDRANT_URL", "http://localhost:6333"),
+        qdrant_url=str(source.get("QDRANT_URL", "")).strip(),
         qdrant_api_key=source.get("QDRANT_API_KEY") or None,
         qdrant_timeout_seconds=max(1.0, _safe_float("QDRANT_TIMEOUT_SECONDS", 30.0)),
         qdrant_collection_prefix=source.get("QDRANT_COLLECTION_PREFIX", "evidencebase"),
@@ -131,16 +138,22 @@ def build_ingestion_settings(env: Mapping[str, str] | None = None) -> IngestionS
     )
 
 
-def build_ingestion_service(settings: IngestionSettings | None = None) -> IngestionService:
+def build_ingestion_service(
+    settings: IngestionSettings | None = None,
+    env: Mapping[str, str] | None = None,
+) -> IngestionService:
     """Build a fully configured ingestion service.
 
     Args:
         settings: Optional precomputed settings object.
+        env: Optional environment mapping used to resolve dependency contract flags.
 
     Returns:
         Ready-to-use ingestion service with MinIO, Redis, and Qdrant clients.
     """
-    resolved_settings = settings or build_ingestion_settings()
+    source = os.environ if env is None else env
+    resolved_settings = settings or build_ingestion_settings(source)
+    contract = build_runtime_contract(source)
 
     minio_client = Minio(
         resolved_settings.minio.endpoint,
@@ -150,31 +163,51 @@ def build_ingestion_service(settings: IngestionSettings | None = None) -> Ingest
         region=resolved_settings.minio.region,
     )
 
-    import redis
-    from qdrant_client import QdrantClient
+    if contract.redis.required and not resolved_settings.redis_url:
+        raise DependencyConfigurationError(
+            "Redis is required but REDIS_URL is not configured. "
+            "Set REDIS_URL or disable the requirement with MCP_EVIDENCEBASE_REQUIRE_REDIS=false."
+        )
+    if contract.qdrant.required and not resolved_settings.qdrant_url:
+        raise DependencyConfigurationError(
+            "Qdrant is required but QDRANT_URL is not configured. "
+            "Set QDRANT_URL or disable the requirement with MCP_EVIDENCEBASE_REQUIRE_QDRANT=false."
+        )
 
-    redis_client = redis.Redis.from_url(resolved_settings.redis_url, decode_responses=True)
-    repository = RedisDocumentRepository(
-        redis_client=redis_client,
-        key_prefix=resolved_settings.redis_prefix,
-    )
+    if resolved_settings.redis_url:
+        import redis
+
+        redis_client = redis.Redis.from_url(resolved_settings.redis_url, decode_responses=True)
+        repository: Any = RedisDocumentRepository(
+            redis_client=redis_client,
+            key_prefix=resolved_settings.redis_prefix,
+        )
+    else:
+        repository = DisabledRedisDocumentRepository()
+
     partition_client = UnstructuredPartitionClient(
         api_url=resolved_settings.unstructured_api_url,
         api_key=resolved_settings.unstructured_api_key,
         strategy=resolved_settings.unstructured_strategy,
         timeout_seconds=resolved_settings.unstructured_timeout_seconds,
     )
-    qdrant_client = QdrantClient(
-        url=resolved_settings.qdrant_url,
-        api_key=resolved_settings.qdrant_api_key,
-        timeout=resolved_settings.qdrant_timeout_seconds,
-    )
-    qdrant_indexer = QdrantIndexer(
-        qdrant_client=qdrant_client,
-        fastembed_model=resolved_settings.fastembed_model,
-        fastembed_keyword_model=resolved_settings.fastembed_keyword_model,
-        collection_prefix=resolved_settings.qdrant_collection_prefix,
-    )
+    if resolved_settings.qdrant_url:
+        from qdrant_client import QdrantClient
+
+        qdrant_client = QdrantClient(
+            url=resolved_settings.qdrant_url,
+            api_key=resolved_settings.qdrant_api_key,
+            timeout=max(1, int(resolved_settings.qdrant_timeout_seconds)),
+        )
+        qdrant_indexer: Any = QdrantIndexer(
+            qdrant_client=qdrant_client,
+            fastembed_model=resolved_settings.fastembed_model,
+            fastembed_keyword_model=resolved_settings.fastembed_keyword_model,
+            collection_prefix=resolved_settings.qdrant_collection_prefix,
+        )
+    else:
+        qdrant_indexer = DisabledQdrantIndexer()
+
     return IngestionService(
         minio_client=minio_client,
         repository=repository,

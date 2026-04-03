@@ -22,6 +22,7 @@ from mcp_evidencebase.ingestion_modules.metadata import (
     utc_now_iso,
 )
 
+
 class RedisDocumentRepository:
     """Persistence layer for document, partition, and metadata state in Redis."""
 
@@ -355,7 +356,11 @@ class RedisDocumentRepository:
         merged["document_type"] = merged.get("document_type", "") or "misc"
 
         object_names = self.get_document_object_names(bucket_name, document_id)
-        file_path = object_names[0] if object_names else self.get_state(document_id).get("file_path", "")
+        file_path = (
+            object_names[0]
+            if object_names
+            else self.get_state(document_id).get("file_path", "")
+        )
         if not merged.get("citation_key"):
             merged["citation_key"] = build_default_citation_key(
                 metadata=merged,
@@ -386,7 +391,10 @@ class RedisDocumentRepository:
         """Persist partition payload under the partition hash key."""
         del bucket_name
         partition_key = compute_partition_key(partitions)
-        self._redis.set(self._document_partition_payload_key(document_id), canonical_json(partitions))
+        self._redis.set(
+            self._document_partition_payload_key(document_id),
+            canonical_json(partitions),
+        )
         self.set_state(
             document_id,
             {

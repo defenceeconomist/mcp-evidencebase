@@ -1,0 +1,12 @@
+services:
+  celery:
+    image: ${APP_IMAGE:-mcp-evidencebase-app:latest}
+
+  flower:
+    image: ${APP_IMAGE:-mcp-evidencebase-app:latest}
+
+  api:
+    image: ${APP_IMAGE:-mcp-evidencebase-app:latest}
+
+  proxy:
+    image: ${PROXY_IMAGE:-mcp-evidencebase-proxy:latest}

@@ -62,13 +62,13 @@ def _resolve_stage_payload(
     return bucket_name, object_name, document_id, etag
 
 
-@app.task(name="mcp_evidencebase.ping")
+@app.task(name="mcp_evidencebase.ping")  # type: ignore[untyped-decorator]
 def ping() -> str:
     """Health task for verifying worker execution."""
     return "pong"
 
 
-@app.task(name="mcp_evidencebase.scan_minio_objects")
+@app.task(name="mcp_evidencebase.scan_minio_objects")  # type: ignore[untyped-decorator]
 def scan_minio_objects(
     bucket_name: str | None = None,
     update_meta: bool = True,
@@ -107,7 +107,7 @@ def scan_minio_objects(
     return {"scanned": scanned, "queued": queued}
 
 
-@app.task(
+@app.task(  # type: ignore[untyped-decorator]
     name="mcp_evidencebase.partition_minio_object",
     autoretry_for=(Exception,),
     retry_backoff=True,
@@ -153,7 +153,7 @@ def partition_minio_object(
     return stage_payload
 
 
-@app.task(
+@app.task(  # type: ignore[untyped-decorator]
     name="mcp_evidencebase.meta_minio_object",
     autoretry_for=(Exception,),
     retry_backoff=True,
@@ -192,7 +192,7 @@ def meta_minio_object(partition_payload: Mapping[str, Any]) -> dict[str, str]:
     return stage_payload
 
 
-@app.task(
+@app.task(  # type: ignore[untyped-decorator]
     name="mcp_evidencebase.section_minio_object",
     autoretry_for=(Exception,),
     retry_backoff=True,
@@ -216,7 +216,7 @@ def section_minio_object(meta_payload: Mapping[str, Any]) -> dict[str, str]:
     return stage_payload
 
 
-@app.task(
+@app.task(  # type: ignore[untyped-decorator]
     name="mcp_evidencebase.chunk_minio_object",
     autoretry_for=(Exception,),
     retry_backoff=True,
@@ -247,7 +247,7 @@ def chunk_minio_object(section_payload: Mapping[str, Any]) -> dict[str, str]:
     return stage_payload
 
 
-@app.task(
+@app.task(  # type: ignore[untyped-decorator]
     name="mcp_evidencebase.upsert_minio_object",
     autoretry_for=(Exception,),
     retry_backoff=True,
@@ -270,7 +270,7 @@ def upsert_minio_object(chunk_payload: Mapping[str, Any]) -> dict[str, str]:
     return stage_payload
 
 
-@app.task(
+@app.task(  # type: ignore[untyped-decorator]
     name="mcp_evidencebase.process_minio_object",
     autoretry_for=(Exception,),
     retry_backoff=True,
