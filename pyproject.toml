@@ -13,6 +13,7 @@ dependencies = [
   "fastembed>=0.5.0",
   "fastapi>=0.115.0",
   "httpx>=0.27.0",
+  "mcp>=1.0.0,<2.0.0",
   "minio>=7.2.10",
   "pypdf>=5.1.0",
   "qdrant-client>=1.12.1",
@@ -40,6 +41,7 @@ docs = [
 
 [project.scripts]
 mcp-evidencebase = "mcp_evidencebase.cli:main"
+mcp-evidencebase-mcp = "mcp_evidencebase.mcp_server.__main__:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mcp_evidencebase"]
@@ -52,6 +54,7 @@ markers = [
   "area_core: core bucket operation tests",
   "area_settings: settings parsing and defaults tests",
   "area_api: HTTP API endpoint behavior tests",
+  "area_mcp: MCP server and tool behavior tests",
   "area_ingestion: ingestion, metadata, and indexing tests",
   "integration_live: opt-in live MinIO/Redis/Qdrant integration tests",
 ]

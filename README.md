@@ -230,6 +230,66 @@ python -m mcp_evidencebase \
 The host-based command above works through the NGINX proxy and does not require
 direct `localhost:6333` access.
 
+### MCP Server
+
+Evidence Base also ships a local stdio MCP server for direct attachment from
+Codex and VS Code.
+
+Install the package into the repo virtualenv first:
+
+```bash
+python -m pip install -e ".[dev]"
+```
+
+Run the server directly:
+
+```bash
+mcp-evidencebase-mcp
+```
+
+Module fallback:
+
+```bash
+python -m mcp_evidencebase.mcp_server
+```
+
+The v1 MCP surface is intentionally read-only and exposes:
+
+- `healthcheck`
+- `list_buckets`
+- `list_documents`
+- `search_collection`
+- `list_document_sections`
+- `get_document_section`
+- `get_metadata_schema`
+
+Codex attachment:
+
+```bash
+codex mcp add evidencebase -- mcp-evidencebase-mcp
+```
+
+If you want to launch it from the repo virtualenv without relying on the console
+script being on `PATH`, use:
+
+```bash
+codex mcp add evidencebase -- /Users/lukeheley/Developer/mcp-evidencebase/.venv/bin/python -m mcp_evidencebase.mcp_server
+```
+
+VS Code attachment is preconfigured in `.vscode/mcp.json`.
+
+The MCP server uses the same environment-variable contract as the CLI and API:
+
+- `MINIO_ENDPOINT`
+- `REDIS_URL`
+- `QDRANT_URL`
+- related `MCP_EVIDENCEBASE_REQUIRE_*` flags
+
+When your datastore endpoints are only reachable on the Docker network, a
+host-launched stdio MCP server will not be able to connect. In that case either
+expose host-reachable endpoints or launch the server from an environment that
+shares the datastore network.
+
 ### Docker Compose Stack
 
 Start the full local stack:

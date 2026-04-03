@@ -1,0 +1,16 @@
+{
+    "servers": {
+        "evidencebase": {
+            "type": "stdio",
+            "command": "${workspaceFolder}/.venv/bin/python",
+            "args": [
+                "-m",
+                "mcp_evidencebase.mcp_server"
+            ],
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}/src"
+            }
+        }
+    }
+}
