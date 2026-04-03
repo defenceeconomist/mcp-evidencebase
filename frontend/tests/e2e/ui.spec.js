@@ -117,3 +117,217 @@ test("renders collections, documents, and semantic search results", async ({ pag
     .poll(() => (lastSearchUrl ? lastSearchUrl.searchParams.get("rrf_k") : null))
     .toBe("60");
 });
+
+test("detail view groups split pdf chapters under a book parent and saves parent metadata to children", async ({ page }) => {
+  const documents = [
+    {
+      id: "doc-1",
+      file_path: "book/chapter-1.pdf",
+      title: "Chapter 1",
+      year: "2024",
+      authors: [{ first_name: "Ada", last_name: "Lovelace", suffix: "" }],
+      processing_state: "processed",
+      processing_progress: 100,
+      partitions_count: 3,
+      chunks_count: 7,
+      bibtex_fields: {
+        title: "Chapter 1",
+        author: "Lovelace, Ada",
+        booktitle: "The Book",
+        year: "2024",
+        publisher: "Original Press",
+      },
+    },
+    {
+      id: "doc-2",
+      file_path: "book/chapter-2.pdf",
+      title: "Chapter 2",
+      year: "2024",
+      authors: [{ first_name: "Ada", last_name: "Lovelace", suffix: "" }],
+      processing_state: "processed",
+      processing_progress: 100,
+      partitions_count: 2,
+      chunks_count: 5,
+      bibtex_fields: {
+        title: "Chapter 2",
+        author: "Lovelace, Ada",
+        booktitle: "The Book",
+        year: "2024",
+        publisher: "Original Press",
+      },
+    },
+  ];
+  const metadataRequests = [];
+
+  await page.addInitScript(() => {
+    window.bootstrap = window.bootstrap || {
+      Tooltip: {
+        getOrCreateInstance: () => ({ setContent: () => {} }),
+      },
+    };
+    window.alert = () => {};
+    window.confirm = () => true;
+    window.prompt = () => null;
+  });
+
+  await page.route("**/api/**", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const method = request.method();
+    const pathname = url.pathname;
+
+    if (method === "GET" && pathname.endsWith("/api/buckets")) {
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ buckets: ["demo-collection"] }),
+      });
+    }
+
+    if (method === "GET" && pathname.endsWith("/api/collections/demo-collection/documents")) {
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ documents }),
+      });
+    }
+
+    if (method === "PUT" && /\/api\/collections\/demo-collection\/documents\/doc-[12]\/metadata$/.test(pathname)) {
+      const payload = JSON.parse(request.postData() || "{}");
+      metadataRequests.push({ pathname, metadata: payload.metadata });
+      const targetDocument = documents.find((documentRecord) => pathname.includes(documentRecord.id));
+      if (targetDocument) {
+        Object.assign(targetDocument.bibtex_fields, payload.metadata);
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ metadata: payload.metadata }),
+      });
+    }
+
+    return route.fulfill({
+      status: 404,
+      contentType: "application/json",
+      body: JSON.stringify({ detail: `Unhandled mock route: ${method} ${pathname}` }),
+    });
+  });
+
+  await page.goto("/");
+
+  await expect(page.locator("#detail-document-tbody")).toContainText("The Book");
+  await page.locator("#detail-document-tbody tr").first().click();
+  await expect(page.locator("#detail-selected-document")).toContainText("Selected book: The Book");
+  await expect(page.locator("#detail-document-actions")).toHaveClass(/d-none/);
+
+  await page
+    .locator("#detail-fields-form .detail-field-row")
+    .filter({ has: page.locator("label", { hasText: /^Title$/ }) })
+    .locator("input")
+    .fill("Updated Book");
+  await page.waitForTimeout(800);
+  await expect.poll(() => metadataRequests.length).toBe(2);
+  expect(metadataRequests[0].metadata.booktitle).toBe("Updated Book");
+  expect(metadataRequests[1].metadata.booktitle).toBe("Updated Book");
+});
+
+test("bulk edit shows expandable parent rows for split pdf folders", async ({ page }) => {
+  const documents = [
+    {
+      id: "doc-1",
+      file_path: "book/chapter-1.pdf",
+      title: "Chapter 1",
+      year: "2024",
+      authors: [{ first_name: "Ada", last_name: "Lovelace", suffix: "" }],
+      processing_state: "processed",
+      processing_progress: 100,
+      partitions_count: 1,
+      chunks_count: 2,
+      bibtex_fields: {
+        title: "Chapter 1",
+        author: "Lovelace, Ada",
+        booktitle: "The Book",
+        year: "2024",
+      },
+    },
+    {
+      id: "doc-2",
+      file_path: "book/chapter-2.pdf",
+      title: "Chapter 2",
+      year: "2024",
+      authors: [{ first_name: "Ada", last_name: "Lovelace", suffix: "" }],
+      processing_state: "processed",
+      processing_progress: 100,
+      partitions_count: 1,
+      chunks_count: 2,
+      bibtex_fields: {
+        title: "Chapter 2",
+        author: "Lovelace, Ada",
+        booktitle: "The Book",
+        year: "2024",
+      },
+    },
+  ];
+  const deleteRequests = [];
+
+  await page.addInitScript(() => {
+    window.bootstrap = window.bootstrap || {
+      Tooltip: {
+        getOrCreateInstance: () => ({ setContent: () => {} }),
+      },
+    };
+    window.alert = () => {};
+    window.confirm = () => true;
+    window.prompt = () => null;
+  });
+
+  await page.route("**/api/**", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const method = request.method();
+    const pathname = url.pathname;
+
+    if (method === "GET" && pathname.endsWith("/api/buckets")) {
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ buckets: ["demo-collection"] }),
+      });
+    }
+
+    if (method === "GET" && pathname.endsWith("/api/collections/demo-collection/documents")) {
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ documents }),
+      });
+    }
+
+    if (method === "DELETE" && /\/api\/collections\/demo-collection\/documents\/doc-[12]$/.test(pathname)) {
+      deleteRequests.push(pathname);
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ removed: true }),
+      });
+    }
+
+    return route.fulfill({
+      status: 404,
+      contentType: "application/json",
+      body: JSON.stringify({ detail: `Unhandled mock route: ${method} ${pathname}` }),
+    });
+  });
+
+  await page.goto("/");
+  await page.locator("#table-view-mode-switch").check();
+
+  await expect(page.locator("#document-hot-container")).toContainText("The Book");
+  await page.locator("#document-hot-container .hot-tree-chevron[data-folder-toggle='true']").first().click();
+  await expect(page.locator("#document-hot-container")).toContainText("Chapter 1");
+
+  const rowCheckbox = page.locator("#document-hot-container tbody tr").first().locator('input[type="checkbox"]').first();
+  await rowCheckbox.check();
+  await page.click("#remove-selected-docs-btn");
+  await expect.poll(() => deleteRequests.length).toBe(2);
+});

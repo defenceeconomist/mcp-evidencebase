@@ -119,9 +119,56 @@
   color: var(--bs-secondary-text-emphasis);
 }
 
+.bibtex-status-mixed {
+  background-color: rgba(var(--bs-info-rgb), 0.18);
+  color: var(--bs-info-text-emphasis);
+}
+
 #bulk-view-container {
   flex: 1 1 auto;
   min-height: 0;
+}
+
+.detail-tree-cell,
+.hot-tree-cell-inner {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.detail-tree-cell.depth-1,
+.hot-tree-cell-inner.depth-1 {
+  padding-left: 1.1rem;
+}
+
+.detail-tree-chevron,
+.hot-tree-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  color: var(--bs-secondary-color);
+}
+
+.detail-folder-row td {
+  background-color: rgba(var(--bs-primary-rgb), 0.04);
+}
+
+.detail-child-row td:first-child {
+  color: var(--bs-secondary-text-emphasis);
+}
+
+.hot-tree-cell {
+  padding-top: 0.35rem !important;
+  padding-bottom: 0.35rem !important;
+}
+
+.hot-tree-label-folder {
+  font-weight: 600;
+}
+
+.hot-tree-chevron-spacer {
+  visibility: hidden;
 }
 
 .parse-action-btn {

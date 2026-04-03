@@ -21,12 +21,14 @@ import {
   setCookieValue,
 } from "./js/state-store.mjs";
 import {
-  ensureSelectedDocumentId,
-  filterDocumentsByTitle,
+  buildFolderMetadataPatch,
+  buildGroupedDocumentItems,
+  computeFolderSelectionState,
+  ensureSelectedItemId,
 } from "./js/table-ui.mjs";
 
 (function () {
-  window.__EVIDENCEBASE_UI_BUILD__ = "2026-03-29-detail-reindex-a";
+  window.__EVIDENCEBASE_UI_BUILD__ = "2026-04-03-book-folder-ui-a";
   const origin = window.location.origin;
   const deriveAppBasePath = (pathname) => {
     const normalizedPath = String(pathname || "/").trim() || "/";
@@ -69,6 +71,7 @@ import {
   const detailDocumentTableBody = document.getElementById("detail-document-tbody");
   const detailFieldsForm = document.getElementById("detail-fields-form");
   const detailSelectedDocument = document.getElementById("detail-selected-document");
+  const detailDocumentActions = document.getElementById("detail-document-actions");
   const detailFetchMetaButton = document.getElementById("detail-fetch-meta-btn");
   const detailUpdateCitationKeyButton = document.getElementById("detail-update-citation-key-btn");
   const detailReindexButton = document.getElementById("detail-reindex-btn");
@@ -170,6 +173,7 @@ import {
     required: { label: "Required", className: "bibtex-status-required" },
     recommended: { label: "Recommended", className: "bibtex-status-recommended" },
     optional: { label: "Optional", className: "bibtex-status-optional" },
+    mixed: { label: "Mixed", className: "bibtex-status-mixed" },
   };
   const processingStageLabels = {
     queued: "Queued",
@@ -187,6 +191,22 @@ import {
     section: [40, 60],
     chunk: [60, 80],
     upsert: [80, 100],
+  };
+  const folderMetadataFieldMap = {
+    title: "booktitle",
+    author: "author",
+    editor: "editor",
+    year: "year",
+    publisher: "publisher",
+    address: "address",
+    edition: "edition",
+    series: "series",
+    volume: "volume",
+    number: "number",
+    month: "month",
+    note: "note",
+    doi: "doi",
+    isbn: "isbn",
   };
 
   const getBibtexFieldLabel = (fieldName) => {
@@ -286,10 +306,11 @@ import {
   let selectedBucketName = null;
   let collectionsCollapsed = false;
   let documents = [];
+  let visibleItems = [];
   let visibleDocuments = [];
   let titleSearchQuery = "";
   let collectionsFilterQuery = "";
-  let selectedDocumentId = null;
+  let selectedItemId = null;
   let bulkEditEnabled = false;
   let wasMobileLayout = window.matchMedia("(max-width: 991.98px)").matches;
   let documentTable = null;
@@ -320,6 +341,7 @@ import {
     selectedOutputFiles: new Set(),
     uploadInProgress: false,
   };
+  const expandedFolderKeys = new Set();
   const isMobileViewport = () => window.matchMedia("(max-width: 991.98px)").matches;
 
   const setCookie = (name, value, maxAgeSeconds) => {
@@ -337,6 +359,8 @@ import {
   const setSelectedBucketName = (bucketName) => {
     flushPendingMetadataSaveTimers();
     selectedBucketName = bucketName;
+    selectedItemId = null;
+    expandedFolderKeys.clear();
     uiState.set("selectedBucketName", bucketName);
     if (bucketName) {
       setCookie(selectedBucketCookieName, bucketName, 60 * 60 * 24 * 365);
@@ -1186,6 +1210,10 @@ import {
 
     const record = {
       document_id: normalizeText(rawDocument.id) || `${filename}-${index}`,
+      item_id: `document:${normalizeText(rawDocument.id) || `${filename}-${index}`}`,
+      kind: "document",
+      depth: 0,
+      parent_folder_key: "",
       bulk_selected: false,
       file_path: filePath,
       citation_key: normalizedCitationKey,
@@ -1381,6 +1409,80 @@ import {
     }
   };
 
+  const persistFolderMetadata = async (folderRecord, { silent = true } = {}) => {
+    if (!folderRecord || typeof folderRecord !== "object" || folderRecord.kind !== "folder" || !selectedBucketName) {
+      return false;
+    }
+
+    const childDocuments = Array.isArray(folderRecord.child_document_ids)
+      ? folderRecord.child_document_ids
+          .map((documentId) => documents.find((documentRecord) => documentRecord.document_id === documentId))
+          .filter(Boolean)
+      : [];
+    if (childDocuments.length <= 0) {
+      return false;
+    }
+
+    const metadataPatch = buildFolderMetadataPatch({ folderRecord, normalizeText });
+    const authorEntries = Array.isArray(metadataPatch.authors) ? metadataPatch.authors : [];
+    let succeeded = 0;
+    for (const childRecord of childDocuments) {
+      if (!childRecord || typeof childRecord !== "object" || !childRecord.document_id) {
+        continue;
+      }
+
+      if (authorEntries.length > 0) {
+        childRecord.authors = normalizeAuthorEntries(authorEntries);
+        setBibtexFieldValue(childRecord, "author", metadataPatch.author, {
+          preserveStructuredAuthors: true,
+        });
+      } else {
+        childRecord.authors = [];
+        setBibtexFieldValue(childRecord, "author", "");
+      }
+
+      Object.entries(folderMetadataFieldMap).forEach(([parentFieldName, childFieldName]) => {
+        const nextValue = normalizeText(metadataPatch[childFieldName]);
+        setBibtexFieldValue(childRecord, childFieldName, nextValue, {
+          preserveStructuredAuthors: childFieldName === "author",
+        });
+      });
+
+      try {
+        await apiRequest(
+          `/collections/${encodeURIComponent(selectedBucketName)}/documents/${encodeURIComponent(
+            childRecord.document_id
+          )}/metadata`,
+          {
+            method: "PUT",
+            body: JSON.stringify({ metadata: metadataPatch }),
+          }
+        );
+        succeeded += 1;
+      } catch (error) {
+        if (!silent) {
+          window.alert(`Could not save folder metadata: ${error.message}`);
+        } else {
+          console.error("Could not save folder metadata:", error);
+        }
+        return false;
+      }
+    }
+
+    if (succeeded > 0) {
+      await refreshDocuments({ silent: true, preserveSelection: true });
+      return true;
+    }
+    return false;
+  };
+
+  const persistRecordMetadata = async (record, { silent = true } = {}) => {
+    if (record?.kind === "folder") {
+      return persistFolderMetadata(record, { silent });
+    }
+    return persistDocumentMetadata(record, { silent });
+  };
+
   const persistDefaultCitationKeyForRecord = async (record, { silent = true } = {}) => {
     if (!record || typeof record !== "object") {
       return false;
@@ -1402,42 +1504,49 @@ import {
   };
 
   const flushPendingMetadataSaveTimers = () => {
-    metadataSaveTimers.forEach((pendingSave, documentId) => {
+    metadataSaveTimers.forEach((pendingSave, recordId) => {
       window.clearTimeout(pendingSave.timerId);
-      metadataSaveTimers.delete(documentId);
-      void persistDocumentMetadata(pendingSave.record, { silent: true });
+      metadataSaveTimers.delete(recordId);
+      void persistRecordMetadata(pendingSave.record, { silent: true });
     });
   };
 
   const scheduleDocumentMetadataSave = (record, { delayMs = metadataSaveDelayMs } = {}) => {
-    if (!record || typeof record !== "object" || !record.document_id) {
+    if (!record || typeof record !== "object") {
       return;
     }
-    const documentId = record.document_id;
-    const existingTimer = metadataSaveTimers.get(documentId);
+    const recordId = normalizeText(record.item_id || record.document_id);
+    if (!recordId) {
+      return;
+    }
+    const existingTimer = metadataSaveTimers.get(recordId);
     if (existingTimer) {
       window.clearTimeout(existingTimer.timerId);
-      metadataSaveTimers.delete(documentId);
+      metadataSaveTimers.delete(recordId);
     }
 
     const timerId = window.setTimeout(() => {
-      metadataSaveTimers.delete(documentId);
-      void persistDocumentMetadata(record, { silent: true });
+      metadataSaveTimers.delete(recordId);
+      void persistRecordMetadata(record, { silent: true });
     }, Math.max(0, delayMs));
-    metadataSaveTimers.set(documentId, { timerId, record });
+    metadataSaveTimers.set(recordId, { timerId, record });
   };
 
   const flushPendingMetadataSaveForRecord = async (record) => {
-    if (!record || typeof record !== "object" || !record.document_id) {
+    if (!record || typeof record !== "object") {
       return true;
     }
-    const pendingTimer = metadataSaveTimers.get(record.document_id);
+    const recordId = normalizeText(record.item_id || record.document_id);
+    if (!recordId) {
+      return true;
+    }
+    const pendingTimer = metadataSaveTimers.get(recordId);
     if (!pendingTimer) {
       return true;
     }
     window.clearTimeout(pendingTimer.timerId);
-    metadataSaveTimers.delete(record.document_id);
-    return persistDocumentMetadata(pendingTimer.record, { silent: true });
+    metadataSaveTimers.delete(recordId);
+    return persistRecordMetadata(pendingTimer.record, { silent: true });
   };
 
   const setSemanticSearchStatus = (message) => {
@@ -2557,17 +2666,75 @@ import {
       documentTable && typeof documentTable.getSourceData === "function"
         ? documentTable.getSourceData()
         : [];
-    const totalRows = Array.isArray(sourceData) ? sourceData.length : 0;
+    const selectableDocuments = Array.isArray(sourceData)
+      ? sourceData.filter((record) => record && typeof record === "object" && record.kind === "document")
+      : [];
+    const totalRows = selectableDocuments.length;
     const selectedRows =
       totalRows > 0
-        ? sourceData.filter((record) => record && typeof record === "object" && Boolean(record.bulk_selected))
-            .length
+        ? selectableDocuments.filter((record) => Boolean(record.bulk_selected)).length
         : 0;
     setBulkSelectAllHeaderCheckboxState({
       disabled: totalRows <= 0,
       checked: totalRows > 0 && selectedRows === totalRows,
       indeterminate: selectedRows > 0 && selectedRows < totalRows,
     });
+  };
+
+  const getBulkTreeLabel = (record) => {
+    if (!record || typeof record !== "object") {
+      return "";
+    }
+    if (record.kind === "folder") {
+      const folderTitle = normalizeText(record.title) || normalizeText(record.folder_name) || "Folder";
+      const childCount = Array.isArray(record.child_document_ids) ? record.child_document_ids.length : 0;
+      return `${record.expanded ? "▾" : "▸"} ${folderTitle} (${childCount})`;
+    }
+    return normalizeText(record.title || filenameFromPath(record.file_path));
+  };
+
+  const renderBulkTreeCell = (instance, td, row, col, prop, value, cellProperties) => {
+    Handsontable.renderers.TextRenderer(instance, td, row, col, prop, value, cellProperties);
+    const physicalRow = instance.toPhysicalRow(row);
+    const record = instance.getSourceDataAtRow(physicalRow);
+    td.innerHTML = "";
+    td.classList.add("hot-tree-cell");
+
+    const wrapper = document.createElement("div");
+    wrapper.className = `hot-tree-cell-inner depth-${Number(record?.depth || 0)}`;
+
+    if (record?.kind === "folder") {
+      const chevron = document.createElement("span");
+      chevron.className = "hot-tree-chevron";
+      chevron.textContent = record.expanded ? "▾" : "▸";
+      chevron.dataset.folderToggle = "true";
+      wrapper.appendChild(chevron);
+    } else {
+      const spacer = document.createElement("span");
+      spacer.className = "hot-tree-chevron hot-tree-chevron-spacer";
+      spacer.textContent = "";
+      wrapper.appendChild(spacer);
+    }
+
+    const label = document.createElement("span");
+    label.className = record?.kind === "folder" ? "hot-tree-label hot-tree-label-folder" : "hot-tree-label";
+    label.textContent =
+      record?.kind === "folder"
+        ? normalizeText(record.title || record.folder_name) || "Folder"
+        : normalizeText(record?.title || filenameFromPath(record?.file_path));
+    wrapper.appendChild(label);
+    td.appendChild(wrapper);
+  };
+
+  const renderBulkCheckboxCell = (instance, td, row, col, prop, value, cellProperties) => {
+    Handsontable.renderers.CheckboxRenderer(instance, td, row, col, prop, value, cellProperties);
+    const physicalRow = instance.toPhysicalRow(row);
+    const record = instance.getSourceDataAtRow(physicalRow);
+    const checkbox = td.querySelector('input[type="checkbox"]');
+    if (!checkbox || !record || record.kind !== "folder") {
+      return;
+    }
+    checkbox.indeterminate = record.selection_state === "partial";
   };
 
   const initializeDocumentTable = () => {
@@ -2582,7 +2749,14 @@ import {
     }
 
     const bulkColumns = [
-      { data: "bulk_selected", type: "checkbox", width: 118, className: "htCenter htMiddle" },
+      {
+        data: "bulk_selected",
+        type: "checkbox",
+        width: 118,
+        className: "htCenter htMiddle",
+        renderer: renderBulkCheckboxCell,
+      },
+      { data: "tree_label", type: "text", readOnly: true, width: 260, renderer: renderBulkTreeCell },
       { data: "file_path", type: "text", readOnly: true, width: 320 },
       {
         data: "document_type",
@@ -2608,6 +2782,7 @@ import {
     ];
     const bulkHeaders = [
       "",
+      "Item",
       "File Path",
       "Document Type",
       "Citation Key",
@@ -2627,6 +2802,39 @@ import {
       manualColumnResize: true,
       contextMenu: ["filter_by_condition", "filter_by_value", "filter_action_bar"],
       licenseKey: "non-commercial-and-evaluation",
+      cells(row, column) {
+        const cellProperties = {};
+        const instance = this.instance;
+        const physicalRow = instance.toPhysicalRow(row);
+        const record = instance.getSourceDataAtRow(physicalRow);
+        const columnConfig = bulkColumns[column] || {};
+        const property = columnConfig.data;
+        if (!record) {
+          return cellProperties;
+        }
+
+        if (property === "tree_label") {
+          cellProperties.readOnly = true;
+          return cellProperties;
+        }
+        if (property === "file_path") {
+          cellProperties.readOnly = true;
+          return cellProperties;
+        }
+        if (record.kind === "folder") {
+          const editableFolderProps = new Set(["bulk_selected", "title", ...Object.keys(folderMetadataFieldMap)]);
+          cellProperties.readOnly = !editableFolderProps.has(property);
+          if (property === "document_type") {
+            cellProperties.readOnly = true;
+          }
+          if (property === "citation_key" || property === "booktitle" || property === "chapter" || property === "pages" || property === "annote") {
+            cellProperties.readOnly = true;
+          }
+        } else if (property === "tree_label") {
+          cellProperties.readOnly = true;
+        }
+        return cellProperties;
+      },
       afterGetColHeader(col, TH) {
         if (col !== 0) {
           return;
@@ -2678,7 +2886,14 @@ import {
         if (!record) {
           return;
         }
-        selectedDocumentId = record.document_id;
+        selectedItemId = record.item_id;
+        const chevronToggle = event?.target?.closest?.(".hot-tree-chevron[data-folder-toggle='true']");
+        if (coords.col === 1 && record.kind === "folder" && chevronToggle) {
+          toggleFolderExpanded(record.folder_key);
+          return;
+        }
+        renderDetailTable();
+        renderDetailFields();
         updateRemoveDocumentButtonState();
       },
       afterChange(changes, source) {
@@ -2701,9 +2916,44 @@ import {
           }
 
           const normalizedValue = normalizeText(newValue);
+          selectedItemId = record.item_id;
+          if (record.kind === "folder") {
+            if (property === "bulk_selected") {
+              const nextChecked = Boolean(newValue);
+              record.bulk_selected = nextChecked;
+              record.selection_state = nextChecked ? "all" : "none";
+              record.child_documents.forEach((childDocument) => {
+                childDocument.bulk_selected = nextChecked;
+              });
+              shouldSyncBulkSelectionHeader = true;
+              shouldRefreshDetailTable = true;
+              return;
+            }
+
+            if (property === "title") {
+              record.title = normalizedValue;
+              record.bibtex_fields.title = normalizedValue;
+              record.publication = normalizeText(record.publisher) || normalizedValue || record.folder_name;
+              delete record.mixed_fields.title;
+              scheduleDocumentMetadataSave(record);
+              shouldRefreshDetailTable = true;
+              shouldRefreshDetailForm = true;
+              return;
+            }
+
+            if (bibtexFields.includes(property)) {
+              setBibtexFieldValue(record, property, normalizedValue);
+              delete record.mixed_fields[property];
+              scheduleDocumentMetadataSave(record);
+              shouldRefreshDetailTable = true;
+              shouldRefreshDetailForm = true;
+              return;
+            }
+            return;
+          }
+
           if (property === "document_type") {
             const nextType = normalizeDocumentType(normalizedValue);
-            selectedDocumentId = record.document_id;
             record.document_type = nextType;
             if (nextType !== newValue) {
               documentTable.setDataAtRowProp(visualRow, "document_type", nextType, "normalize");
@@ -2715,7 +2965,6 @@ import {
           }
 
           if (property === "citation_key") {
-            selectedDocumentId = record.document_id;
             record.citation_key = normalizedValue;
             scheduleDocumentMetadataSave(record);
             shouldRefreshDetailForm = true;
@@ -2724,12 +2973,22 @@ import {
 
           if (property === "bulk_selected") {
             record.bulk_selected = Boolean(newValue);
+            if (record.parent_folder_key) {
+              const parentFolder = visibleItems.find(
+                (candidateItem) => candidateItem.kind === "folder" && candidateItem.folder_key === record.parent_folder_key
+              );
+              if (parentFolder) {
+                const folderSelection = computeFolderSelectionState(parentFolder.child_documents);
+                parentFolder.bulk_selected = folderSelection.bulkSelected;
+                parentFolder.selection_state = folderSelection.selectionState;
+              }
+            }
             shouldSyncBulkSelectionHeader = true;
+            shouldRefreshDetailTable = true;
             return;
           }
 
           if (bibtexFields.includes(property)) {
-            selectedDocumentId = record.document_id;
             setBibtexFieldValue(record, property, normalizedValue);
             scheduleDocumentMetadataSave(record);
             shouldRefreshDetailForm = true;
@@ -2746,6 +3005,9 @@ import {
         if (shouldRefreshDetailForm) {
           renderDetailFields();
         }
+        if ((shouldRefreshDetailTable || shouldSyncBulkSelectionHeader) && documentTable) {
+          documentTable.render();
+        }
         if (shouldSyncBulkSelectionHeader) {
           syncBulkSelectAllHeaderCheckbox();
           updateRemoveDocumentButtonState();
@@ -2754,20 +3016,36 @@ import {
     });
   };
 
-  const getFilteredDocuments = () => {
-    return filterDocumentsByTitle({
+  const getVisibleItems = () => {
+    return buildGroupedDocumentItems({
       documents,
       titleSearchQuery,
       normalizeText,
       filenameFromPath,
+      bibtexFields,
+      getRecordBibtexFieldValue,
+      expandedFolderKeys,
     });
   };
 
-  const getSelectedDocument = () => {
-    if (!selectedDocumentId) {
+  const getSelectedItem = () => {
+    if (!selectedItemId) {
       return null;
     }
-    return documents.find((documentRecord) => documentRecord.document_id === selectedDocumentId) || null;
+    return visibleItems.find((item) => item.item_id === selectedItemId) || null;
+  };
+
+  const getSelectedFolderItem = () => {
+    const selectedItem = getSelectedItem();
+    return selectedItem?.kind === "folder" ? selectedItem : null;
+  };
+
+  const getSelectedDocument = () => {
+    const selectedItem = getSelectedItem();
+    if (!selectedItem || selectedItem.kind !== "document") {
+      return null;
+    }
+    return selectedItem;
   };
 
   const getActionTargetDocument = () => {
@@ -2782,17 +3060,30 @@ import {
     if (!fallback || !fallback.document_id) {
       return null;
     }
-    selectedDocumentId = fallback.document_id;
+    selectedItemId = fallback.item_id;
     renderDetailTable();
     renderDetailFields();
     return fallback;
   };
 
-  const ensureSelectedDocument = (candidateDocuments) => {
-    selectedDocumentId = ensureSelectedDocumentId({
-      candidateDocuments,
-      selectedDocumentId,
+  const ensureSelectedItem = (candidateItems) => {
+    selectedItemId = ensureSelectedItemId({
+      candidateItems,
+      selectedItemId,
     });
+  };
+
+  const toggleFolderExpanded = (folderKey) => {
+    const normalizedFolderKey = normalizeText(folderKey);
+    if (!normalizedFolderKey || titleSearchQuery) {
+      return;
+    }
+    if (expandedFolderKeys.has(normalizedFolderKey)) {
+      expandedFolderKeys.delete(normalizedFolderKey);
+    } else {
+      expandedFolderKeys.add(normalizedFolderKey);
+    }
+    renderDocumentMeta();
   };
 
   const renderParseStatusIntoCell = (cell, documentRecord) => {
@@ -2866,10 +3157,27 @@ import {
   };
 
   const getBulkSelectedDocuments = () => {
-    if (!Array.isArray(documents) || documents.length <= 0) {
+    if (!Array.isArray(visibleItems) || visibleItems.length <= 0) {
       return [];
     }
-    return documents.filter((documentRecord) => Boolean(documentRecord?.bulk_selected));
+    const selectedDocuments = new Map();
+    visibleItems.forEach((item) => {
+      if (!item || typeof item !== "object" || !item.bulk_selected) {
+        return;
+      }
+      if (item.kind === "folder") {
+        item.child_documents.forEach((childDocument) => {
+          if (childDocument?.document_id) {
+            selectedDocuments.set(childDocument.document_id, childDocument);
+          }
+        });
+        return;
+      }
+      if (item.document_id) {
+        selectedDocuments.set(item.document_id, item);
+      }
+    });
+    return [...selectedDocuments.values()];
   };
 
   const setBulkFetchProgress = (completedCount, totalCount) => {
@@ -2905,9 +3213,9 @@ import {
   };
 
   const updateRemoveDocumentButtonState = () => {
-    const hasActionTarget =
-      Boolean(getSelectedDocument()) || (Array.isArray(visibleDocuments) && visibleDocuments.length > 0);
-    const actionsDisabled = !selectedBucketName || !hasActionTarget;
+    const selectedFolder = getSelectedFolderItem();
+    const hasActionTarget = Boolean(getSelectedDocument()) || (Array.isArray(visibleDocuments) && visibleDocuments.length > 0);
+    const actionsDisabled = !selectedBucketName || !hasActionTarget || Boolean(selectedFolder);
     const bulkSelectedCount = getBulkSelectedDocuments().length;
     const bulkMetaActionsDisabled =
       bulkFetchMetaInProgress || bulkCitationKeyUpdateInProgress || !selectedBucketName || bulkSelectedCount <= 0;
@@ -2947,7 +3255,7 @@ import {
     }
 
     detailDocumentTableBody.innerHTML = "";
-    if (visibleDocuments.length === 0) {
+    if (visibleItems.length === 0) {
       const row = document.createElement("tr");
       const cell = document.createElement("td");
       cell.colSpan = 5;
@@ -2958,15 +3266,48 @@ import {
       return;
     }
 
-    visibleDocuments.forEach((documentRecord) => {
+    visibleItems.forEach((documentRecord) => {
       const row = document.createElement("tr");
-      row.dataset.documentId = documentRecord.document_id;
-      if (documentRecord.document_id === selectedDocumentId) {
+      row.dataset.itemId = documentRecord.item_id;
+      if (documentRecord.document_id) {
+        row.dataset.documentId = documentRecord.document_id;
+      }
+      if (documentRecord.kind === "folder") {
+        row.dataset.folderKey = documentRecord.folder_key;
+        row.classList.add("detail-folder-row");
+      } else if (documentRecord.depth > 0) {
+        row.classList.add("detail-child-row");
+      }
+      if (documentRecord.item_id === selectedItemId) {
         row.classList.add("table-active");
       }
 
       const titleCell = document.createElement("td");
-      titleCell.textContent = documentRecord.title || filenameFromPath(documentRecord.file_path);
+      const titleWrap = document.createElement("div");
+      titleWrap.className = `detail-tree-cell depth-${Number(documentRecord.depth || 0)}`;
+      const chevron = document.createElement("span");
+      chevron.className = "detail-tree-chevron";
+      chevron.textContent = documentRecord.kind === "folder" ? (documentRecord.expanded ? "▾" : "▸") : "";
+      if (documentRecord.kind === "folder") {
+        chevron.dataset.folderToggle = "true";
+      }
+      titleWrap.appendChild(chevron);
+      const titleText = document.createElement("span");
+      titleText.className = documentRecord.kind === "folder" ? "fw-semibold" : "";
+      titleText.textContent =
+        documentRecord.kind === "folder"
+          ? normalizeText(documentRecord.title || documentRecord.folder_name) || "Folder"
+          : documentRecord.title || filenameFromPath(documentRecord.file_path);
+      titleWrap.appendChild(titleText);
+      if (documentRecord.kind === "folder") {
+        const folderMeta = document.createElement("span");
+        folderMeta.className = "text-body-secondary small ms-2";
+        folderMeta.textContent = `${documentRecord.child_document_ids.length} chapter${
+          documentRecord.child_document_ids.length === 1 ? "" : "s"
+        }`;
+        titleWrap.appendChild(folderMeta);
+      }
+      titleCell.appendChild(titleWrap);
 
       const yearCell = document.createElement("td");
       yearCell.textContent = documentRecord.year || "n/a";
@@ -2978,7 +3319,14 @@ import {
       publicationCell.textContent = documentRecord.publication || "n/a";
 
       const parseCell = document.createElement("td");
-      renderParseStatusIntoCell(parseCell, documentRecord);
+      if (documentRecord.kind === "folder") {
+        const badge = document.createElement("span");
+        badge.className = "badge text-bg-secondary";
+        badge.textContent = "Folder";
+        parseCell.appendChild(badge);
+      } else {
+        renderParseStatusIntoCell(parseCell, documentRecord);
+      }
 
       row.appendChild(titleCell);
       row.appendChild(yearCell);
@@ -3061,6 +3409,10 @@ import {
       return;
     }
     record.authors = normalizeAuthorEntries(nextAuthors);
+    if (record.kind === "folder" && record.mixed_fields) {
+      delete record.mixed_fields.author;
+      delete record.mixed_fields.authors;
+    }
     const bibtexAuthorDisplay = formatAuthorsBibtex(record.authors);
     setBibtexFieldValue(record, "author", bibtexAuthorDisplay, {
       preserveStructuredAuthors: true,
@@ -3207,17 +3559,58 @@ import {
       return;
     }
 
+    const selectedItem = getSelectedItem();
+    const selectedFolder = getSelectedFolderItem();
     const selectedDocument = getSelectedDocument();
     detailFieldsForm.innerHTML = "";
-    if (!selectedDocument) {
+    if (detailDocumentActions) {
+      detailDocumentActions.classList.toggle("d-none", Boolean(selectedFolder));
+    }
+    if (!selectedItem) {
       detailSelectedDocument.textContent = "Select a document to edit its metadata fields.";
       return;
     }
 
     detailSelectedDocument.textContent = "";
     const selectedPrefix = document.createElement("span");
-    selectedPrefix.textContent = "Selected: ";
+    selectedPrefix.textContent = selectedFolder ? "Selected book: " : "Selected: ";
     detailSelectedDocument.appendChild(selectedPrefix);
+    if (selectedFolder) {
+      detailSelectedDocument.append(
+        normalizeText(selectedFolder.title || selectedFolder.folder_name) || "Folder"
+      );
+      detailFieldsForm.appendChild(
+        createFieldRow("Document Type", "book", {
+          readOnly: true,
+        })
+      );
+
+      getOrderedDetailBibtexFields("book").forEach((fieldName) => {
+        const status = selectedFolder.mixed_fields?.[fieldName]
+          ? "mixed"
+          : getBibtexFieldStatus("book", fieldName);
+        if (fieldName === "author") {
+          detailFieldsForm.appendChild(createAuthorsFieldRow(selectedFolder, status));
+          return;
+        }
+        detailFieldsForm.appendChild(
+          createFieldRow(getBibtexFieldLabel(fieldName), selectedFolder[fieldName], {
+            placeholder: fieldName,
+            status,
+            onInput(nextValue) {
+              setBibtexFieldValue(selectedFolder, fieldName, nextValue);
+              if (selectedFolder.mixed_fields) {
+                delete selectedFolder.mixed_fields[fieldName];
+              }
+              scheduleDocumentMetadataSave(selectedFolder);
+              renderDetailTable();
+            },
+          })
+        );
+      });
+      return;
+    }
+
     const selectedFileName = filenameFromPath(selectedDocument.file_path);
     const selectedResolverHref = buildResolverHrefForSelectedDocument(selectedDocument);
     if (selectedResolverHref) {
@@ -3288,13 +3681,18 @@ import {
       return;
     }
 
-    documentTable.loadData(visibleDocuments);
+    visibleItems.forEach((item) => {
+      item.tree_label = getBulkTreeLabel(item);
+    });
+    documentTable.loadData(visibleItems);
     window.requestAnimationFrame(syncBulkSelectAllHeaderCheckbox);
   };
 
   const renderDocumentTable = () => {
-    visibleDocuments = getFilteredDocuments();
-    ensureSelectedDocument(visibleDocuments);
+    const groupedItems = getVisibleItems();
+    visibleItems = groupedItems.visibleItems;
+    visibleDocuments = groupedItems.visibleDocuments;
+    ensureSelectedItem(visibleItems);
     updateDocumentCount(visibleDocuments.length);
 
     if (bulkEditEnabled) {
@@ -3321,7 +3719,7 @@ import {
       clearDocumentRefreshTimer();
       documents = [];
       uiState.set("documents", []);
-      selectedDocumentId = null;
+      selectedItemId = null;
       renderDocumentMeta();
       return;
     }
@@ -3335,12 +3733,7 @@ import {
       uiState.set("documents", documents);
 
       if (!preserveSelection) {
-        selectedDocumentId = null;
-      } else if (
-        selectedDocumentId &&
-        !documents.some((documentRecord) => documentRecord.document_id === selectedDocumentId)
-      ) {
-        selectedDocumentId = null;
+        selectedItemId = null;
       }
 
       renderDocumentMeta();
@@ -3395,7 +3788,7 @@ import {
       setEmptyState("Failed to load collections from API.");
       documents = [];
       uiState.set("documents", []);
-      selectedDocumentId = null;
+      selectedItemId = null;
       renderDocumentMeta();
       window.alert(`Could not load collections: ${error.message}`);
     }
@@ -3554,7 +3947,7 @@ import {
     const filePath = normalizeText(file?.name) || "document.pdf";
     const metadataSeed = preview && typeof preview.metadata_seed === "object" ? preview.metadata_seed : {};
     const record = {
-      document_type: "incollection",
+      document_type: "inbook",
       citation_key: "",
       authors: [],
       file_path: filePath,
@@ -4693,10 +5086,10 @@ import {
       return;
     }
 
-    const pendingTimer = metadataSaveTimers.get(selectedDocument.document_id);
+    const pendingTimer = metadataSaveTimers.get(selectedDocument.item_id || selectedDocument.document_id);
     if (pendingTimer) {
       window.clearTimeout(pendingTimer.timerId);
-      metadataSaveTimers.delete(selectedDocument.document_id);
+      metadataSaveTimers.delete(selectedDocument.item_id || selectedDocument.document_id);
     }
 
     clearDocumentMetadata(selectedDocument);
@@ -4780,7 +5173,7 @@ import {
         )}`,
         { method: "DELETE" }
       );
-      selectedDocumentId = null;
+      selectedItemId = null;
       await refreshDocuments({ silent: true, preserveSelection: false });
     } catch (error) {
       window.alert(`Could not remove file: ${error.message}`);
@@ -4811,10 +5204,10 @@ import {
       if (!record || !record.document_id) {
         continue;
       }
-      const pendingTimer = metadataSaveTimers.get(record.document_id);
+      const pendingTimer = metadataSaveTimers.get(record.item_id || record.document_id);
       if (pendingTimer) {
         window.clearTimeout(pendingTimer.timerId);
-        metadataSaveTimers.delete(record.document_id);
+        metadataSaveTimers.delete(record.item_id || record.document_id);
       }
       try {
         await apiRequest(
@@ -4830,7 +5223,7 @@ import {
     }
 
     if (removedCount > 0) {
-      selectedDocumentId = null;
+      selectedItemId = null;
       await refreshDocuments({ silent: true, preserveSelection: false });
     } else {
       updateRemoveDocumentButtonState();
@@ -5080,15 +5473,21 @@ import {
       return;
     }
 
-    const row = event.target.closest("tr[data-document-id]");
+    const row = event.target.closest("tr[data-item-id]");
     if (!row) {
       return;
     }
-    const nextDocumentId = row.dataset.documentId;
-    if (!nextDocumentId || nextDocumentId === selectedDocumentId) {
+    const nextItemId = row.dataset.itemId;
+    if (!nextItemId) {
       return;
     }
-    selectedDocumentId = nextDocumentId;
+    const folderKey = row.dataset.folderKey;
+    const chevronToggle = event.target.closest(".detail-tree-chevron[data-folder-toggle='true']");
+    selectedItemId = nextItemId;
+    if (folderKey && chevronToggle) {
+      toggleFolderExpanded(folderKey);
+      return;
+    }
     renderDetailTable();
     renderDetailFields();
     updateRemoveDocumentButtonState();
@@ -5196,7 +5595,8 @@ import {
   minioBuckets = [];
   documents = [];
   visibleDocuments = [];
-  selectedDocumentId = null;
+  visibleItems = [];
+  selectedItemId = null;
   bulkEditEnabled = false;
   if (tableViewModeSwitch) {
     tableViewModeSwitch.checked = false;
