@@ -12,6 +12,12 @@ from minio import Minio
 
 from mcp_evidencebase.minio_settings import MinioSettings, to_bool
 
+DEFAULT_LOCAL_PROXY_BASIC_AUTH_USERNAME = "evidencebase-local"
+DEFAULT_LOCAL_PROXY_BASIC_AUTH_PASSWORD = "change-me-local-only"
+_DEFAULT_MINIO_ACCESS_KEY = "minioadmin"
+_DEFAULT_MINIO_SECRET_KEY = "minioadmin"
+_LOOPBACK_BIND_TARGETS = frozenset({"127.0.0.1", "::1", "localhost"})
+
 
 @dataclass(frozen=True)
 class DependencyRequirement:
@@ -58,6 +64,93 @@ def _read_required_flag(
     if raw_value is None:
         return DependencyRequirement(required=default, env_var=name)
     return DependencyRequirement(required=to_bool(raw_value), env_var=name)
+
+
+def _is_loopback_bind_target(value: str) -> bool:
+    """Return whether the configured bind target is loopback-only."""
+    normalized = str(value).strip().lower()
+    if not normalized:
+        return True
+    return normalized in _LOOPBACK_BIND_TARGETS
+
+
+def _proxy_basic_auth_enabled(source: Mapping[str, str]) -> bool:
+    """Return whether proxy Basic Auth is enabled for the main app surface."""
+    raw_value = source.get("APP_PROXY_BASIC_AUTH_ENABLED")
+    if raw_value is None:
+        return True
+    return to_bool(raw_value)
+
+
+def _collect_deployment_security_issues(
+    source: Mapping[str, str],
+    *,
+    settings: MinioSettings,
+) -> tuple[str, bool, list[str]]:
+    """Return deployment-safety issues for public or shared ingress paths."""
+    bind_target = _read_target(source, "PROXY_BIND_ADDRESS") or "127.0.0.1"
+    has_cloudflare_tunnel = bool(_read_target(source, "CLOUDFLARE_TUNNEL_TOKEN"))
+    public_ingress = has_cloudflare_tunnel or not _is_loopback_bind_target(bind_target)
+    proxy_basic_auth_enabled = _proxy_basic_auth_enabled(source)
+
+    issues: list[str] = []
+    if public_ingress:
+        if (
+            settings.access_key == _DEFAULT_MINIO_ACCESS_KEY
+            and settings.secret_key == _DEFAULT_MINIO_SECRET_KEY
+        ):
+            issues.append("public/shared ingress requires non-default MinIO credentials")
+
+        if proxy_basic_auth_enabled:
+            proxy_basic_auth_username = _read_target(source, "APP_PROXY_BASIC_AUTH_USERNAME")
+            proxy_basic_auth_password = _read_target(source, "APP_PROXY_BASIC_AUTH_PASSWORD")
+            if not proxy_basic_auth_username or not proxy_basic_auth_password:
+                issues.append(
+                    "public/shared ingress requires APP_PROXY_BASIC_AUTH_USERNAME and "
+                    "APP_PROXY_BASIC_AUTH_PASSWORD"
+                )
+            elif (
+                proxy_basic_auth_username == DEFAULT_LOCAL_PROXY_BASIC_AUTH_USERNAME
+                or proxy_basic_auth_password == DEFAULT_LOCAL_PROXY_BASIC_AUTH_PASSWORD
+            ):
+                issues.append(
+                    "public/shared ingress requires non-default proxy Basic Auth credentials"
+                )
+
+    return bind_target, public_ingress, issues
+
+
+def _deployment_security_status(
+    source: Mapping[str, str],
+    *,
+    settings: MinioSettings,
+) -> ComponentStatus:
+    """Return deployment-safety status for shared/public ingress."""
+    bind_target, public_ingress, issues = _collect_deployment_security_issues(
+        source,
+        settings=settings,
+    )
+    if issues:
+        return ComponentStatus(
+            required=True,
+            configured=True,
+            status="error",
+            target=f"bind={bind_target}; public_ingress={'true' if public_ingress else 'false'}",
+            detail="; ".join(issues),
+        )
+
+    detail = (
+        "public/shared ingress safeguards validated."
+        if public_ingress
+        else "loopback-only bind detected; public ingress safeguards are not required."
+    )
+    return ComponentStatus(
+        required=True,
+        configured=True,
+        status="ok",
+        target=f"bind={bind_target}; public_ingress={'true' if public_ingress else 'false'}",
+        detail=detail,
+    )
 
 
 def build_runtime_contract(env: Mapping[str, str] | None = None) -> RuntimeContract:
@@ -201,6 +294,12 @@ def collect_runtime_health(env: Mapping[str, str] | None = None) -> dict[str, An
     result_backend_url = _read_target(source, "CELERY_RESULT_BACKEND")
 
     checks = {
+        "deployment_security": asdict(
+            _deployment_security_status(
+                source,
+                settings=settings.minio,
+            )
+        ),
         "minio": asdict(
             _component_status(
                 target=settings.minio.endpoint,
@@ -284,6 +383,7 @@ def log_runtime_health(
 
     fragments: list[str] = []
     for dependency_name in (
+        "deployment_security",
         "minio",
         "redis",
         "qdrant",

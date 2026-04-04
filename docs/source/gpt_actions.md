@@ -2,6 +2,18 @@
 
 This article documents the GPT-facing API endpoints exposed by `mcp-evidencebase`, with emphasis on the `searchCollection` GPT Action function.
 
+## Hosted access roles
+
+Keep the hosted surfaces separate:
+
+- `https://evidencebase.heley.uk`: human-facing hosted site for browser/docs access, protected by Cloudflare Application Access
+- `https://open.heley.uk/api`: hosted GPT Actions API base for schema, ping, and search
+- `http://localhost:52180/api` or `http://<meshnet-hostname-or-ip>:52180/api`: local and private Meshnet API bases
+
+Codex MCP is separate from these hosted URLs. Codex attaches to the local stdio
+MCP server described in the main README; neither hosted hostname is an MCP
+transport endpoint.
+
 ## Base URLs
 
 Use one of these API bases depending on environment:
@@ -36,7 +48,7 @@ All GPT endpoints require this key. The API accepts any of these request auth fo
 If the key is missing on the server, endpoints return `503`.
 If a supplied key is invalid, endpoints return `401`.
 
-## Private Client Setup
+## Client setup
 
 Use:
 
@@ -48,6 +60,9 @@ Use:
 
 Hosted ChatGPT Actions require a public HTTPS endpoint. A Meshnet-only/private
 host works for your own devices, but not for ChatGPT's cloud-hosted Actions runtime.
+
+`https://evidencebase.heley.uk` is the browser/docs host and is not the GPT
+schema base.
 
 ## `searchCollection` Function
 
@@ -136,7 +151,14 @@ results to expose clickable URLs beyond the GPT endpoints.
 
 Use `GET /gpt/ping` to validate connectivity and auth.
 
-Example:
+Hosted/public example:
+
+```bash
+curl -sS -H "Authorization: Bearer <your-api-key>" \
+  "https://open.heley.uk/api/gpt/ping?message=hello"
+```
+
+Private Meshnet example:
 
 ```bash
 curl -sS -H "Authorization: Bearer <your-api-key>" \
@@ -155,6 +177,22 @@ Response shape:
 ```
 
 ## Example: `searchCollection`
+
+Hosted/public example:
+
+```bash
+curl -sS -X POST "https://open.heley.uk/api/gpt/search" \
+  -H "Authorization: Bearer <your-api-key>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "bucket_name": "research-raw",
+    "query": "UK offsets programme 2020",
+    "mode": "hybrid",
+    "limit": 5
+  }'
+```
+
+Private Meshnet example:
 
 ```bash
 curl -sS -X POST "http://<meshnet-hostname-or-ip>:52180/api/gpt/search" \

@@ -189,6 +189,22 @@ This uses shared `minio`, `redis`, and `qdrant` services from the external
 
 ## Usage
 
+### Access Modes
+
+Use the project through one of these access patterns:
+
+- Local app/proxy: `http://localhost:52180` for the browser UI, docs, and API
+  during development
+- Local Codex MCP: a stdio MCP server launched on your machine by Codex or VS
+  Code
+- Hosted app/docs: `https://evidencebase.heley.uk` for the human-facing hosted
+  site, protected by Cloudflare Application Access
+- Hosted GPT Actions API: `https://open.heley.uk/api` for the public GPT schema,
+  ping, and search endpoints used by hosted ChatGPT Actions
+
+Codex attaches to the local stdio MCP server only. The hosted URLs are separate
+browser/API surfaces and are not MCP transport endpoints.
+
 ### CLI
 
 Run the package healthcheck:
@@ -261,6 +277,11 @@ direct `localhost:6333` access.
 
 Evidence Base also ships a local stdio MCP server for direct attachment from
 Codex and VS Code.
+
+This MCP integration is local-process only: Codex launches the server over
+stdio on your machine. `https://evidencebase.heley.uk` and
+`https://open.heley.uk` are separate hosted browser/API surfaces and are not
+MCP endpoints.
 
 Install the package into the repo virtualenv first:
 
@@ -441,12 +462,26 @@ http://<meshnet-hostname-or-ip>:52180/api/gpt/ping?message=hello
 Replace `<meshnet-hostname-or-ip>` with the NordVPN Meshnet hostname or Meshnet
 IP of the machine running the stack.
 
-Public HTTPS example for hosted ChatGPT Actions:
+Hosted access roles:
+
+- `https://evidencebase.heley.uk`: hosted browser/docs/app entrypoint for human
+  users, protected by Cloudflare Application Access
+- `https://open.heley.uk/api`: hosted GPT Actions API base for schema, ping,
+  and search requests
+- local and Meshnet hosts: development or private device-to-device access
+
+Hosted HTTPS examples:
 
 ```text
+https://evidencebase.heley.uk
+https://evidencebase.heley.uk/docs/
+https://evidencebase.heley.uk/docs/readme.html
 https://open.heley.uk/api/gpt/openapi.json
 https://open.heley.uk/api/gpt/ping?message=hello
 ```
+
+Do not treat either hosted hostname as a Codex MCP transport. Codex uses the
+local stdio MCP server described above.
 
 ### NordVPN Meshnet Access
 
@@ -462,13 +497,16 @@ schema and generated result links.
    host instead of `localhost`.
 5. Set `GPT_ACTIONS_EXPOSE_PUBLIC_LINKS=true` only if you intentionally want GPT
    search results to emit clickable document/resolver URLs. Leave it `false` for
-   internet-facing GPT Actions so the public host only needs the GPT endpoints.
+   internet-facing GPT Actions so the public GPT host only needs the GPT
+   endpoints.
 6. For hosted ChatGPT Actions, set `GPT_ACTIONS_LINK_BASE_URL=https://open.heley.uk`
    (or your public HTTPS hostname) and keep the public ingress restricted to the
    GPT endpoints only.
 7. Keep in mind that hosted ChatGPT Actions cannot reach Meshnet-only or other
-   private addresses. Use browsers/scripts on your own Meshnet devices, or a
-   public HTTPS endpoint if you need cloud-hosted ChatGPT access.
+   private addresses. Use Meshnet from your own devices, browse the hosted app
+   at `https://evidencebase.heley.uk` if you already have Cloudflare
+   Application Access, and use `https://open.heley.uk/api` for cloud-hosted
+   ChatGPT Actions.
 
 Example private GPT/API base over Meshnet:
 
@@ -577,7 +615,19 @@ curl -sS -X DELETE "$BASE_URL/buckets/research-raw"
 
 ### Private GPT/API Access (API Key + Bearer)
 
-Use this for GPT-facing endpoints from your own Meshnet-connected devices.
+Keep the GPT-facing surfaces separate:
+
+- Private Meshnet clients: `http://<meshnet-hostname-or-ip>:52180/api`
+- Hosted ChatGPT Actions and other internet-reachable GPT clients:
+  `https://open.heley.uk/api`
+- Hosted browser/docs/app access: `https://evidencebase.heley.uk`
+
+`https://evidencebase.heley.uk` is the human-facing hosted site and is not the
+GPT schema host. For full GPT schema, auth, and request details, see
+`docs/source/gpt_actions.md`.
+
+Use this private Meshnet flow for GPT-facing endpoints from your own
+Meshnet-connected devices.
 
 1. Set API key and link base in `.env`:
    ```bash
@@ -605,7 +655,24 @@ Bearer auth.
 Hosted ChatGPT custom Actions require a public HTTPS URL and will not be able to
 reach a Meshnet-only/private endpoint.
 
-Search wrapper for private GPT/API clients:
+Hosted GPT Actions base:
+
+```text
+https://open.heley.uk/api/gpt/openapi.json
+https://open.heley.uk/api/gpt/ping?message=hello
+https://open.heley.uk/api/gpt/search
+```
+
+Search wrapper for hosted/public GPT/API clients:
+
+```bash
+curl -sS -X POST "https://open.heley.uk/api/gpt/search" \
+  -H "Authorization: Bearer <your-api-key>" \
+  -H "Content-Type: application/json" \
+  -d '{"bucket_name":"research-raw","query":"causal inference","mode":"hybrid","limit":5,"rrf_k":80}'
+```
+
+Equivalent search wrapper for private Meshnet GPT/API clients:
 
 ```bash
 curl -sS -X POST "http://<meshnet-hostname-or-ip>:52180/api/gpt/search" \
@@ -650,7 +717,7 @@ Response behavior:
 Example with staged retrieval enabled (default):
 
 ```bash
-curl -sS -X POST "http://<meshnet-hostname-or-ip>:52180/api/gpt/search" \
+curl -sS -X POST "https://open.heley.uk/api/gpt/search" \
   -H "Authorization: Bearer <your-api-key>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -665,7 +732,7 @@ curl -sS -X POST "http://<meshnet-hostname-or-ip>:52180/api/gpt/search" \
 Example fallback to one-pass retrieval:
 
 ```bash
-curl -sS -X POST "http://<meshnet-hostname-or-ip>:52180/api/gpt/search" \
+curl -sS -X POST "https://open.heley.uk/api/gpt/search" \
   -H "Authorization: Bearer <your-api-key>" \
   -H "Content-Type: application/json" \
   -d '{

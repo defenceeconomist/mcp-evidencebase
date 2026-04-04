@@ -36,10 +36,23 @@
   <section id="gpt-actions-api">
 <h1>GPT Actions API<a class="headerlink" href="#gpt-actions-api" title="Link to this heading">¶</a></h1>
 <p>This article documents the GPT-facing API endpoints exposed by <code class="docutils literal notranslate"><span class="pre">mcp-evidencebase</span></code>, with emphasis on the <code class="docutils literal notranslate"><span class="pre">searchCollection</span></code> GPT Action function.</p>
+<section id="hosted-access-roles">
+<h2>Hosted access roles<a class="headerlink" href="#hosted-access-roles" title="Link to this heading">¶</a></h2>
+<p>Keep the hosted surfaces separate:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">https://evidencebase.heley.uk</span></code>: human-facing hosted site for browser/docs access, protected by Cloudflare Application Access</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">https://open.heley.uk/api</span></code>: hosted GPT Actions API base for schema, ping, and search</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">http://localhost:52180/api</span></code> or <code class="docutils literal notranslate"><span class="pre">http://&lt;meshnet-hostname-or-ip&gt;:52180/api</span></code>: local and private Meshnet API bases</p></li>
+</ul>
+<p>Codex MCP is separate from these hosted URLs. Codex attaches to the local stdio
+MCP server described in the main README; neither hosted hostname is an MCP
+transport endpoint.</p>
+</section>
 <section id="base-urls">
 <h2>Base URLs<a class="headerlink" href="#base-urls" title="Link to this heading">¶</a></h2>
 <p>Use one of these API bases depending on environment:</p>
 <ul class="simple">
+<li><p>Public HTTPS host: <code class="docutils literal notranslate"><span class="pre">https://open.heley.uk/api</span></code></p></li>
 <li><p>Local via NGINX proxy: <code class="docutils literal notranslate"><span class="pre">http://localhost:52180/api</span></code></p></li>
 <li><p>Private Meshnet host: <code class="docutils literal notranslate"><span class="pre">http://&lt;meshnet-hostname-or-ip&gt;:52180/api</span></code></p></li>
 </ul>
@@ -69,17 +82,20 @@ IP of the machine running the stack.</p>
 <p>If the key is missing on the server, endpoints return <code class="docutils literal notranslate"><span class="pre">503</span></code>.
 If a supplied key is invalid, endpoints return <code class="docutils literal notranslate"><span class="pre">401</span></code>.</p>
 </section>
-<section id="private-client-setup">
-<h2>Private Client Setup<a class="headerlink" href="#private-client-setup" title="Link to this heading">¶</a></h2>
+<section id="client-setup">
+<h2>Client setup<a class="headerlink" href="#client-setup" title="Link to this heading">¶</a></h2>
 <p>Use:</p>
 <ul class="simple">
-<li><p>OpenAPI schema URL: <code class="docutils literal notranslate"><span class="pre">http://&lt;meshnet-hostname-or-ip&gt;:52180/api/gpt/openapi.json</span></code></p></li>
+<li><p>Hosted ChatGPT Actions schema URL: <code class="docutils literal notranslate"><span class="pre">https://open.heley.uk/api/gpt/openapi.json</span></code></p></li>
+<li><p>Private Meshnet schema URL: <code class="docutils literal notranslate"><span class="pre">http://&lt;meshnet-hostname-or-ip&gt;:52180/api/gpt/openapi.json</span></code></p></li>
 <li><p>Authentication type: <code class="docutils literal notranslate"><span class="pre">API</span> <span class="pre">key</span></code></p></li>
 <li><p>Auth type: <code class="docutils literal notranslate"><span class="pre">Bearer</span></code></p></li>
 <li><p>API key value: same value as <code class="docutils literal notranslate"><span class="pre">GPT_ACTIONS_API_KEY</span></code></p></li>
 </ul>
 <p>Hosted ChatGPT Actions require a public HTTPS endpoint. A Meshnet-only/private
 host works for your own devices, but not for ChatGPT’s cloud-hosted Actions runtime.</p>
+<p><code class="docutils literal notranslate"><span class="pre">https://evidencebase.heley.uk</span></code> is the browser/docs host and is not the GPT
+schema base.</p>
 </section>
 <section id="searchcollection-function">
 <h2><code class="docutils literal notranslate"><span class="pre">searchCollection</span></code> Function<a class="headerlink" href="#searchcollection-function" title="Link to this heading">¶</a></h2>
@@ -161,12 +177,20 @@ section-level reranking.</p>
 </ul>
 <p>If <code class="docutils literal notranslate"><span class="pre">GPT_ACTIONS_LINK_BASE_URL</span></code> is set, relative links are expanded against that base.
 Otherwise links are expanded from the incoming request base URL.</p>
+<p>Public resolver/document links are disabled by default for GPT responses. Set
+<code class="docutils literal notranslate"><span class="pre">GPT_ACTIONS_EXPOSE_PUBLIC_LINKS=true</span></code> only when you explicitly want GPT search
+results to expose clickable URLs beyond the GPT endpoints.</p>
 </section>
 </section>
 <section id="ping-function">
 <h2><code class="docutils literal notranslate"><span class="pre">ping</span></code> Function<a class="headerlink" href="#ping-function" title="Link to this heading">¶</a></h2>
 <p>Use <code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/gpt/ping</span></code> to validate connectivity and auth.</p>
-<p>Example:</p>
+<p>Hosted/public example:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-H<span class="w"> </span><span class="s2">&quot;Authorization: Bearer &lt;your-api-key&gt;&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="s2">&quot;https://open.heley.uk/api/gpt/ping?message=hello&quot;</span>
+</pre></div>
+</div>
+<p>Private Meshnet example:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-H<span class="w"> </span><span class="s2">&quot;Authorization: Bearer &lt;your-api-key&gt;&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span><span class="s2">&quot;http://&lt;meshnet-hostname-or-ip&gt;:52180/api/gpt/ping?message=hello&quot;</span>
 </pre></div>
@@ -183,6 +207,19 @@ Otherwise links are expanded from the incoming request base URL.</p>
 </section>
 <section id="example-searchcollection">
 <h2>Example: <code class="docutils literal notranslate"><span class="pre">searchCollection</span></code><a class="headerlink" href="#example-searchcollection" title="Link to this heading">¶</a></h2>
+<p>Hosted/public example:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s2">&quot;https://open.heley.uk/api/gpt/search&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Authorization: Bearer &lt;your-api-key&gt;&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{</span>
+<span class="s1">    &quot;bucket_name&quot;: &quot;research-raw&quot;,</span>
+<span class="s1">    &quot;query&quot;: &quot;UK offsets programme 2020&quot;,</span>
+<span class="s1">    &quot;mode&quot;: &quot;hybrid&quot;,</span>
+<span class="s1">    &quot;limit&quot;: 5</span>
+<span class="s1">  }&#39;</span>
+</pre></div>
+</div>
+<p>Private Meshnet example:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s2">&quot;http://&lt;meshnet-hostname-or-ip&gt;:52180/api/gpt/search&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Authorization: Bearer &lt;your-api-key&gt;&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
@@ -250,10 +287,11 @@ Otherwise links are expanded from the incoming request base URL.</p>
 <li class="toctree-l1"><a class="reference internal" href="readme.html">Project README</a></li>
 <li class="toctree-l1"><a class="reference internal" href="vignette_cli.html">Command-Line Vignette: End-To-End Workflow</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">GPT Actions API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#hosted-access-roles">Hosted access roles</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#base-urls">Base URLs</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#endpoints">Endpoints</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#authentication">Authentication</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#private-client-setup">Private Client Setup</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#client-setup">Client setup</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#searchcollection-function"><code class="docutils literal notranslate"><span class="pre">searchCollection</span></code> Function</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#ping-function"><code class="docutils literal notranslate"><span class="pre">ping</span></code> Function</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#example-searchcollection">Example: <code class="docutils literal notranslate"><span class="pre">searchCollection</span></code></a></li>

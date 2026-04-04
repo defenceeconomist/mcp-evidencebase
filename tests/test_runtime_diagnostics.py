@@ -259,6 +259,134 @@ def test_collect_runtime_health_marks_missing_required_celery_result_backend_as_
     assert report["failed_required_checks"] == ["celery_result_backend"]
 
 
+def test_collect_runtime_health_accepts_loopback_dev_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Loopback-only development should allow local proxy and MinIO defaults."""
+    monkeypatch.setattr("mcp_evidencebase.runtime_diagnostics.probe_minio", lambda settings: None)
+    monkeypatch.setattr("mcp_evidencebase.runtime_diagnostics.probe_redis", lambda redis_url: None)
+    monkeypatch.setattr(
+        "mcp_evidencebase.runtime_diagnostics.probe_qdrant",
+        lambda **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "mcp_evidencebase.runtime_diagnostics.probe_celery_broker",
+        lambda broker_url: None,
+    )
+    monkeypatch.setattr(
+        "mcp_evidencebase.runtime_diagnostics.probe_celery_result_backend",
+        lambda result_backend_url: None,
+    )
+
+    report = collect_runtime_health(_base_env())
+
+    assert report["checks"]["deployment_security"]["status"] == "ok"
+    assert report["ready"] is True
+
+
+def test_collect_runtime_health_rejects_public_bind_with_default_minio_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Shared/public ingress should fail fast when MinIO still uses default credentials."""
+    monkeypatch.setattr("mcp_evidencebase.runtime_diagnostics.probe_minio", lambda settings: None)
+    monkeypatch.setattr("mcp_evidencebase.runtime_diagnostics.probe_redis", lambda redis_url: None)
+    monkeypatch.setattr(
+        "mcp_evidencebase.runtime_diagnostics.probe_qdrant",
+        lambda **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "mcp_evidencebase.runtime_diagnostics.probe_celery_broker",
+        lambda broker_url: None,
+    )
+    monkeypatch.setattr(
+        "mcp_evidencebase.runtime_diagnostics.probe_celery_result_backend",
+        lambda result_backend_url: None,
+    )
+
+    report = collect_runtime_health(
+        {
+            **_base_env(),
+            "PROXY_BIND_ADDRESS": "0.0.0.0",
+            "APP_PROXY_BASIC_AUTH_USERNAME": "secure-user",
+            "APP_PROXY_BASIC_AUTH_PASSWORD": "secure-pass",
+        }
+    )
+
+    assert report["checks"]["deployment_security"]["status"] == "error"
+    assert "non-default MinIO credentials" in report["checks"]["deployment_security"]["detail"]
+    assert report["failed_required_checks"] == ["deployment_security"]
+
+
+def test_collect_runtime_health_rejects_public_bind_without_proxy_basic_auth(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Shared/public ingress should require explicit proxy Basic Auth credentials."""
+    monkeypatch.setattr("mcp_evidencebase.runtime_diagnostics.probe_minio", lambda settings: None)
+    monkeypatch.setattr("mcp_evidencebase.runtime_diagnostics.probe_redis", lambda redis_url: None)
+    monkeypatch.setattr(
+        "mcp_evidencebase.runtime_diagnostics.probe_qdrant",
+        lambda **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "mcp_evidencebase.runtime_diagnostics.probe_celery_broker",
+        lambda broker_url: None,
+    )
+    monkeypatch.setattr(
+        "mcp_evidencebase.runtime_diagnostics.probe_celery_result_backend",
+        lambda result_backend_url: None,
+    )
+
+    report = collect_runtime_health(
+        {
+            **_base_env(),
+            "PROXY_BIND_ADDRESS": "192.168.1.20",
+            "MINIO_ROOT_USER": "secure-user",
+            "MINIO_ROOT_PASSWORD": "secure-pass",
+        }
+    )
+
+    assert report["checks"]["deployment_security"]["status"] == "error"
+    assert (
+        "APP_PROXY_BASIC_AUTH_USERNAME and APP_PROXY_BASIC_AUTH_PASSWORD"
+        in report["checks"]["deployment_security"]["detail"]
+    )
+    assert report["failed_required_checks"] == ["deployment_security"]
+
+
+def test_collect_runtime_health_allows_public_bind_when_proxy_auth_is_explicitly_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cloudflare-only deployments can disable proxy Basic Auth explicitly."""
+    monkeypatch.setattr("mcp_evidencebase.runtime_diagnostics.probe_minio", lambda settings: None)
+    monkeypatch.setattr("mcp_evidencebase.runtime_diagnostics.probe_redis", lambda redis_url: None)
+    monkeypatch.setattr(
+        "mcp_evidencebase.runtime_diagnostics.probe_qdrant",
+        lambda **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "mcp_evidencebase.runtime_diagnostics.probe_celery_broker",
+        lambda broker_url: None,
+    )
+    monkeypatch.setattr(
+        "mcp_evidencebase.runtime_diagnostics.probe_celery_result_backend",
+        lambda result_backend_url: None,
+    )
+
+    report = collect_runtime_health(
+        {
+            **_base_env(),
+            "PROXY_BIND_ADDRESS": "127.0.0.1",
+            "CLOUDFLARE_TUNNEL_TOKEN": "token",
+            "MINIO_ROOT_USER": "secure-user",
+            "MINIO_ROOT_PASSWORD": "secure-pass",
+            "APP_PROXY_BASIC_AUTH_ENABLED": "false",
+        }
+    )
+
+    assert report["checks"]["deployment_security"]["status"] == "ok"
+    assert report["failed_required_checks"] == []
+
+
 def test_log_runtime_health_includes_celery_result_backend(
     caplog: pytest.LogCaptureFixture,
 ) -> None:

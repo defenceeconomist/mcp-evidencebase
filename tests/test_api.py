@@ -81,6 +81,8 @@ class FakeIngestionService:
     qdrant_create_error: Exception | None = None
     qdrant_delete_error: Exception | None = None
     metadata_seed_lookup_result: dict[str, Any] = field(default_factory=dict)
+    resolved_payload: bytes = b"%PDF-1.4 fake"
+    resolved_content_type: str = "application/pdf"
 
     def list_buckets(self) -> list[str]:
         return self.bucket_names
@@ -229,7 +231,7 @@ class FakeIngestionService:
         if self.resolve_error is not None:
             raise self.resolve_error
         self.resolved_documents.append((bucket_name, object_name))
-        return b"%PDF-1.4 fake", "application/pdf"
+        return self.resolved_payload, self.resolved_content_type
 
     def ensure_bucket_qdrant_collection(self, bucket_name: str) -> bool:
         if self.qdrant_create_error is not None:
@@ -423,6 +425,10 @@ def _build_outlined_pdf_bytes() -> bytes:
     output = BytesIO()
     writer.write(output)
     return output.getvalue()
+
+
+def _build_fake_pdf_payload() -> bytes:
+    return b"%PDF-1.4 fake\n"
 
 
 def _build_mixed_chapter_outline_pdf_bytes() -> bytes:
@@ -1444,6 +1450,7 @@ def test_resolve_document_returns_pdf_payload(client: TestClient) -> None:
     assert response.content == b"%PDF-1.4 fake"
     assert response.headers["content-type"] == "application/pdf"
     assert response.headers["content-disposition"] == 'inline; filename="paper.pdf"'
+    assert response.headers["x-content-type-options"] == "nosniff"
     assert service.resolved_documents == [("research-raw", "papers/paper.pdf")]
 
 
@@ -1455,6 +1462,23 @@ def test_resolve_document_rejects_empty_file_path(client: TestClient) -> None:
     )
     assert response.status_code == 400
     assert response.json() == {"detail": "file_path must not be empty."}
+
+
+def test_resolve_document_rejects_non_pdf_payload(client: TestClient) -> None:
+    """Resolver should reject legacy non-PDF objects even if they exist in storage."""
+    service = FakeIngestionService(
+        resolved_payload=b"<html>not pdf</html>",
+        resolved_content_type="text/html",
+    )
+    _override_ingestion_service(service)
+
+    response = client.get(
+        "/collections/research-raw/documents/resolve",
+        params={"file_path": "papers/paper.pdf"},
+    )
+
+    assert response.status_code == 415
+    assert response.json() == {"detail": "Resolver only serves PDF documents."}
 
 
 def test_upload_document_queues_processing_task(
@@ -1469,7 +1493,7 @@ def test_upload_document_queues_processing_task(
 
     response = client.post(
         "/collections/research-raw/documents/upload?file_name=paper.pdf",
-        content=b"pdf-bytes",
+        content=_build_fake_pdf_payload(),
         headers={"Content-Type": "application/pdf"},
     )
 
@@ -1477,8 +1501,63 @@ def test_upload_document_queues_processing_task(
     assert response.json()["queued"] is True
     assert response.json()["task_id"] == "task-upload-1"
     assert response.json()["queue_error"] == ""
-    assert service.uploaded == [("research-raw", "paper.pdf", b"pdf-bytes")]
+    assert service.uploaded == [("research-raw", "paper.pdf", _build_fake_pdf_payload())]
     assert fake_task.calls == [("research-raw", "paper.pdf", None, True)]
+
+
+def test_upload_document_rejects_non_pdf_content_type(client: TestClient) -> None:
+    """Only explicit PDF uploads should be accepted by the upload endpoint."""
+    service = FakeIngestionService()
+    _override_ingestion_service(service)
+
+    response = client.post(
+        "/collections/research-raw/documents/upload?file_name=paper.pdf",
+        content=_build_fake_pdf_payload(),
+        headers={"Content-Type": "text/plain"},
+    )
+
+    assert response.status_code == 415
+    assert response.json() == {"detail": "Only application/pdf uploads are supported."}
+    assert service.uploaded == []
+
+
+def test_upload_document_rejects_non_pdf_payload_signature(client: TestClient) -> None:
+    """Only bodies with a valid PDF signature should reach storage."""
+    service = FakeIngestionService()
+    _override_ingestion_service(service)
+
+    response = client.post(
+        "/collections/research-raw/documents/upload?file_name=paper.pdf",
+        content=b"not-a-pdf",
+        headers={"Content-Type": "application/pdf"},
+    )
+
+    assert response.status_code == 415
+    assert response.json() == {"detail": "Uploaded content is not a valid PDF payload."}
+    assert service.uploaded == []
+
+
+def test_upload_document_rejects_payloads_over_the_size_limit(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Oversized PDF uploads should fail before hitting storage or the queue."""
+    service = FakeIngestionService()
+    _override_ingestion_service(service)
+    monkeypatch.setattr(
+        "mcp_evidencebase.api_modules.routers.collections.MAX_PDF_UPLOAD_BYTES",
+        5,
+    )
+
+    response = client.post(
+        "/collections/research-raw/documents/upload?file_name=paper.pdf",
+        content=_build_fake_pdf_payload(),
+        headers={"Content-Type": "application/pdf"},
+    )
+
+    assert response.status_code == 413
+    assert response.json() == {"detail": "PDF payload exceeds the maximum size of 1 MiB."}
+    assert service.uploaded == []
 
 
 def test_preview_document_split_returns_heading_levels(client: TestClient) -> None:
@@ -1535,6 +1614,40 @@ def test_preview_document_split_returns_heading_levels(client: TestClient) -> No
     assert third_level["splits"][0]["chapter_title"] == "Detail 2.1.a"
     assert third_level["splits"][0]["page_start"] == 1
     assert third_level["splits"][0]["page_end"] == 6
+
+
+def test_preview_document_split_rejects_non_pdf_payload(client: TestClient) -> None:
+    """Split preview should reject non-PDF uploads before parser work begins."""
+    response = client.post(
+        "/collections/research-raw/documents/split/preview?file_name=sample-book.pdf",
+        content=b"not-a-pdf",
+        headers={"Content-Type": "application/pdf"},
+    )
+
+    assert response.status_code == 415
+    assert response.json() == {"detail": "Uploaded content is not a valid PDF payload."}
+
+
+def test_preview_document_split_rejects_documents_over_page_limit(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Split preview should reject PDFs that exceed the configured page limit."""
+    monkeypatch.setattr(
+        "mcp_evidencebase.api_modules.routers.collections.MAX_PDF_PAGE_COUNT",
+        2,
+    )
+
+    response = client.post(
+        "/collections/research-raw/documents/split/preview?file_name=sample-book.pdf",
+        content=_build_outlined_pdf_bytes(),
+        headers={"Content-Type": "application/pdf"},
+    )
+
+    assert response.status_code == 422
+    assert response.json() == {
+        "detail": "PDF split operations support at most 2 pages per document."
+    }
 
 
 def test_preview_document_split_enriches_metadata_seed_from_crossref(client: TestClient) -> None:
@@ -1646,6 +1759,29 @@ def test_upload_split_document_uploads_chapters_and_queues_tasks(
         ("research-raw", "Sample Book/Section 1.2.pdf", None, True, {"pages": "3-4"}),
         ("research-raw", "Sample Book/Section 2.1.pdf", None, True, {"pages": "5-6"}),
     ]
+
+
+def test_upload_split_document_rejects_excessive_split_counts(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Split upload should reject requests that would create too many files."""
+    monkeypatch.setattr(
+        "mcp_evidencebase.api_modules.routers.collections.MAX_SPLIT_OUTPUT_FILES",
+        2,
+    )
+
+    response = client.post(
+        "/collections/research-raw/documents/split/upload"
+        "?file_name=sample-book.pdf&heading_level=2",
+        content=_build_outlined_pdf_bytes(),
+        headers={"Content-Type": "application/pdf"},
+    )
+
+    assert response.status_code == 422
+    assert response.json() == {
+        "detail": "PDF split upload would create too many files. Select at most 2 split outputs."
+    }
 
 
 def test_upload_split_document_honors_custom_folder_and_embeds_author_metadata(
@@ -1772,7 +1908,7 @@ def test_upload_document_returns_queued_false_when_broker_is_unavailable(
 
     response = client.post(
         "/collections/research-raw/documents/upload?file_name=paper.pdf",
-        content=b"pdf-bytes",
+        content=_build_fake_pdf_payload(),
         headers={"Content-Type": "application/pdf"},
     )
 
@@ -1780,7 +1916,7 @@ def test_upload_document_returns_queued_false_when_broker_is_unavailable(
     assert response.json()["queued"] is False
     assert response.json()["task_id"] is None
     assert "retry limit exceeded" in response.json()["queue_error"]
-    assert service.uploaded == [("research-raw", "paper.pdf", b"pdf-bytes")]
+    assert service.uploaded == [("research-raw", "paper.pdf", _build_fake_pdf_payload())]
 
 
 def test_reindex_document_returns_queued_false_when_broker_is_unavailable(

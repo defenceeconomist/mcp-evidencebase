@@ -37,6 +37,98 @@ from mcp_evidencebase.pdf_split import (
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["collections"])
 
+PDF_MEDIA_TYPE = "application/pdf"
+MAX_PDF_UPLOAD_BYTES = 25 * 1024 * 1024
+MAX_PDF_PAGE_COUNT = 500
+MAX_SPLIT_OUTPUT_FILES = 100
+
+
+def _normalized_media_type(value: str | None) -> str:
+    """Return one normalized media type without parameters."""
+    return str(value or "").split(";", 1)[0].strip().lower()
+
+
+def _raise_payload_too_large(limit_bytes: int) -> None:
+    """Raise an API error for oversized PDF payloads."""
+    max_mebibytes = max(1, limit_bytes // (1024 * 1024))
+    raise HTTPException(
+        status_code=413,
+        detail=f"PDF payload exceeds the maximum size of {max_mebibytes} MiB.",
+    )
+
+
+def _read_content_length(request: Request) -> int | None:
+    """Parse one request Content-Length header when present."""
+    raw_content_length = request.headers.get("content-length", "").strip()
+    if not raw_content_length:
+        return None
+    try:
+        content_length = int(raw_content_length)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid Content-Length header.") from exc
+    if content_length < 0:
+        raise HTTPException(status_code=400, detail="Invalid Content-Length header.")
+    return content_length
+
+
+async def _read_bounded_request_body(request: Request, *, max_bytes: int) -> bytes:
+    """Read one request body after enforcing configured size limits."""
+    content_length = _read_content_length(request)
+    if content_length is not None and content_length > max_bytes:
+        _raise_payload_too_large(max_bytes)
+    payload = await request.body()
+    if len(payload) > max_bytes:
+        _raise_payload_too_large(max_bytes)
+    return payload
+
+
+def _is_pdf_file_name(file_name: str) -> bool:
+    """Return whether one file name uses the PDF extension."""
+    return PurePosixPath(str(file_name or "").strip()).suffix.lower() == ".pdf"
+
+
+def _is_pdf_payload(payload: bytes) -> bool:
+    """Return whether one payload starts with the PDF file signature."""
+    return bytes(payload[:5]) == b"%PDF-"
+
+
+def _require_pdf_request_payload(
+    *,
+    file_name: str,
+    payload: bytes,
+    content_type: str | None,
+) -> None:
+    """Validate that one request payload is an inline-safe PDF."""
+    if not _is_pdf_file_name(file_name):
+        raise HTTPException(status_code=415, detail="Only PDF file names are supported.")
+    if _normalized_media_type(content_type) != PDF_MEDIA_TYPE:
+        raise HTTPException(status_code=415, detail="Only application/pdf uploads are supported.")
+    if not _is_pdf_payload(payload):
+        raise HTTPException(status_code=415, detail="Uploaded content is not a valid PDF payload.")
+
+
+def _validate_split_plan_limits(*, page_count: int) -> None:
+    """Reject split requests that exceed configured page limits."""
+    if page_count > MAX_PDF_PAGE_COUNT:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"PDF split operations support at most {MAX_PDF_PAGE_COUNT} pages per document."
+            ),
+        )
+
+
+def _validate_split_output_limit(split_count: int) -> None:
+    """Reject split uploads that would emit too many files."""
+    if split_count > MAX_SPLIT_OUTPUT_FILES:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "PDF split upload would create too many files. "
+                f"Select at most {MAX_SPLIT_OUTPUT_FILES} split outputs."
+            ),
+        )
+
 
 def _parse_split_metadata_headers(request: Request) -> dict[str, str]:
     """Read split metadata overrides from request headers."""
@@ -183,12 +275,17 @@ def resolve_document(
 
     file_name = PurePosixPath(normalized_file_path).name or "document"
     quoted_file_name = file_name.replace('"', "")
+    if not _is_pdf_file_name(normalized_file_path):
+        raise HTTPException(status_code=415, detail="Resolver only serves PDF documents.")
+    if _normalized_media_type(content_type) != PDF_MEDIA_TYPE or not _is_pdf_payload(payload):
+        raise HTTPException(status_code=415, detail="Resolver only serves PDF documents.")
     return Response(
         content=payload,
-        media_type=content_type,
+        media_type=PDF_MEDIA_TYPE,
         headers={
             "Content-Disposition": f'inline; filename="{quoted_file_name}"',
             "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
         },
     )
 
@@ -290,8 +387,13 @@ async def upload_document(
     if not normalized_file_name:
         raise HTTPException(status_code=400, detail="file name must not be empty.")
 
-    payload = await request.body()
+    payload = await _read_bounded_request_body(request, max_bytes=MAX_PDF_UPLOAD_BYTES)
     content_type = request.headers.get("content-type")
+    _require_pdf_request_payload(
+        file_name=normalized_file_name,
+        payload=payload,
+        content_type=content_type,
+    )
     try:
         object_name = service.upload_document(
             bucket_name=normalized_bucket_name,
@@ -335,12 +437,18 @@ async def preview_document_split(
     if not normalized_file_name:
         raise HTTPException(status_code=400, detail="file name must not be empty.")
 
-    payload = await request.body()
+    payload = await _read_bounded_request_body(request, max_bytes=MAX_PDF_UPLOAD_BYTES)
+    _require_pdf_request_payload(
+        file_name=normalized_file_name,
+        payload=payload,
+        content_type=request.headers.get("content-type"),
+    )
     try:
         reader = load_pdf_reader(payload)
         plan = build_pdf_split_plan(reader, normalized_file_name)
     except Exception as exc:
         raise_document_http_error(exc)
+    _validate_split_plan_limits(page_count=plan.page_count)
 
     metadata_seed = extract_pdf_metadata_seed(payload)
     if "title" not in metadata_seed:
@@ -386,7 +494,12 @@ async def upload_split_document(
             detail=(f"heading_level must be between 1 and {MAX_SPLIT_HEADING_LEVEL}."),
         )
 
-    payload = await request.body()
+    payload = await _read_bounded_request_body(request, max_bytes=MAX_PDF_UPLOAD_BYTES)
+    _require_pdf_request_payload(
+        file_name=normalized_file_name,
+        payload=payload,
+        content_type=request.headers.get("content-type"),
+    )
     metadata_overrides = _parse_split_metadata_headers(request)
     selected_output_files = _parse_split_selected_files(request)
     normalized_legacy_book_title = (book_title or "").strip()
@@ -409,6 +522,7 @@ async def upload_split_document(
         level_preview = plan.get_level(heading_level)
     except Exception as exc:
         raise_document_http_error(exc)
+    _validate_split_plan_limits(page_count=plan.page_count)
 
     if not level_preview.available or not level_preview.splits:
         raise HTTPException(
@@ -427,6 +541,7 @@ async def upload_split_document(
                 status_code=400,
                 detail="Select at least one split output file.",
             )
+    _validate_split_output_limit(len(split_segments))
 
     uploaded: list[dict[str, Any]] = []
     failures: list[dict[str, str]] = []

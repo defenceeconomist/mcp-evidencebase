@@ -1,0 +1,65 @@
+#!/bin/sh
+set -eu
+
+AUTH_DIR="/etc/nginx/auth"
+AUTH_FILE="${AUTH_DIR}/app-users.htpasswd"
+DEFAULT_USERNAME="evidencebase-local"
+DEFAULT_PASSWORD="change-me-local-only"
+
+to_bool() {
+  case "$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')" in
+    1|true|yes|on)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+is_loopback_bind_target() {
+  case "${1:-}" in
+    ""|127.0.0.1|::1|localhost)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+bind_target="${PROXY_BIND_ADDRESS:-127.0.0.1}"
+proxy_username="${APP_PROXY_BASIC_AUTH_USERNAME:-}"
+proxy_password="${APP_PROXY_BASIC_AUTH_PASSWORD:-}"
+cloudflare_tunnel_token="${CLOUDFLARE_TUNNEL_TOKEN:-}"
+proxy_basic_auth_enabled="${APP_PROXY_BASIC_AUTH_ENABLED:-true}"
+
+if to_bool "${proxy_basic_auth_enabled}"; then
+  export APP_PROXY_BASIC_AUTH_REALM='"Evidence Base"'
+
+  if [ -z "${proxy_username}" ]; then
+    proxy_username="${DEFAULT_USERNAME}"
+  fi
+  if [ -z "${proxy_password}" ]; then
+    proxy_password="${DEFAULT_PASSWORD}"
+  fi
+
+  is_public_ingress="false"
+  if [ -n "${cloudflare_tunnel_token}" ] || ! is_loopback_bind_target "${bind_target}"; then
+    is_public_ingress="true"
+  fi
+
+  if [ "${is_public_ingress}" = "true" ] && {
+    [ "${proxy_username}" = "${DEFAULT_USERNAME}" ] ||
+    [ "${proxy_password}" = "${DEFAULT_PASSWORD}" ];
+  }; then
+    echo >&2 "Refusing to start proxy with default or missing Basic Auth credentials on shared/public ingress."
+    exit 1
+  fi
+
+  mkdir -p "${AUTH_DIR}"
+  htpasswd -Bbn "${proxy_username}" "${proxy_password}" > "${AUTH_FILE}"
+  chmod 600 "${AUTH_FILE}"
+else
+  export APP_PROXY_BASIC_AUTH_REALM='off'
+fi

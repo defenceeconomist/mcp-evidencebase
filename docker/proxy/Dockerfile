@@ -22,9 +22,11 @@ RUN ./docs/build_docs.sh
 
 FROM nginx:1.27-alpine
 
-RUN sed -i 's|application/javascript[[:space:]]*js;|application/javascript js mjs;|' /etc/nginx/mime.types
+RUN apk add --no-cache apache2-utils && \
+    sed -i 's|application/javascript[[:space:]]*js;|application/javascript js mjs;|' /etc/nginx/mime.types
 
-COPY deploy/nginx/default.conf /etc/nginx/conf.d/default.conf
+COPY deploy/nginx/default.conf /etc/nginx/templates/default.conf.template
+COPY docker/proxy/04-configure-app-basic-auth.envsh /docker-entrypoint.d/04-configure-app-basic-auth.envsh
 COPY frontend/index.html /usr/share/nginx/html/frontend/index.html
 COPY frontend/index.css /usr/share/nginx/html/frontend/index.css
 COPY frontend/index.js /usr/share/nginx/html/frontend/index.js
@@ -33,3 +35,5 @@ COPY frontend/resolver.css /usr/share/nginx/html/frontend/resolver.css
 COPY frontend/resolver.js /usr/share/nginx/html/frontend/resolver.js
 COPY frontend/js /usr/share/nginx/html/frontend/js
 COPY --from=docs-builder /app/docs/site /usr/share/nginx/html/docs
+
+RUN chmod +x /docker-entrypoint.d/04-configure-app-basic-auth.envsh

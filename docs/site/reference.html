@@ -298,7 +298,7 @@
 <h2>Ingestion Models And Service<a class="headerlink" href="#ingestion-models-and-service" title="Link to this heading">¶</a></h2>
 <dl class="py class">
 <dt class="sig sig-object py" id="mcp_evidencebase.ingestion.IngestionSettings">
-<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">mcp_evidencebase.ingestion.</span></span><span class="sig-name descname"><span class="pre">IngestionSettings</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">minio</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">storage_bucket_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">redis_url</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">redis_prefix</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">qdrant_url</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">qdrant_api_key</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">qdrant_timeout_seconds</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">qdrant_collection_prefix</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">unstructured_api_url</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">unstructured_api_key</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">unstructured_strategy</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">unstructured_timeout_seconds</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fastembed_model</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fastembed_keyword_model</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk_size_chars</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk_overlap_chars</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk_exclude_element_types</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunking_strategy</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk_new_after_n_chars</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk_combine_text_under_n_chars</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk_include_title_text</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk_image_text_mode</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk_paragraph_break_strategy</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk_preserve_page_breaks</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">scan_interval_seconds</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#mcp_evidencebase.ingestion.IngestionSettings" title="Link to this definition">¶</a></dt>
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">mcp_evidencebase.ingestion.</span></span><span class="sig-name descname"><span class="pre">IngestionSettings</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">minio</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">storage_bucket_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">redis_url</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">redis_prefix</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">qdrant_url</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">qdrant_api_key</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">qdrant_timeout_seconds</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">qdrant_collection_prefix</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">qdrant_collection_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">unstructured_api_url</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">unstructured_api_key</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">unstructured_strategy</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">unstructured_timeout_seconds</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fastembed_model</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fastembed_keyword_model</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk_size_chars</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk_overlap_chars</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk_exclude_element_types</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunking_strategy</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk_new_after_n_chars</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk_combine_text_under_n_chars</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk_include_title_text</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk_image_text_mode</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk_paragraph_break_strategy</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk_preserve_page_breaks</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">scan_interval_seconds</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#mcp_evidencebase.ingestion.IngestionSettings" title="Link to this definition">¶</a></dt>
 <dd><p>Runtime settings for document ingestion components.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
@@ -311,6 +311,7 @@
 <li><p><strong>qdrant_api_key</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
 <li><p><strong>qdrant_timeout_seconds</strong> (<em>float</em>)</p></li>
 <li><p><strong>qdrant_collection_prefix</strong> (<em>str</em>)</p></li>
+<li><p><strong>qdrant_collection_name</strong> (<em>str</em>)</p></li>
 <li><p><strong>unstructured_api_url</strong> (<em>str</em>)</p></li>
 <li><p><strong>unstructured_api_key</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
 <li><p><strong>unstructured_strategy</strong> (<em>str</em>)</p></li>
@@ -382,17 +383,38 @@ chunking, and vector upsert workflows.</p>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="mcp_evidencebase.ingestion.IngestionService.list_documents">
-<span class="sig-name descname"><span class="pre">list_documents</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">bucket_name</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#mcp_evidencebase.ingestion.IngestionService.list_documents" title="Link to this definition">¶</a></dt>
+<span class="sig-name descname"><span class="pre">list_documents</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">bucket_name</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">include_debug</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">include_locations</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#mcp_evidencebase.ingestion.IngestionService.list_documents" title="Link to this definition">¶</a></dt>
 <dd><p>Return UI-facing document records for a bucket.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>bucket_name</strong> (<em>str</em>) – Bucket to query.</p>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>bucket_name</strong> (<em>str</em>) – Bucket to query.</p></li>
+<li><p><strong>include_debug</strong> (<em>bool</em>) – Whether to include partitions/chunks payloads.</p></li>
+<li><p><strong>include_locations</strong> (<em>bool</em>) – Whether to include all object locations.</p></li>
+</ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
 <dd class="field-even"><p>List of document records for the bucket.</p>
 </dd>
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
 <dd class="field-odd"><p>list[dict[str, <em>Any</em>]]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="mcp_evidencebase.ingestion.IngestionService.get_document_debug_payload">
+<span class="sig-name descname"><span class="pre">get_document_debug_payload</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">bucket_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">document_id</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#mcp_evidencebase.ingestion.IngestionService.get_document_debug_payload" title="Link to this definition">¶</a></dt>
+<dd><p>Return on-demand partitions/chunks payload for one document.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>bucket_name</strong> (<em>str</em>)</p></li>
+<li><p><strong>document_id</strong> (<em>str</em>)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>dict[str, <em>Any</em>]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -431,16 +453,30 @@ chunking, and vector upsert workflows.</p>
 <dl class="py method">
 <dt class="sig sig-object py" id="mcp_evidencebase.ingestion.IngestionService.delete_bucket_qdrant_collection">
 <span class="sig-name descname"><span class="pre">delete_bucket_qdrant_collection</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">bucket_name</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#mcp_evidencebase.ingestion.IngestionService.delete_bucket_qdrant_collection" title="Link to this definition">¶</a></dt>
-<dd><p>Delete the bucket-level Qdrant collection when present.</p>
+<dd><p>Delete the bucket’s Qdrant points from the shared collection when present.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><p><strong>bucket_name</strong> (<em>str</em>) – Bucket whose collection should be removed.</p>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p><code class="docutils literal notranslate"><span class="pre">True</span></code> when a collection is removed, otherwise <code class="docutils literal notranslate"><span class="pre">False</span></code>.</p>
+<dd class="field-even"><p><code class="docutils literal notranslate"><span class="pre">True</span></code> when the shared collection exists and a delete is issued.</p>
 </dd>
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
 <dd class="field-odd"><p>bool</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="mcp_evidencebase.ingestion.IngestionService.migrate_legacy_qdrant_collections">
+<span class="sig-name descname"><span class="pre">migrate_legacy_qdrant_collections</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">dry_run</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#mcp_evidencebase.ingestion.IngestionService.migrate_legacy_qdrant_collections" title="Link to this definition">¶</a></dt>
+<dd><p>Backfill legacy per-bucket Qdrant collections into the shared collection.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>dry_run</strong> (<em>bool</em>)</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>dict[str, <em>Any</em>]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -721,6 +757,23 @@ chunking, and vector upsert workflows.</p>
 </dd></dl>
 
 <dl class="py method">
+<dt class="sig sig-object py" id="mcp_evidencebase.ingestion.IngestionService.list_document_sections_lookup">
+<span class="sig-name descname"><span class="pre">list_document_sections_lookup</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">bucket_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">document_id</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#mcp_evidencebase.ingestion.IngestionService.list_document_sections_lookup" title="Link to this definition">¶</a></dt>
+<dd><p>Return one document’s section payloads keyed by section ID.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>bucket_name</strong> (<em>str</em>)</p></li>
+<li><p><strong>document_id</strong> (<em>str</em>)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>dict[str, dict[str, <em>Any</em>]]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
 <dt class="sig sig-object py" id="mcp_evidencebase.ingestion.IngestionService.rebuild_document_section_mapping">
 <span class="sig-name descname"><span class="pre">rebuild_document_section_mapping</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">bucket_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">document_id</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#mcp_evidencebase.ingestion.IngestionService.rebuild_document_section_mapping" title="Link to this definition">¶</a></dt>
 <dd><p>Rebuild and persist section mapping for one document from stored partitions.</p>
@@ -928,6 +981,26 @@ chunking, and vector upsert workflows.</p>
 </dl>
 </dd></dl>
 
+<dl class="py method">
+<dt class="sig sig-object py" id="mcp_evidencebase.ingestion.IngestionService.search_document_variants">
+<span class="sig-name descname"><span class="pre">search_document_variants</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">bucket_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">queries</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">limit</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mode</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'hybrid'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rrf_k</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">60</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#mcp_evidencebase.ingestion.IngestionService.search_document_variants" title="Link to this definition">¶</a></dt>
+<dd><p>Search multiple query variants and hydrate each result set.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>bucket_name</strong> (<em>str</em>)</p></li>
+<li><p><strong>queries</strong> (<em>list</em><em>[</em><em>str</em><em>]</em>)</p></li>
+<li><p><strong>limit</strong> (<em>int</em>)</p></li>
+<li><p><strong>mode</strong> (<em>str</em>)</p></li>
+<li><p><strong>rrf_k</strong> (<em>int</em>)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>dict[str, list[dict[str, <em>Any</em>]]]</p>
+</dd>
+</dl>
+</dd></dl>
+
 </dd></dl>
 
 <dl class="py function">
@@ -977,6 +1050,7 @@ chunking, and vector upsert workflows.</p>
 <li><p><code class="docutils literal notranslate"><span class="pre">mcp_evidencebase.scan_minio_objects</span></code>: scans buckets and enqueues changed objects.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">mcp_evidencebase.partition_minio_object</span></code>: partition stage.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">mcp_evidencebase.meta_minio_object</span></code>: metadata stage (+ optional Crossref update).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">mcp_evidencebase.finalize_minio_object</span></code>: section, chunk, and upsert stages.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">mcp_evidencebase.section_minio_object</span></code>: section mapping stage.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">mcp_evidencebase.chunk_minio_object</span></code>: chunk stage.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">mcp_evidencebase.upsert_minio_object</span></code>: vector upsert stage.</p></li>
