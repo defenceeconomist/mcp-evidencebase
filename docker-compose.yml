@@ -84,7 +84,7 @@ services:
       <<: *backend-environment
       MINIO_REGION: ${MINIO_REGION:-}
       GPT_ACTIONS_API_KEY: ${GPT_ACTIONS_API_KEY:-}
-      GPT_ACTIONS_LINK_BASE_URL: ${GPT_ACTIONS_LINK_BASE_URL:-https://evidencebase.heley.uk}
+      GPT_ACTIONS_LINK_BASE_URL: ${GPT_ACTIONS_LINK_BASE_URL:-}
     volumes:
       - model-cache:/model-cache
     networks:
@@ -99,14 +99,13 @@ services:
       api:
         condition: service_started
     ports:
-      - "${PROXY_PORT:-52180}:80"
+      - "${PROXY_BIND_ADDRESS:-127.0.0.1}:${PROXY_PORT:-52180}:80"
     networks:
       - default
       - datastores
 
   cloudflared:
     image: cloudflare/cloudflared:latest
-    profiles: ["tunnel"]
     container_name: evidencebase-cloudflared
     restart: unless-stopped
     depends_on:

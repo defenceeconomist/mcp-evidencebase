@@ -355,10 +355,9 @@ Services include:
 - Celery worker
 - Dashboard and documentation routes served by the proxy
 
-Optional profile:
+Additional service:
 
-- Cloudflare Tunnel (`cloudflared`, `--profile tunnel`) if you temporarily need
-  public ingress again
+- Cloudflare Tunnel (`cloudflared`) for public ingress
 
 External dependencies consumed from `shared-datastores`:
 
@@ -379,14 +378,8 @@ Start stack:
 docker compose up -d
 ```
 
-If you explicitly enable the legacy tunnel profile:
-
-```bash
-docker compose --profile tunnel up -d
-```
-
-`CLOUDFLARE_TUNNEL_TOKEN` is only required when starting the optional
-`cloudflared` profile.
+`CLOUDFLARE_TUNNEL_TOKEN` is required because the `cloudflared` service is part
+of the normal compose stack.
 
 ### Prebuilt Image Stack
 
@@ -426,6 +419,10 @@ http://localhost:52180/api/gpt/ping?message=hello
 shared datastore stack to be running and reachable on the external
 `shared-datastores` network.
 
+By default the proxy binds to loopback only (`PROXY_BIND_ADDRESS=127.0.0.1`).
+That keeps the admin UI and non-GPT API surface off the public network unless
+you explicitly widen the bind address.
+
 Meshnet equivalents for your own devices:
 
 ```text
@@ -444,10 +441,18 @@ http://<meshnet-hostname-or-ip>:52180/api/gpt/ping?message=hello
 Replace `<meshnet-hostname-or-ip>` with the NordVPN Meshnet hostname or Meshnet
 IP of the machine running the stack.
 
+Public HTTPS example for hosted ChatGPT Actions:
+
+```text
+https://open.heley.uk/api/gpt/openapi.json
+https://open.heley.uk/api/gpt/ping?message=hello
+```
+
 ### NordVPN Meshnet Access
 
-Current remote access is private-only: the public `evidencebase.heley.uk`
-deployment has been retired in favour of NordVPN Meshnet.
+Meshnet remains the simplest private setup for your own devices. If you point a
+public HTTPS hostname at the proxy, use that hostname consistently for the GPT
+schema and generated result links.
 
 1. Join the host machine and your client devices to the same NordVPN Meshnet.
 2. Start the shared datastores and local Evidence Base stack on the host.
@@ -455,9 +460,15 @@ deployment has been retired in favour of NordVPN Meshnet.
 4. Set `GPT_ACTIONS_LINK_BASE_URL=http://<meshnet-hostname-or-ip>:52180` in
    `.env` if you want generated resolver/source links to point at the Meshnet
    host instead of `localhost`.
-5. Keep in mind that hosted ChatGPT Actions cannot reach Meshnet-only or other
-   private addresses. Use browsers/scripts on your own Meshnet devices, or
-   reintroduce a public HTTPS endpoint if you need cloud-hosted ChatGPT access.
+5. Set `GPT_ACTIONS_EXPOSE_PUBLIC_LINKS=true` only if you intentionally want GPT
+   search results to emit clickable document/resolver URLs. Leave it `false` for
+   internet-facing GPT Actions so the public host only needs the GPT endpoints.
+6. For hosted ChatGPT Actions, set `GPT_ACTIONS_LINK_BASE_URL=https://open.heley.uk`
+   (or your public HTTPS hostname) and keep the public ingress restricted to the
+   GPT endpoints only.
+7. Keep in mind that hosted ChatGPT Actions cannot reach Meshnet-only or other
+   private addresses. Use browsers/scripts on your own Meshnet devices, or a
+   public HTTPS endpoint if you need cloud-hosted ChatGPT access.
 
 Example private GPT/API base over Meshnet:
 
@@ -783,10 +794,12 @@ CHUNK_IMAGE_TEXT_MODE=placeholder
 CHUNK_PARAGRAPH_BREAK_STRATEGY=text
 CHUNK_PRESERVE_PAGE_BREAKS=true
 MINIO_SCAN_INTERVAL_SECONDS=15
-# Only required when explicitly starting docker compose with --profile tunnel.
+# Required because the cloudflared service is part of the standard compose stack.
 CLOUDFLARE_TUNNEL_TOKEN=
+PROXY_BIND_ADDRESS=127.0.0.1
 GPT_ACTIONS_API_KEY=<your-api-key>
 GPT_ACTIONS_LINK_BASE_URL=http://localhost:52180
+GPT_ACTIONS_EXPOSE_PUBLIC_LINKS=false
 ```
 
 The checked-in template is `.env.example`. If you use a different

@@ -78,6 +78,6 @@ def gpt_search(
 
 
 @router.get("/gpt/openapi.json", include_in_schema=False)
-def gpt_openapi() -> dict[str, Any]:
+def gpt_openapi(request: Request) -> dict[str, Any]:
     """Return a minimal OpenAPI document for GPT endpoints."""
-    return build_gpt_openapi_document()
+    return build_gpt_openapi_document(request=request)

@@ -328,6 +328,8 @@ _MINIMAL_GPT_RESULT_FIELDS: tuple[str, ...] = (
     "page_end",
 )
 
+_TRUTHY_ENV_VALUES: frozenset[str] = frozenset({"1", "true", "yes", "on"})
+
 
 def _bounded_int(*, value: Any, default: int, minimum: int, maximum: int) -> int:
     try:
@@ -952,12 +954,25 @@ def normalize_public_base_url(value: str) -> str:
     return urlunsplit((scheme, parsed.netloc, normalized_path, "", ""))
 
 
-def resolve_gpt_links_base_url(request: Request) -> str:
-    """Resolve the base URL used to build clickable links in GPT search responses."""
+def gpt_public_links_enabled() -> bool:
+    """Return true when GPT search responses may expose public document links."""
+    value = os.getenv("GPT_ACTIONS_EXPOSE_PUBLIC_LINKS", "")
+    return str(value).strip().casefold() in _TRUTHY_ENV_VALUES
+
+
+def resolve_gpt_site_base_url(*, request: Request | None = None) -> str:
+    """Resolve the public site base URL used by GPT-facing responses."""
     configured_base_url = normalize_public_base_url(os.getenv("GPT_ACTIONS_LINK_BASE_URL", ""))
     if configured_base_url:
         return configured_base_url
+    if request is None:
+        return ""
     return normalize_public_base_url(str(request.base_url))
+
+
+def resolve_gpt_links_base_url(request: Request) -> str:
+    """Resolve the base URL used to build clickable links in GPT search responses."""
+    return resolve_gpt_site_base_url(request=request)
 
 
 def absolutize_http_url(base_url: str, value: str) -> str:
@@ -978,6 +993,9 @@ def absolutize_http_url(base_url: str, value: str) -> str:
 def prepare_gpt_search_result(item: dict[str, Any], *, links_base_url: str) -> dict[str, Any]:
     """Normalize GPT search result links for external clients."""
     normalized_result = dict(item)
+    normalized_result.pop("source_material_url", None)
+    normalized_result.pop("resolver_link_url", None)
+    normalized_result.pop("resolver_url", None)
     source_material_url = absolutize_http_url(
         links_base_url,
         str(item.get("source_material_url", "")),
@@ -988,13 +1006,18 @@ def prepare_gpt_search_result(item: dict[str, Any], *, links_base_url: str) -> d
     )
     resolver_url = str(item.get("resolver_url", "")).strip()
 
+    if resolver_url.startswith("docs://"):
+        normalized_result["resolver_reference"] = resolver_url
+
+    if not gpt_public_links_enabled():
+        return normalized_result
+
     if source_material_url:
         normalized_result["source_material_url"] = source_material_url
     if resolver_link_url:
         normalized_result["resolver_link_url"] = resolver_link_url
 
     if resolver_url.startswith("docs://"):
-        normalized_result["resolver_reference"] = resolver_url
         if resolver_link_url:
             normalized_result["resolver_url"] = resolver_link_url
     elif resolver_url:
@@ -1084,8 +1107,10 @@ def prepare_minimal_gpt_search_response(
     return minimized_payload
 
 
-def build_gpt_openapi_document() -> dict[str, Any]:
+def build_gpt_openapi_document(*, request: Request | None = None) -> dict[str, Any]:
     """Return minimal OpenAPI schema for GPT actions."""
+    site_base_url = resolve_gpt_site_base_url(request=request)
+    api_server_url = f"{site_base_url}/api" if site_base_url else "/api"
     return {
         "openapi": "3.1.0",
         "info": {
@@ -1093,7 +1118,7 @@ def build_gpt_openapi_document() -> dict[str, Any]:
             "version": "1.0.0",
             "description": "Minimal API-key-over-Basic API for ChatGPT custom GPT actions.",
         },
-        "servers": [{"url": "https://open.heley.uk/api"}],
+        "servers": [{"url": api_server_url}],
         "components": {
             "schemas": {
                 "GptSearchRequest": {

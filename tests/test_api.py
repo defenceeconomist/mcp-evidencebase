@@ -673,18 +673,9 @@ def test_gpt_search_returns_results_with_bearer_auth(
     assert payload["limit"] == 5
     assert payload["rrf_k"] == 80
     assert len(payload["results"]) == 1
-    assert (
-        payload["results"][0]["source_material_url"]
-        == "http://testserver/api/collections/research-raw/documents/resolve?file_path=paper.pdf"
-    )
-    assert (
-        payload["results"][0]["resolver_link_url"]
-        == "http://testserver/resolver.html?bucket=research-raw&file_path=paper.pdf&page=3"
-    )
-    assert (
-        payload["results"][0]["resolver_url"]
-        == "http://testserver/resolver.html?bucket=research-raw&file_path=paper.pdf&page=3"
-    )
+    assert "source_material_url" not in payload["results"][0]
+    assert "resolver_link_url" not in payload["results"][0]
+    assert "resolver_url" not in payload["results"][0]
     assert payload["results"][0]["resolver_reference"] == "docs://research-raw/paper.pdf?page=3"
     assert service.search_calls == [("research-raw", "causal inference", 5, "hybrid", 80)]
 
@@ -695,7 +686,8 @@ def test_gpt_search_honors_links_base_url_override(
 ) -> None:
     """Assert GPT search link fields use the configured public base URL when provided."""
     monkeypatch.setenv("GPT_ACTIONS_API_KEY", "supersecret")
-    monkeypatch.setenv("GPT_ACTIONS_LINK_BASE_URL", "https://evidencebase.heley.uk")
+    monkeypatch.setenv("GPT_ACTIONS_LINK_BASE_URL", "https://open.heley.uk")
+    monkeypatch.setenv("GPT_ACTIONS_EXPOSE_PUBLIC_LINKS", "true")
     service = FakeIngestionService(
         search_results=[
             {
@@ -727,15 +719,15 @@ def test_gpt_search_honors_links_base_url_override(
     payload = response.json()
     assert (
         payload["results"][0]["source_material_url"]
-        == "https://evidencebase.heley.uk/api/collections/research-raw/documents/resolve?file_path=paper.pdf"
+        == "https://open.heley.uk/api/collections/research-raw/documents/resolve?file_path=paper.pdf"
     )
     assert (
         payload["results"][0]["resolver_link_url"]
-        == "https://evidencebase.heley.uk/resolver.html?bucket=research-raw&file_path=paper.pdf&page=3"
+        == "https://open.heley.uk/resolver.html?bucket=research-raw&file_path=paper.pdf&page=3"
     )
     assert (
         payload["results"][0]["resolver_url"]
-        == "https://evidencebase.heley.uk/resolver.html?bucket=research-raw&file_path=paper.pdf&page=3"
+        == "https://open.heley.uk/resolver.html?bucket=research-raw&file_path=paper.pdf&page=3"
     )
     assert payload["results"][0]["resolver_reference"] == "docs://research-raw/paper.pdf?page=3"
 
@@ -746,7 +738,8 @@ def test_gpt_search_honors_links_base_url_override_without_scheme(
 ) -> None:
     """Assert GPT search base URL override defaults to HTTPS when scheme is omitted."""
     monkeypatch.setenv("GPT_ACTIONS_API_KEY", "supersecret")
-    monkeypatch.setenv("GPT_ACTIONS_LINK_BASE_URL", "evidencebase.heley.uk")
+    monkeypatch.setenv("GPT_ACTIONS_LINK_BASE_URL", "open.heley.uk")
+    monkeypatch.setenv("GPT_ACTIONS_EXPOSE_PUBLIC_LINKS", "true")
     service = FakeIngestionService(
         search_results=[
             {
@@ -778,15 +771,15 @@ def test_gpt_search_honors_links_base_url_override_without_scheme(
     payload = response.json()
     assert (
         payload["results"][0]["source_material_url"]
-        == "https://evidencebase.heley.uk/api/collections/research-raw/documents/resolve?file_path=paper.pdf"
+        == "https://open.heley.uk/api/collections/research-raw/documents/resolve?file_path=paper.pdf"
     )
     assert (
         payload["results"][0]["resolver_link_url"]
-        == "https://evidencebase.heley.uk/resolver.html?bucket=research-raw&file_path=paper.pdf&page=3"
+        == "https://open.heley.uk/resolver.html?bucket=research-raw&file_path=paper.pdf&page=3"
     )
     assert (
         payload["results"][0]["resolver_url"]
-        == "https://evidencebase.heley.uk/resolver.html?bucket=research-raw&file_path=paper.pdf&page=3"
+        == "https://open.heley.uk/resolver.html?bucket=research-raw&file_path=paper.pdf&page=3"
     )
     assert payload["results"][0]["resolver_reference"] == "docs://research-raw/paper.pdf?page=3"
 
@@ -848,10 +841,7 @@ def test_gpt_search_staged_retrieval_returns_section_citations(
     assert payload["results"][0]["chunk_ids_used"] == ["chunk-1"]
     assert payload["results"][0]["section_id"] == "section-42"
     assert payload["results"][0]["parent_section_title"] == "Methods"
-    assert (
-        payload["results"][0]["source_material_url"]
-        == "http://testserver/api/collections/research-raw/documents/resolve?file_path=paper.pdf"
-    )
+    assert "source_material_url" not in payload["results"][0]
     assert service.search_variant_calls == [
         ("research-raw", tuple(payload["query_variants"]), 75, "hybrid", 60)
     ]
@@ -911,15 +901,54 @@ def test_gpt_search_defaults_to_minimal_response_shape(
         "id",
         "score",
         "document_id",
-        "source_material_url",
-        "resolver_link_url",
-        "resolver_url",
         "resolver_reference",
         "text",
     }
-    assert result["resolver_url"] == (
-        "http://testserver/resolver.html?bucket=research-raw&file_path=paper.pdf&page=3"
+
+
+def test_gpt_search_hides_public_links_even_when_base_url_is_configured(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Assert public document/resolver links stay disabled unless explicitly enabled."""
+    monkeypatch.setenv("GPT_ACTIONS_API_KEY", "supersecret")
+    monkeypatch.setenv("GPT_ACTIONS_LINK_BASE_URL", "https://open.heley.uk")
+    monkeypatch.delenv("GPT_ACTIONS_EXPOSE_PUBLIC_LINKS", raising=False)
+    service = FakeIngestionService(
+        search_results=[
+            {
+                "id": "chunk-1",
+                "score": 0.91,
+                "document_id": "doc-1",
+                "source_material_url": (
+                    "/api/collections/research-raw/documents/resolve?file_path=paper.pdf"
+                ),
+                "resolver_link_url": (
+                    "/resolver.html?bucket=research-raw&file_path=paper.pdf&page=3"
+                ),
+                "resolver_url": "docs://research-raw/paper.pdf?page=3",
+                "text": "Offsets content",
+            }
+        ]
     )
+    _override_ingestion_service(service)
+
+    response = client.post(
+        "/gpt/search",
+        headers={"Authorization": "Bearer supersecret"},
+        json={
+            "bucket_name": "research-raw",
+            "query": "offsets",
+            "use_staged_retrieval": False,
+        },
+    )
+
+    assert response.status_code == 200
+    result = response.json()["results"][0]
+    assert "source_material_url" not in result
+    assert "resolver_link_url" not in result
+    assert "resolver_url" not in result
+    assert result["resolver_reference"] == "docs://research-raw/paper.pdf?page=3"
 
 
 def test_gpt_search_minimal_response_truncates_text_with_parameter(
@@ -1037,10 +1066,30 @@ def test_gpt_ping_returns_service_unavailable_when_auth_not_configured(
     assert response.status_code == 503
 
 
+def test_gpt_openapi_uses_request_base_url_by_default(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Confirm GPT OpenAPI uses the incoming request base URL by default."""
+    monkeypatch.delenv("GPT_ACTIONS_LINK_BASE_URL", raising=False)
+
+    response = client.get("/gpt/openapi.json")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["openapi"] == "3.1.0"
+    assert payload["servers"] == [{"url": "http://testserver/api"}]
+    assert payload["paths"]["/gpt/ping"]["get"]["security"] == [{"BearerAuth": []}]
+    assert payload["paths"]["/gpt/search"]["post"]["security"] == [{"BearerAuth": []}]
+
+
 def test_gpt_openapi_exposes_ping_operation_with_bearer_auth_security(
     client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Confirm GPT OpenAPI advertises Bearer Auth for ping."""
+    monkeypatch.setenv("GPT_ACTIONS_LINK_BASE_URL", "https://open.heley.uk")
+
     response = client.get("/gpt/openapi.json")
 
     assert response.status_code == 200

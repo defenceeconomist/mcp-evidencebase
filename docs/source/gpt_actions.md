@@ -6,6 +6,7 @@ This article documents the GPT-facing API endpoints exposed by `mcp-evidencebase
 
 Use one of these API bases depending on environment:
 
+- Public HTTPS host: `https://open.heley.uk/api`
 - Local via NGINX proxy: `http://localhost:52180/api`
 - Private Meshnet host: `http://<meshnet-hostname-or-ip>:52180/api`
 
@@ -39,7 +40,8 @@ If a supplied key is invalid, endpoints return `401`.
 
 Use:
 
-- OpenAPI schema URL: `http://<meshnet-hostname-or-ip>:52180/api/gpt/openapi.json`
+- Hosted ChatGPT Actions schema URL: `https://open.heley.uk/api/gpt/openapi.json`
+- Private Meshnet schema URL: `http://<meshnet-hostname-or-ip>:52180/api/gpt/openapi.json`
 - Authentication type: `API key`
 - Auth type: `Bearer`
 - API key value: same value as `GPT_ACTIONS_API_KEY`
@@ -125,6 +127,10 @@ Each result can include:
 
 If `GPT_ACTIONS_LINK_BASE_URL` is set, relative links are expanded against that base.
 Otherwise links are expanded from the incoming request base URL.
+
+Public resolver/document links are disabled by default for GPT responses. Set
+`GPT_ACTIONS_EXPOSE_PUBLIC_LINKS=true` only when you explicitly want GPT search
+results to expose clickable URLs beyond the GPT endpoints.
 
 ## `ping` Function
 
