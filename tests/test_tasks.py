@@ -45,6 +45,7 @@ class FakeStageService:
         crossref_error: Exception | None = None,
         *,
         section_error: Exception | None = None,
+        chunk_error: Exception | None = None,
         upsert_error: Exception | None = None,
     ) -> None:
         self.partition_calls: list[tuple[str, str, str | None]] = []
@@ -55,6 +56,7 @@ class FakeStageService:
         self.crossref_calls: list[tuple[str, str]] = []
         self.crossref_error = crossref_error
         self.section_error = section_error
+        self.chunk_error = chunk_error
         self.upsert_error = upsert_error
 
     def partition_stage_object(
@@ -120,6 +122,8 @@ class FakeStageService:
         document_id: str,
         etag: str | None = None,
     ) -> dict[str, str]:
+        if self.chunk_error is not None:
+            raise self.chunk_error
         self.chunk_calls.append((bucket_name, object_name, document_id, etag))
         return {
             "bucket_name": bucket_name,
@@ -205,11 +209,11 @@ def test_partition_task_enqueues_meta_stage(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 def test_meta_task_update_meta_fetches_crossref(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify metadata task can enrich from Crossref before queueing sections."""
+    """Verify metadata task can enrich from Crossref before queueing finalization."""
     fake_service = FakeStageService()
-    fake_section_task = FakeDelayTask()
+    fake_finalize_task = FakeDelayTask()
     monkeypatch.setattr(task_module, "build_ingestion_service", lambda: fake_service)
-    monkeypatch.setattr(task_module, "section_minio_object", fake_section_task)
+    monkeypatch.setattr(task_module, "finalize_minio_object", fake_finalize_task)
 
     payload = {
         "bucket_name": "research-raw",
@@ -224,7 +228,7 @@ def test_meta_task_update_meta_fetches_crossref(monkeypatch: pytest.MonkeyPatch)
     assert result["meta_key"] == "meta-hash"
     assert fake_service.meta_calls == [("research-raw", "paper.pdf", "doc-123", "etag-1")]
     assert fake_service.crossref_calls == [("research-raw", "doc-123")]
-    assert fake_section_task.calls == [(result,)]
+    assert fake_finalize_task.calls == [(result,)]
 
 
 def test_meta_task_update_meta_ignores_crossref_errors(
@@ -232,9 +236,9 @@ def test_meta_task_update_meta_ignores_crossref_errors(
 ) -> None:
     """Ensure Crossref failures do not block downstream ingestion stages."""
     fake_service = FakeStageService(crossref_error=ValueError("no doi"))
-    fake_section_task = FakeDelayTask()
+    fake_finalize_task = FakeDelayTask()
     monkeypatch.setattr(task_module, "build_ingestion_service", lambda: fake_service)
-    monkeypatch.setattr(task_module, "section_minio_object", fake_section_task)
+    monkeypatch.setattr(task_module, "finalize_minio_object", fake_finalize_task)
 
     payload = {
         "bucket_name": "research-raw",
@@ -248,7 +252,73 @@ def test_meta_task_update_meta_ignores_crossref_errors(
 
     assert result["document_id"] == "doc-123"
     assert fake_service.crossref_calls == [("research-raw", "doc-123")]
-    assert fake_section_task.calls == [(result,)]
+    assert fake_finalize_task.calls == [(result,)]
+
+
+def test_finalize_task_runs_section_chunk_and_upsert_stages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ensure finalize task executes the tail stages inline on one worker."""
+    fake_service = FakeStageService()
+    monkeypatch.setattr(task_module, "build_ingestion_service", lambda: fake_service)
+
+    result = task_module.finalize_minio_object.run(
+        {
+            "bucket_name": "research-raw",
+            "object_name": "paper.pdf",
+            "document_id": "doc-123",
+            "etag": "etag-1",
+        }
+    )
+
+    assert result["document_id"] == "doc-123"
+    assert fake_service.section_calls == [("research-raw", "paper.pdf", "doc-123", "etag-1")]
+    assert fake_service.chunk_calls == [("research-raw", "paper.pdf", "doc-123", "etag-1")]
+    assert fake_service.upsert_calls == [("research-raw", "paper.pdf", "doc-123", "etag-1")]
+
+
+def test_finalize_task_stops_before_chunk_and_upsert_when_section_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Finalize retries should restart cleanly when the section stage fails."""
+    fake_service = FakeStageService(section_error=RuntimeError("section failed"))
+    monkeypatch.setattr(task_module, "build_ingestion_service", lambda: fake_service)
+
+    with pytest.raises(RuntimeError, match="section failed"):
+        task_module.finalize_minio_object.run(
+            {
+                "bucket_name": "research-raw",
+                "object_name": "paper.pdf",
+                "document_id": "doc-123",
+                "etag": "etag-1",
+            }
+        )
+
+    assert fake_service.section_calls == []
+    assert fake_service.chunk_calls == []
+    assert fake_service.upsert_calls == []
+
+
+def test_finalize_task_stops_before_upsert_when_chunk_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Finalize retries should not partially run upsert after chunk-stage failure."""
+    fake_service = FakeStageService(chunk_error=RuntimeError("chunk failed"))
+    monkeypatch.setattr(task_module, "build_ingestion_service", lambda: fake_service)
+
+    with pytest.raises(RuntimeError, match="chunk failed"):
+        task_module.finalize_minio_object.run(
+            {
+                "bucket_name": "research-raw",
+                "object_name": "paper.pdf",
+                "document_id": "doc-123",
+                "etag": "etag-1",
+            }
+        )
+
+    assert fake_service.section_calls == [("research-raw", "paper.pdf", "doc-123", "etag-1")]
+    assert fake_service.chunk_calls == []
+    assert fake_service.upsert_calls == []
 
 
 def test_section_task_enqueues_chunk_stage(monkeypatch: pytest.MonkeyPatch) -> None:

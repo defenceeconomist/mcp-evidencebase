@@ -6,6 +6,7 @@ Task summary:
 - ``mcp_evidencebase.scan_minio_objects``: scans buckets and enqueues changed objects.
 - ``mcp_evidencebase.partition_minio_object``: partition stage.
 - ``mcp_evidencebase.meta_minio_object``: metadata stage (+ optional Crossref update).
+- ``mcp_evidencebase.finalize_minio_object``: section, chunk, and upsert stages.
 - ``mcp_evidencebase.section_minio_object``: section mapping stage.
 - ``mcp_evidencebase.chunk_minio_object``: chunk stage.
 - ``mcp_evidencebase.upsert_minio_object``: vector upsert stage.
@@ -19,9 +20,11 @@ from collections.abc import Mapping
 from typing import Any
 
 from mcp_evidencebase.celery_app import app
-from mcp_evidencebase.ingestion import build_ingestion_service
+from mcp_evidencebase.ingestion import get_cached_ingestion_service
 
 logger = logging.getLogger(__name__)
+
+build_ingestion_service = get_cached_ingestion_service
 
 
 def _update_metadata_from_crossref(
@@ -188,8 +191,42 @@ def meta_minio_object(partition_payload: Mapping[str, Any]) -> dict[str, str]:
             metadata=metadata_overrides,
             refresh_vectors=False,
         )
-    section_minio_object.delay(stage_payload)
+    finalize_minio_object.delay(stage_payload)
     return stage_payload
+
+
+@app.task(  # type: ignore[untyped-decorator]
+    name="mcp_evidencebase.finalize_minio_object",
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_jitter=True,
+    retry_kwargs={"max_retries": 3},
+)
+def finalize_minio_object(meta_payload: Mapping[str, Any]) -> dict[str, str]:
+    """Run section, chunk, and upsert stages in-process for one document."""
+    bucket_name, object_name, document_id, etag = _resolve_stage_payload(
+        meta_payload,
+        task_name="finalize_minio_object",
+    )
+    service = build_ingestion_service()
+    section_payload = service.section_stage_object(
+        bucket_name=bucket_name,
+        object_name=object_name,
+        document_id=document_id,
+        etag=etag,
+    )
+    chunk_payload = service.chunk_stage_object(
+        bucket_name=bucket_name,
+        object_name=object_name,
+        document_id=document_id,
+        etag=section_payload.get("etag", ""),
+    )
+    return service.upsert_stage_object(
+        bucket_name=bucket_name,
+        object_name=object_name,
+        document_id=document_id,
+        etag=chunk_payload.get("etag", ""),
+    )
 
 
 @app.task(  # type: ignore[untyped-decorator]

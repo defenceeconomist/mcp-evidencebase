@@ -14,6 +14,7 @@ from fastapi import HTTPException, Request
 from mcp_evidencebase.api_modules.errors import raise_document_http_error
 from mcp_evidencebase.citation_schema import BIBTEX_FIELDS, DOCUMENT_TYPES
 from mcp_evidencebase.ingestion import SEARCH_MODES, IngestionService
+from mcp_evidencebase.perf import measure
 
 
 def perform_collection_search(
@@ -558,109 +559,341 @@ def perform_gpt_collection_search(
     max_section_text_chars: int,
 ) -> dict[str, Any]:
     """Execute GPT search with optional multi-stage retrieval and section-level citations."""
-    if not use_staged_retrieval:
-        return perform_collection_search(
-            bucket_name=bucket_name,
-            query=query,
-            limit=limit,
-            mode=mode,
-            rrf_k=rrf_k,
-            service=service,
+    with measure("perform_gpt_collection_search"):
+        if not use_staged_retrieval:
+            return perform_collection_search(
+                bucket_name=bucket_name,
+                query=query,
+                limit=limit,
+                mode=mode,
+                rrf_k=rrf_k,
+                service=service,
+            )
+
+        normalized_mode = mode.strip().lower()
+        if normalized_mode not in SEARCH_MODES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"mode must be one of: {', '.join(SEARCH_MODES)}",
+            )
+
+        normalized_bucket_name = bucket_name.strip()
+        normalized_query = query.strip()
+        resolved_limit = _bounded_int(value=limit, default=10, minimum=1, maximum=100)
+        resolved_rrf_k = max(1, int(rrf_k))
+        resolved_variant_limit = _bounded_int(
+            value=query_variant_limit,
+            default=6,
+            minimum=3,
+            maximum=8,
+        )
+        resolved_wide_limit = _bounded_int(
+            value=wide_limit_per_variant,
+            default=75,
+            minimum=50,
+            maximum=100,
+        )
+        resolved_shortlist_limit = _bounded_int(
+            value=section_shortlist_limit,
+            default=20,
+            minimum=10,
+            maximum=30,
+        )
+        resolved_max_section_text_chars = _bounded_int(
+            value=max_section_text_chars,
+            default=2500,
+            minimum=250,
+            maximum=12000,
         )
 
-    normalized_mode = mode.strip().lower()
-    if normalized_mode not in SEARCH_MODES:
-        raise HTTPException(
-            status_code=400,
-            detail=f"mode must be one of: {', '.join(SEARCH_MODES)}",
+        query_variants = _generate_query_variants(
+            query=normalized_query,
+            variant_limit=resolved_variant_limit,
         )
+        hard_filters = _extract_hard_filters(query=normalized_query)
 
-    normalized_bucket_name = bucket_name.strip()
-    normalized_query = query.strip()
-    resolved_limit = _bounded_int(value=limit, default=10, minimum=1, maximum=100)
-    resolved_rrf_k = max(1, int(rrf_k))
-    resolved_variant_limit = _bounded_int(
-        value=query_variant_limit,
-        default=6,
-        minimum=3,
-        maximum=8,
-    )
-    resolved_wide_limit = _bounded_int(
-        value=wide_limit_per_variant,
-        default=75,
-        minimum=50,
-        maximum=100,
-    )
-    resolved_shortlist_limit = _bounded_int(
-        value=section_shortlist_limit,
-        default=20,
-        minimum=10,
-        maximum=30,
-    )
-    resolved_max_section_text_chars = _bounded_int(
-        value=max_section_text_chars,
-        default=2500,
-        minimum=250,
-        maximum=12000,
-    )
+        chunk_hits: dict[str, dict[str, Any]] = {}
+        total_wide_hits = 0
 
-    query_variants = _generate_query_variants(
-        query=normalized_query,
-        variant_limit=resolved_variant_limit,
-    )
-    hard_filters = _extract_hard_filters(query=normalized_query)
-
-    chunk_hits: dict[str, dict[str, Any]] = {}
-    total_wide_hits = 0
-
-    try:
-        for variant in query_variants:
-            variant_results = service.search_documents(
+        try:
+            variant_results_by_query = service.search_document_variants(
                 bucket_name=normalized_bucket_name,
-                query=variant,
+                queries=query_variants,
                 limit=resolved_wide_limit,
                 mode=normalized_mode,
                 rrf_k=resolved_rrf_k,
             )
-            total_wide_hits += len(variant_results)
-            for rank, item in enumerate(variant_results):
-                if not isinstance(item, dict):
-                    continue
+            for variant in query_variants:
+                variant_results = variant_results_by_query.get(variant, [])
+                total_wide_hits += len(variant_results)
+                for rank, item in enumerate(variant_results):
+                    if not isinstance(item, dict):
+                        continue
 
-                chunk_id = str(item.get("id", "")).strip()
-                if not chunk_id:
-                    fallback_doc = str(item.get("document_id", "")).strip() or "unknown-doc"
-                    fallback_idx = int(item.get("chunk_index", rank) or rank)
-                    chunk_id = f"{fallback_doc}:{fallback_idx}"
+                    chunk_id = str(item.get("id", "")).strip()
+                    if not chunk_id:
+                        fallback_doc = str(item.get("document_id", "")).strip() or "unknown-doc"
+                        fallback_idx = int(item.get("chunk_index", rank) or rank)
+                        chunk_id = f"{fallback_doc}:{fallback_idx}"
 
-                item_score = _as_float(item.get("score"))
-                entry = chunk_hits.get(chunk_id)
-                if entry is None:
-                    chunk_hits[chunk_id] = {
-                        "best_item": dict(item),
-                        "max_score": item_score,
-                        "scores": [item_score],
-                        "matched_variants": [variant],
-                        "best_rank": rank,
-                    }
-                    continue
+                    item_score = _as_float(item.get("score"))
+                    entry = chunk_hits.get(chunk_id)
+                    if entry is None:
+                        chunk_hits[chunk_id] = {
+                            "best_item": dict(item),
+                            "max_score": item_score,
+                            "scores": [item_score],
+                            "matched_variants": [variant],
+                            "best_rank": rank,
+                        }
+                        continue
 
-                entry_scores = entry.get("scores")
-                if isinstance(entry_scores, list):
-                    entry_scores.append(item_score)
-                else:
-                    entry["scores"] = [item_score]
-                if item_score > _as_float(entry.get("max_score")):
-                    entry["best_item"] = dict(item)
-                    entry["max_score"] = item_score
-                    entry["best_rank"] = rank
-                matched_variants = entry.get("matched_variants")
-                if isinstance(matched_variants, list) and variant not in matched_variants:
-                    matched_variants.append(variant)
-    except Exception as exc:
-        raise_document_http_error(exc)
+                    entry_scores = entry.get("scores")
+                    if isinstance(entry_scores, list):
+                        entry_scores.append(item_score)
+                    else:
+                        entry["scores"] = [item_score]
+                    if item_score > _as_float(entry.get("max_score")):
+                        entry["best_item"] = dict(item)
+                        entry["max_score"] = item_score
+                        entry["best_rank"] = rank
+                    matched_variants = entry.get("matched_variants")
+                    if isinstance(matched_variants, list) and variant not in matched_variants:
+                        matched_variants.append(variant)
+        except Exception as exc:
+            raise_document_http_error(exc)
 
-    if not chunk_hits:
+        if not chunk_hits:
+            return {
+                "bucket_name": normalized_bucket_name,
+                "query": normalized_query,
+                "mode": normalized_mode,
+                "limit": resolved_limit,
+                "rrf_k": resolved_rrf_k,
+                "query_variants": query_variants,
+                "hard_filters": hard_filters,
+                "stage_stats": {
+                    "wide_hits_total": total_wide_hits,
+                    "wide_unique_chunks": 0,
+                    "section_groups": 0,
+                    "shortlisted_sections": 0,
+                },
+                "citations": [],
+                "results": [],
+            }
+
+        section_groups: dict[str, dict[str, Any]] = {}
+        for chunk_id, chunk_payload in chunk_hits.items():
+            best_item_raw = chunk_payload.get("best_item")
+            if not isinstance(best_item_raw, dict):
+                continue
+            best_item = best_item_raw
+            document_id = str(best_item.get("document_id", "")).strip()
+            if not document_id:
+                continue
+            section_id = str(best_item.get("section_id", "")).strip() or str(
+                best_item.get("parent_section_id", "")
+            ).strip()
+            if not section_id:
+                section_id = f"__chunk__{chunk_id}"
+
+            group_key = f"{document_id}:{section_id}"
+            group_entry = section_groups.get(group_key)
+            if group_entry is None:
+                group_entry = {
+                    "document_id": document_id,
+                    "section_id": section_id,
+                    "chunks": [],
+                    "scores": [],
+                    "matched_variants": [],
+                    "best_item": best_item,
+                }
+                section_groups[group_key] = group_entry
+
+            group_entry["chunks"].append(
+                {
+                    "chunk_id": chunk_id,
+                    "item": best_item,
+                    "score": _as_float(chunk_payload.get("max_score")),
+                }
+            )
+            entry_scores = group_entry.get("scores")
+            if isinstance(entry_scores, list):
+                entry_scores.append(_as_float(chunk_payload.get("max_score")))
+            matched_variants = chunk_payload.get("matched_variants")
+            if isinstance(matched_variants, list):
+                group_variants = group_entry.get("matched_variants")
+                if isinstance(group_variants, list):
+                    for variant in matched_variants:
+                        if variant not in group_variants:
+                            group_variants.append(variant)
+
+        scored_sections: list[dict[str, Any]] = []
+        for section_entry in section_groups.values():
+            scores_raw = section_entry.get("scores")
+            if not isinstance(scores_raw, list) or not scores_raw:
+                continue
+            sorted_scores = sorted((_as_float(score) for score in scores_raw), reverse=True)
+            max_score = sorted_scores[0]
+            top3_sum = sum(sorted_scores[:3])
+            matched_variants = section_entry.get("matched_variants", [])
+            variant_count = len(matched_variants) if isinstance(matched_variants, list) else 0
+            best_item = section_entry.get("best_item", {})
+            if not isinstance(best_item, dict):
+                best_item = {}
+            chunk_text = str(best_item.get("text", ""))
+            section_title = str(
+                best_item.get("section_title", "") or best_item.get("parent_section_title", "")
+            )
+            shortlist_score = (
+                max_score
+                + top3_sum
+                + (0.1 * float(variant_count))
+                + _hard_filter_match_bonus(
+                    text=f"{section_title}\n{chunk_text}",
+                    hard_filters=hard_filters,
+                )
+            )
+            scored_section = dict(section_entry)
+            scored_section["shortlist_score"] = shortlist_score
+            scored_sections.append(scored_section)
+
+        scored_sections.sort(
+            key=lambda item: _as_float(item.get("shortlist_score")),
+            reverse=True,
+        )
+        shortlisted_sections = scored_sections[:resolved_shortlist_limit]
+
+        prefetched_sections_by_document: dict[str, dict[str, dict[str, Any]]] = {}
+        for section_entry in shortlisted_sections:
+            document_id = str(section_entry.get("document_id", "")).strip()
+            section_id = str(section_entry.get("section_id", "")).strip()
+            if (
+                not document_id
+                or not section_id
+                or section_id.startswith("__chunk__")
+                or document_id in prefetched_sections_by_document
+            ):
+                continue
+            try:
+                prefetched_sections_by_document[document_id] = service.list_document_sections_lookup(
+                    bucket_name=normalized_bucket_name,
+                    document_id=document_id,
+                )
+            except Exception:
+                prefetched_sections_by_document[document_id] = {}
+
+        reranked_sections: list[dict[str, Any]] = []
+        for section_entry in shortlisted_sections:
+            document_id = str(section_entry.get("document_id", "")).strip()
+            section_id = str(section_entry.get("section_id", "")).strip()
+            if not document_id or not section_id:
+                continue
+
+            chunks_raw = section_entry.get("chunks")
+            chunks: list[dict[str, Any]] = []
+            if isinstance(chunks_raw, list):
+                chunks = [chunk for chunk in chunks_raw if isinstance(chunk, dict)]
+            if not chunks:
+                continue
+
+            chunks.sort(key=lambda item: _as_float(item.get("score")), reverse=True)
+            best_chunk = chunks[0]
+            best_chunk_item_raw = best_chunk.get("item")
+            best_chunk_item: dict[str, Any] = (
+                dict(best_chunk_item_raw) if isinstance(best_chunk_item_raw, dict) else {}
+            )
+            shortlist_score = _as_float(section_entry.get("shortlist_score"))
+
+            section_title = str(
+                best_chunk_item.get("section_title", "")
+                or best_chunk_item.get("parent_section_title", "")
+            ).strip()
+            section_text = str(
+                best_chunk_item.get("parent_section_markdown", "")
+                or best_chunk_item.get("parent_section_text", "")
+            ).strip()
+            section_index = best_chunk_item.get("parent_section_index")
+
+            if not section_id.startswith("__chunk__"):
+                resolved_section = prefetched_sections_by_document.get(document_id, {}).get(
+                    section_id
+                )
+                if isinstance(resolved_section, dict):
+                    resolved_title = str(resolved_section.get("section_title", "")).strip()
+                    resolved_text = str(
+                        resolved_section.get("section_markdown", "")
+                        or resolved_section.get("section_text", "")
+                    ).strip()
+                    if resolved_title:
+                        section_title = resolved_title
+                    if resolved_text:
+                        section_text = resolved_text
+                    if resolved_section.get("section_index") is not None:
+                        section_index = resolved_section.get("section_index")
+
+            truncated_section_text = _truncate_text(
+                value=section_text,
+                max_chars=resolved_max_section_text_chars,
+            )
+            matched_variants = section_entry.get("matched_variants")
+            matched_variant_count = (
+                len(matched_variants) if isinstance(matched_variants, list) else 0
+            )
+            deep_score = _score_section_text(
+                query_variants=query_variants,
+                hard_filters=hard_filters,
+                section_title=section_title,
+                section_text=truncated_section_text,
+                shortlist_score=shortlist_score,
+                matched_variant_count=matched_variant_count,
+            )
+
+            anchor_chunk_ids = [str(chunk.get("chunk_id", "")).strip() for chunk in chunks]
+            anchor_chunk_ids = [chunk_id for chunk_id in anchor_chunk_ids if chunk_id]
+            anchor_chunk_ids = anchor_chunk_ids[:8]
+
+            if section_title:
+                best_chunk_item["section_title"] = section_title
+                best_chunk_item["parent_section_title"] = section_title
+            if section_id and not section_id.startswith("__chunk__"):
+                best_chunk_item["section_id"] = section_id
+                best_chunk_item["parent_section_id"] = section_id
+            if section_index is not None:
+                best_chunk_item["parent_section_index"] = section_index
+            if truncated_section_text:
+                best_chunk_item["section_text"] = truncated_section_text
+                best_chunk_item["parent_section_text"] = truncated_section_text
+                best_chunk_item["parent_section_markdown"] = truncated_section_text
+            best_chunk_item["chunk_ids_used"] = anchor_chunk_ids
+            best_chunk_item["shortlist_score"] = round(shortlist_score, 6)
+            best_chunk_item["deep_score"] = round(deep_score, 6)
+            best_chunk_item["score"] = round(deep_score, 6)
+            if isinstance(matched_variants, list):
+                best_chunk_item["query_variants_matched"] = matched_variants
+
+            reranked_sections.append(
+                {
+                    "document_id": document_id,
+                    "section_id": section_id,
+                    "score": deep_score,
+                    "chunk_ids": anchor_chunk_ids,
+                    "result": best_chunk_item,
+                }
+            )
+
+        reranked_sections.sort(key=lambda item: _as_float(item.get("score")), reverse=True)
+        selected_sections = reranked_sections[:resolved_limit]
+        results = [section["result"] for section in selected_sections]
+        citations = [
+            {
+                "document_id": str(section.get("document_id", "")).strip(),
+                "section_id": str(section.get("section_id", "")).strip(),
+                "chunk_ids": section.get("chunk_ids", []),
+            }
+            for section in selected_sections
+        ]
+
         return {
             "bucket_name": normalized_bucket_name,
             "query": normalized_query,
@@ -671,228 +904,13 @@ def perform_gpt_collection_search(
             "hard_filters": hard_filters,
             "stage_stats": {
                 "wide_hits_total": total_wide_hits,
-                "wide_unique_chunks": 0,
-                "section_groups": 0,
-                "shortlisted_sections": 0,
+                "wide_unique_chunks": len(chunk_hits),
+                "section_groups": len(section_groups),
+                "shortlisted_sections": len(shortlisted_sections),
             },
-            "citations": [],
-            "results": [],
+            "citations": citations,
+            "results": results,
         }
-
-    section_groups: dict[str, dict[str, Any]] = {}
-    for chunk_id, chunk_payload in chunk_hits.items():
-        best_item_raw = chunk_payload.get("best_item")
-        if not isinstance(best_item_raw, dict):
-            continue
-        best_item = best_item_raw
-        document_id = str(best_item.get("document_id", "")).strip()
-        if not document_id:
-            continue
-        section_id = str(best_item.get("section_id", "")).strip() or str(
-            best_item.get("parent_section_id", "")
-        ).strip()
-        if not section_id:
-            section_id = f"__chunk__{chunk_id}"
-
-        group_key = f"{document_id}:{section_id}"
-        group_entry = section_groups.get(group_key)
-        if group_entry is None:
-            group_entry = {
-                "document_id": document_id,
-                "section_id": section_id,
-                "chunks": [],
-                "scores": [],
-                "matched_variants": [],
-                "best_item": best_item,
-            }
-            section_groups[group_key] = group_entry
-
-        group_entry["chunks"].append(
-            {
-                "chunk_id": chunk_id,
-                "item": best_item,
-                "score": _as_float(chunk_payload.get("max_score")),
-            }
-        )
-        entry_scores = group_entry.get("scores")
-        if isinstance(entry_scores, list):
-            entry_scores.append(_as_float(chunk_payload.get("max_score")))
-        matched_variants = chunk_payload.get("matched_variants")
-        if isinstance(matched_variants, list):
-            group_variants = group_entry.get("matched_variants")
-            if isinstance(group_variants, list):
-                for variant in matched_variants:
-                    if variant not in group_variants:
-                        group_variants.append(variant)
-
-    scored_sections: list[dict[str, Any]] = []
-    for section_entry in section_groups.values():
-        scores_raw = section_entry.get("scores")
-        if not isinstance(scores_raw, list) or not scores_raw:
-            continue
-        sorted_scores = sorted((_as_float(score) for score in scores_raw), reverse=True)
-        max_score = sorted_scores[0]
-        top3_sum = sum(sorted_scores[:3])
-        matched_variants = section_entry.get("matched_variants", [])
-        variant_count = len(matched_variants) if isinstance(matched_variants, list) else 0
-        best_item = section_entry.get("best_item", {})
-        if not isinstance(best_item, dict):
-            best_item = {}
-        chunk_text = str(best_item.get("text", ""))
-        section_title = str(
-            best_item.get("section_title", "") or best_item.get("parent_section_title", "")
-        )
-        shortlist_score = (
-            max_score
-            + top3_sum
-            + (0.1 * float(variant_count))
-            + _hard_filter_match_bonus(
-                text=f"{section_title}\n{chunk_text}",
-                hard_filters=hard_filters,
-            )
-        )
-        scored_section = dict(section_entry)
-        scored_section["shortlist_score"] = shortlist_score
-        scored_sections.append(scored_section)
-
-    scored_sections.sort(
-        key=lambda item: _as_float(item.get("shortlist_score")),
-        reverse=True,
-    )
-    shortlisted_sections = scored_sections[:resolved_shortlist_limit]
-
-    reranked_sections: list[dict[str, Any]] = []
-    for section_entry in shortlisted_sections:
-        document_id = str(section_entry.get("document_id", "")).strip()
-        section_id = str(section_entry.get("section_id", "")).strip()
-        if not document_id or not section_id:
-            continue
-
-        chunks_raw = section_entry.get("chunks")
-        chunks: list[dict[str, Any]] = []
-        if isinstance(chunks_raw, list):
-            chunks = [chunk for chunk in chunks_raw if isinstance(chunk, dict)]
-        if not chunks:
-            continue
-
-        chunks.sort(key=lambda item: _as_float(item.get("score")), reverse=True)
-        best_chunk = chunks[0]
-        best_chunk_item_raw = best_chunk.get("item")
-        best_chunk_item: dict[str, Any] = (
-            dict(best_chunk_item_raw) if isinstance(best_chunk_item_raw, dict) else {}
-        )
-        shortlist_score = _as_float(section_entry.get("shortlist_score"))
-
-        section_title = str(
-            best_chunk_item.get("section_title", "")
-            or best_chunk_item.get("parent_section_title", "")
-        ).strip()
-        section_text = str(
-            best_chunk_item.get("parent_section_markdown", "")
-            or best_chunk_item.get("parent_section_text", "")
-        ).strip()
-        section_index = best_chunk_item.get("parent_section_index")
-
-        if not section_id.startswith("__chunk__"):
-            try:
-                resolved_section = service.get_document_section(
-                    bucket_name=normalized_bucket_name,
-                    document_id=document_id,
-                    section_id=section_id,
-                )
-            except Exception:
-                resolved_section = None
-
-            if isinstance(resolved_section, dict):
-                resolved_title = str(resolved_section.get("section_title", "")).strip()
-                resolved_text = str(
-                    resolved_section.get("section_markdown", "")
-                    or resolved_section.get("section_text", "")
-                ).strip()
-                if resolved_title:
-                    section_title = resolved_title
-                if resolved_text:
-                    section_text = resolved_text
-                if resolved_section.get("section_index") is not None:
-                    section_index = resolved_section.get("section_index")
-
-        truncated_section_text = _truncate_text(
-            value=section_text,
-            max_chars=resolved_max_section_text_chars,
-        )
-        matched_variants = section_entry.get("matched_variants")
-        matched_variant_count = len(matched_variants) if isinstance(matched_variants, list) else 0
-        deep_score = _score_section_text(
-            query_variants=query_variants,
-            hard_filters=hard_filters,
-            section_title=section_title,
-            section_text=truncated_section_text,
-            shortlist_score=shortlist_score,
-            matched_variant_count=matched_variant_count,
-        )
-
-        anchor_chunk_ids = [str(chunk.get("chunk_id", "")).strip() for chunk in chunks]
-        anchor_chunk_ids = [chunk_id for chunk_id in anchor_chunk_ids if chunk_id]
-        anchor_chunk_ids = anchor_chunk_ids[:8]
-
-        if section_title:
-            best_chunk_item["section_title"] = section_title
-            best_chunk_item["parent_section_title"] = section_title
-        if section_id and not section_id.startswith("__chunk__"):
-            best_chunk_item["section_id"] = section_id
-            best_chunk_item["parent_section_id"] = section_id
-        if section_index is not None:
-            best_chunk_item["parent_section_index"] = section_index
-        if truncated_section_text:
-            best_chunk_item["section_text"] = truncated_section_text
-            best_chunk_item["parent_section_text"] = truncated_section_text
-            best_chunk_item["parent_section_markdown"] = truncated_section_text
-        best_chunk_item["chunk_ids_used"] = anchor_chunk_ids
-        best_chunk_item["shortlist_score"] = round(shortlist_score, 6)
-        best_chunk_item["deep_score"] = round(deep_score, 6)
-        best_chunk_item["score"] = round(deep_score, 6)
-        if isinstance(matched_variants, list):
-            best_chunk_item["query_variants_matched"] = matched_variants
-
-        reranked_sections.append(
-            {
-                "document_id": document_id,
-                "section_id": section_id,
-                "score": deep_score,
-                "chunk_ids": anchor_chunk_ids,
-                "result": best_chunk_item,
-            }
-        )
-
-    reranked_sections.sort(key=lambda item: _as_float(item.get("score")), reverse=True)
-    selected_sections = reranked_sections[:resolved_limit]
-    results = [section["result"] for section in selected_sections]
-    citations = [
-        {
-            "document_id": str(section.get("document_id", "")).strip(),
-            "section_id": str(section.get("section_id", "")).strip(),
-            "chunk_ids": section.get("chunk_ids", []),
-        }
-        for section in selected_sections
-    ]
-
-    return {
-        "bucket_name": normalized_bucket_name,
-        "query": normalized_query,
-        "mode": normalized_mode,
-        "limit": resolved_limit,
-        "rrf_k": resolved_rrf_k,
-        "query_variants": query_variants,
-        "hard_filters": hard_filters,
-        "stage_stats": {
-            "wide_hits_total": total_wide_hits,
-            "wide_unique_chunks": len(chunk_hits),
-            "section_groups": len(section_groups),
-            "shortlisted_sections": len(shortlisted_sections),
-        },
-        "citations": citations,
-        "results": results,
-    }
 
 
 def resolve_gpt_search_bucket_name(*, bucket_name: str | None, service: IngestionService) -> str:

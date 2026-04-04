@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 import os
 import time
 from dataclasses import dataclass
@@ -221,6 +222,12 @@ def _build_live_bucket_service() -> BucketService:
         ),
     )
     return BucketService(settings=settings)
+
+
+def _emit_perf_measurement(name: str, **values: Any) -> None:
+    """Print one machine-readable runtime perf measurement for baseline capture."""
+    payload = {"measurement": name, **values}
+    print(f"RUNTIME_PERF {json.dumps(payload, sort_keys=True)}")
 
 
 def _cleanup_collection(stack: _LiveStack, *, bucket_name: str) -> None:
@@ -497,6 +504,67 @@ def test_live_partition_chunk_and_search_round_trip(live_stack: _LiveStack) -> N
     assert semantic_results[0]["document_id"] == document_id
 
 
+def test_live_perf_smoke_staged_gpt_search(
+    live_stack: _LiveStack,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Staged GPT search should work end-to-end against live datastores."""
+    object_name = "perf-staged-search.pdf"
+    payload = _build_minimal_pdf_bytes(title="Live staged GPT search")
+
+    uploaded_name = live_stack.service.upload_document(
+        bucket_name=live_stack.bucket_name,
+        object_name=object_name,
+        payload=payload,
+        content_type="application/pdf",
+    )
+    stage_partition = live_stack.service.partition_object(
+        bucket_name=live_stack.bucket_name,
+        object_name=uploaded_name,
+    )
+    live_stack.service.chunk_object(
+        bucket_name=live_stack.bucket_name,
+        object_name=uploaded_name,
+        document_id=stage_partition["document_id"],
+    )
+
+    monkeypatch.setenv("GPT_ACTIONS_API_KEY", "live-secret")
+    monkeypatch.setattr(
+        "mcp_evidencebase.api.validate_runtime_dependencies_on_startup",
+        lambda: None,
+    )
+    app.dependency_overrides[get_ingestion_service] = lambda: live_stack.service
+
+    try:
+        with TestClient(app) as client:
+            started_at = time.monotonic()
+            response = client.post(
+                "/gpt/search",
+                headers={"Authorization": "Bearer live-secret"},
+                json={
+                    "bucket_name": live_stack.bucket_name,
+                    "query": "industrial capability development",
+                    "minimal_response": False,
+                },
+            )
+            elapsed_seconds = time.monotonic() - started_at
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["results"]
+        assert payload["citations"]
+        assert elapsed_seconds >= 0.0
+        _emit_perf_measurement(
+            "staged_gpt_search",
+            elapsed_seconds=round(elapsed_seconds, 6),
+            results_count=len(payload["results"]),
+            citations_count=len(payload["citations"]),
+            bucket_name=live_stack.bucket_name,
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_live_etag_changes_require_reprocessing(live_stack: _LiveStack) -> None:
     """Confirm Redis mapping state detects ETag changes from MinIO updates."""
     object_name = "docs/live-etag.pdf"
@@ -550,6 +618,62 @@ def test_live_etag_changes_require_reprocessing(live_stack: _LiveStack) -> None:
         )
         is True
     )
+
+
+def test_live_perf_smoke_medium_and_large_document_processing(live_stack: _LiveStack) -> None:
+    """Medium and large synthetic partition payloads should process successfully live."""
+    original_partitions = list(live_stack.partition_client._partitions)
+
+    try:
+        for label, partition_count in (("medium", 24), ("large", 180)):
+            live_stack.partition_client._partitions = [
+                {
+                    "type": "NarrativeText",
+                    "text": (
+                        f"{label} document partition {index}. "
+                        "Industrial participation and defence offsets analysis. "
+                    )
+                    * 8,
+                    "metadata": {"page_number": (index // 4) + 1},
+                }
+                for index in range(partition_count)
+            ]
+            object_name = f"perf-{label}.pdf"
+            payload = _build_minimal_pdf_bytes(title=f"Live {label} runtime smoke")
+
+            uploaded_name = live_stack.service.upload_document(
+                bucket_name=live_stack.bucket_name,
+                object_name=object_name,
+                payload=payload,
+                content_type="application/pdf",
+            )
+            stage_partition = live_stack.service.partition_object(
+                bucket_name=live_stack.bucket_name,
+                object_name=uploaded_name,
+            )
+            started_at = time.monotonic()
+            live_stack.service.chunk_object(
+                bucket_name=live_stack.bucket_name,
+                object_name=uploaded_name,
+                document_id=stage_partition["document_id"],
+            )
+            elapsed_seconds = time.monotonic() - started_at
+
+            state = live_stack.repository.get_state(stage_partition["document_id"])
+            indexed_points = _scroll_document_points(live_stack, stage_partition["document_id"])
+            assert state["processing_state"] == "processed"
+            assert indexed_points
+            assert elapsed_seconds >= 0.0
+            _emit_perf_measurement(
+                "document_processing",
+                label=label,
+                partition_count=partition_count,
+                elapsed_seconds=round(elapsed_seconds, 6),
+                indexed_points=len(indexed_points),
+                bucket_name=live_stack.bucket_name,
+            )
+    finally:
+        live_stack.partition_client._partitions = original_partitions
 
 
 def test_live_delete_document_cleans_minio_redis_and_qdrant(live_stack: _LiveStack) -> None:

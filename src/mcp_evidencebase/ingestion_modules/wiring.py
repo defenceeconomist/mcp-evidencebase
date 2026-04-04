@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import atexit
 import os
+import threading
 from collections.abc import Mapping
+from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -19,6 +22,7 @@ from mcp_evidencebase.ingestion_modules.service import (
     UnstructuredPartitionClient,
 )
 from mcp_evidencebase.minio_settings import MinioSettings, build_minio_settings
+from mcp_evidencebase.perf import increment, measure
 from mcp_evidencebase.runtime_diagnostics import build_runtime_contract
 
 
@@ -60,6 +64,29 @@ class IngestionSettings:
     chunk_paragraph_break_strategy: str
     chunk_preserve_page_breaks: bool
     scan_interval_seconds: int
+
+
+_CACHED_SERVICE_LOCK = threading.Lock()
+_CACHED_INGESTION_SERVICE: IngestionService | None = None
+
+
+def _close_if_possible(target: Any) -> None:
+    """Close one client object when it exposes a ``close()`` method."""
+    close = getattr(target, "close", None)
+    if callable(close):
+        with suppress(Exception):
+            close()
+
+
+def _close_cached_service_dependencies(service: IngestionService) -> None:
+    """Release network clients held by one cached ingestion service instance."""
+    repository = getattr(service, "_repository", None)
+    redis_client = getattr(repository, "_redis", None)
+    _close_if_possible(redis_client)
+
+    qdrant_indexer = getattr(service, "_qdrant_indexer", None)
+    qdrant_client = getattr(qdrant_indexer, "_qdrant_client", None)
+    _close_if_possible(qdrant_client)
 
 
 def build_ingestion_settings(env: Mapping[str, str] | None = None) -> IngestionSettings:
@@ -155,78 +182,114 @@ def build_ingestion_service(
     Returns:
         Ready-to-use ingestion service with MinIO, Redis, and Qdrant clients.
     """
-    source = os.environ if env is None else env
-    resolved_settings = settings or build_ingestion_settings(source)
-    contract = build_runtime_contract(source)
+    with measure("build_ingestion_service"):
+        source = os.environ if env is None else env
+        resolved_settings = settings or build_ingestion_settings(source)
+        contract = build_runtime_contract(source)
 
-    minio_client = Minio(
-        resolved_settings.minio.endpoint,
-        access_key=resolved_settings.minio.access_key,
-        secret_key=resolved_settings.minio.secret_key,
-        secure=resolved_settings.minio.secure,
-        region=resolved_settings.minio.region,
-    )
-
-    if contract.redis.required and not resolved_settings.redis_url:
-        raise DependencyConfigurationError(
-            "Redis is required but REDIS_URL is not configured. "
-            "Set REDIS_URL or disable the requirement with MCP_EVIDENCEBASE_REQUIRE_REDIS=false."
-        )
-    if contract.qdrant.required and not resolved_settings.qdrant_url:
-        raise DependencyConfigurationError(
-            "Qdrant is required but QDRANT_URL is not configured. "
-            "Set QDRANT_URL or disable the requirement with MCP_EVIDENCEBASE_REQUIRE_QDRANT=false."
+        minio_client = Minio(
+            resolved_settings.minio.endpoint,
+            access_key=resolved_settings.minio.access_key,
+            secret_key=resolved_settings.minio.secret_key,
+            secure=resolved_settings.minio.secure,
+            region=resolved_settings.minio.region,
         )
 
-    if resolved_settings.redis_url:
-        import redis
+        if contract.redis.required and not resolved_settings.redis_url:
+            raise DependencyConfigurationError(
+                "Redis is required but REDIS_URL is not configured. "
+                "Set REDIS_URL or disable the requirement with MCP_EVIDENCEBASE_REQUIRE_REDIS=false."
+            )
+        if contract.qdrant.required and not resolved_settings.qdrant_url:
+            raise DependencyConfigurationError(
+                "Qdrant is required but QDRANT_URL is not configured. "
+                "Set QDRANT_URL or disable the requirement with MCP_EVIDENCEBASE_REQUIRE_QDRANT=false."
+            )
 
-        redis_client = redis.Redis.from_url(resolved_settings.redis_url, decode_responses=True)
-        repository: Any = RedisDocumentRepository(
-            redis_client=redis_client,
-            key_prefix=resolved_settings.redis_prefix,
+        if resolved_settings.redis_url:
+            import redis
+
+            redis_client = redis.Redis.from_url(resolved_settings.redis_url, decode_responses=True)
+            repository: Any = RedisDocumentRepository(
+                redis_client=redis_client,
+                key_prefix=resolved_settings.redis_prefix,
+            )
+        else:
+            repository = DisabledRedisDocumentRepository()
+
+        partition_client = UnstructuredPartitionClient(
+            api_url=resolved_settings.unstructured_api_url,
+            api_key=resolved_settings.unstructured_api_key,
+            strategy=resolved_settings.unstructured_strategy,
+            timeout_seconds=resolved_settings.unstructured_timeout_seconds,
         )
-    else:
-        repository = DisabledRedisDocumentRepository()
+        if resolved_settings.qdrant_url:
+            from qdrant_client import QdrantClient
 
-    partition_client = UnstructuredPartitionClient(
-        api_url=resolved_settings.unstructured_api_url,
-        api_key=resolved_settings.unstructured_api_key,
-        strategy=resolved_settings.unstructured_strategy,
-        timeout_seconds=resolved_settings.unstructured_timeout_seconds,
-    )
-    if resolved_settings.qdrant_url:
-        from qdrant_client import QdrantClient
+            qdrant_client = QdrantClient(
+                url=resolved_settings.qdrant_url,
+                api_key=resolved_settings.qdrant_api_key,
+                timeout=max(1, int(resolved_settings.qdrant_timeout_seconds)),
+            )
+            qdrant_indexer: Any = QdrantIndexer(
+                qdrant_client=qdrant_client,
+                fastembed_model=resolved_settings.fastembed_model,
+                fastembed_keyword_model=resolved_settings.fastembed_keyword_model,
+                collection_prefix=resolved_settings.qdrant_collection_prefix,
+                collection_name=resolved_settings.qdrant_collection_name,
+            )
+        else:
+            qdrant_indexer = DisabledQdrantIndexer()
 
-        qdrant_client = QdrantClient(
-            url=resolved_settings.qdrant_url,
-            api_key=resolved_settings.qdrant_api_key,
-            timeout=max(1, int(resolved_settings.qdrant_timeout_seconds)),
+        return IngestionService(
+            minio_client=minio_client,
+            repository=repository,
+            partition_client=partition_client,
+            qdrant_indexer=qdrant_indexer,
+            storage_bucket_name=resolved_settings.storage_bucket_name,
+            chunk_size_chars=resolved_settings.chunk_size_chars,
+            chunk_overlap_chars=resolved_settings.chunk_overlap_chars,
+            chunk_exclude_element_types=resolved_settings.chunk_exclude_element_types,
+            chunking_strategy=resolved_settings.chunking_strategy,
+            chunk_new_after_n_chars=resolved_settings.chunk_new_after_n_chars,
+            chunk_combine_text_under_n_chars=resolved_settings.chunk_combine_text_under_n_chars,
+            chunk_include_title_text=resolved_settings.chunk_include_title_text,
+            chunk_image_text_mode=resolved_settings.chunk_image_text_mode,
+            chunk_paragraph_break_strategy=resolved_settings.chunk_paragraph_break_strategy,
+            chunk_preserve_page_breaks=resolved_settings.chunk_preserve_page_breaks,
         )
-        qdrant_indexer: Any = QdrantIndexer(
-            qdrant_client=qdrant_client,
-            fastembed_model=resolved_settings.fastembed_model,
-            fastembed_keyword_model=resolved_settings.fastembed_keyword_model,
-            collection_prefix=resolved_settings.qdrant_collection_prefix,
-            collection_name=resolved_settings.qdrant_collection_name,
-        )
-    else:
-        qdrant_indexer = DisabledQdrantIndexer()
 
-    return IngestionService(
-        minio_client=minio_client,
-        repository=repository,
-        partition_client=partition_client,
-        qdrant_indexer=qdrant_indexer,
-        storage_bucket_name=resolved_settings.storage_bucket_name,
-        chunk_size_chars=resolved_settings.chunk_size_chars,
-        chunk_overlap_chars=resolved_settings.chunk_overlap_chars,
-        chunk_exclude_element_types=resolved_settings.chunk_exclude_element_types,
-        chunking_strategy=resolved_settings.chunking_strategy,
-        chunk_new_after_n_chars=resolved_settings.chunk_new_after_n_chars,
-        chunk_combine_text_under_n_chars=resolved_settings.chunk_combine_text_under_n_chars,
-        chunk_include_title_text=resolved_settings.chunk_include_title_text,
-        chunk_image_text_mode=resolved_settings.chunk_image_text_mode,
-        chunk_paragraph_break_strategy=resolved_settings.chunk_paragraph_break_strategy,
-        chunk_preserve_page_breaks=resolved_settings.chunk_preserve_page_breaks,
-    )
+
+def get_cached_ingestion_service(
+    settings: IngestionSettings | None = None,
+    env: Mapping[str, str] | None = None,
+) -> IngestionService:
+    """Return a process-level cached ingestion service for default runtime use."""
+    global _CACHED_INGESTION_SERVICE
+    if settings is not None or env is not None:
+        increment("get_cached_ingestion_service_bypass")
+        return build_ingestion_service(settings=settings, env=env)
+
+    with _CACHED_SERVICE_LOCK:
+        if _CACHED_INGESTION_SERVICE is None:
+            increment("get_cached_ingestion_service_miss")
+            _CACHED_INGESTION_SERVICE = build_ingestion_service()
+        else:
+            increment("get_cached_ingestion_service_hit")
+        return _CACHED_INGESTION_SERVICE
+
+
+def reset_cached_ingestion_service() -> None:
+    """Clear the process-level cached ingestion service used by API and worker runtimes."""
+    global _CACHED_INGESTION_SERVICE
+    with _CACHED_SERVICE_LOCK:
+        cached_service = _CACHED_INGESTION_SERVICE
+        _CACHED_INGESTION_SERVICE = None
+
+    if cached_service is None:
+        return
+
+    _close_cached_service_dependencies(cached_service)
+
+
+atexit.register(reset_cached_ingestion_service)

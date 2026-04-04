@@ -11,7 +11,11 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
 from mcp_evidencebase.api_modules.errors import unauthorized_basic_auth_error
 from mcp_evidencebase.bucket_service import BucketService
-from mcp_evidencebase.ingestion import IngestionService, build_ingestion_service
+from mcp_evidencebase.ingestion import (
+    IngestionService,
+    get_cached_ingestion_service,
+    reset_cached_ingestion_service,
+)
 from mcp_evidencebase.ingestion_modules.service import DependencyConfigurationError
 from mcp_evidencebase.minio_settings import MinioSettings, build_minio_settings
 
@@ -33,9 +37,14 @@ def get_bucket_service(
 def get_ingestion_service() -> IngestionService:
     """Resolve document ingestion service dependency."""
     try:
-        return build_ingestion_service()
+        return get_cached_ingestion_service()
     except DependencyConfigurationError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+def reset_ingestion_service_cache_for_tests() -> None:
+    """Clear the API/worker cached ingestion service for test isolation."""
+    reset_cached_ingestion_service()
 
 
 def matches_api_key(candidate: str | None, expected_api_key: str) -> bool:

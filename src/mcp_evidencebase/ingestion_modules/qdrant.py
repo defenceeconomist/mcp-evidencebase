@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from itertools import islice
 from typing import Any
 from urllib.parse import quote
@@ -19,6 +20,7 @@ from mcp_evidencebase.ingestion_modules.metadata import (
     build_resolver_url,
     compute_chunk_point_id,
 )
+from mcp_evidencebase.perf import measure
 from mcp_evidencebase.storage_layout import build_storage_object_name
 
 
@@ -44,6 +46,8 @@ class QdrantIndexer:
         self._keyword_embedder: Any | None = None
         self._dense_vector_name = "dense"
         self._keyword_vector_name = "keyword"
+        self._variant_search_max_workers = 4
+        self._upsert_batch_size = 128
 
     def _collection_name(self, bucket_name: str = "") -> str:
         del bucket_name
@@ -829,6 +833,119 @@ class QdrantIndexer:
             )
         return results
 
+    def _prepare_query_embeddings(
+        self,
+        *,
+        queries: list[str],
+    ) -> list[dict[str, Any]]:
+        """Embed query variants in one dense pass and one sparse pass."""
+        dense_embedder = self._get_embedder()
+        dense_embeddings = list(dense_embedder.embed(queries))
+        if not dense_embeddings:
+            return []
+
+        keyword_embedder = self._get_keyword_embedder()
+        sparse_embeddings = list(keyword_embedder.embed(queries))
+
+        prepared_queries: list[dict[str, Any]] = []
+        for index, query in enumerate(queries):
+            if index >= len(dense_embeddings):
+                break
+            dense_query = [float(value) for value in dense_embeddings[index]]
+            sparse_query: Any = None
+            has_sparse_query = False
+            if index < len(sparse_embeddings):
+                sparse_indices, sparse_values = self._coerce_sparse_embedding(sparse_embeddings[index])
+                has_sparse_query = bool(sparse_indices and sparse_values)
+                sparse_query = self._build_sparse_vector(
+                    indices=sparse_indices,
+                    values=sparse_values,
+                )
+            prepared_queries.append(
+                {
+                    "query": query,
+                    "dense_query": dense_query,
+                    "sparse_query": sparse_query,
+                    "has_sparse_query": has_sparse_query,
+                }
+            )
+        return prepared_queries
+
+    def _search_prepared_query(
+        self,
+        *,
+        collection_name: str,
+        prepared_query: Mapping[str, Any],
+        limit: int,
+        mode: str,
+        rrf_k: int,
+        query_filter: Any,
+    ) -> list[dict[str, Any]]:
+        """Search one already-embedded query variant."""
+        dense_query = prepared_query.get("dense_query")
+        if not isinstance(dense_query, list) or not dense_query:
+            return []
+        sparse_query = prepared_query.get("sparse_query")
+        has_sparse_query = bool(prepared_query.get("has_sparse_query", False))
+
+        if mode == "semantic":
+            points = self._search_dense(
+                collection_name=collection_name,
+                query_vector=dense_query,
+                limit=limit,
+                query_filter=query_filter,
+            )
+            return [
+                self._format_result_point(point, fallback_rank=index)
+                for index, point in enumerate(points)
+            ]
+
+        if mode == "keyword":
+            if not has_sparse_query:
+                return []
+            points = self._search_keyword(
+                collection_name=collection_name,
+                sparse_query=sparse_query,
+                limit=limit,
+                query_filter=query_filter,
+            )
+            return [
+                self._format_result_point(point, fallback_rank=index)
+                for index, point in enumerate(points)
+            ]
+
+        if not has_sparse_query:
+            semantic_points = self._search_dense(
+                collection_name=collection_name,
+                query_vector=dense_query,
+                limit=limit,
+                query_filter=query_filter,
+            )
+            return [
+                self._format_result_point(point, fallback_rank=index)
+                for index, point in enumerate(semantic_points)
+            ]
+
+        prefetch_limit = min(200, max(10, limit * 4))
+        semantic_points = self._search_dense(
+            collection_name=collection_name,
+            query_vector=dense_query,
+            limit=prefetch_limit,
+            query_filter=query_filter,
+        )
+        keyword_points = self._search_keyword(
+            collection_name=collection_name,
+            sparse_query=sparse_query,
+            limit=prefetch_limit,
+            query_filter=query_filter,
+        )
+        return self._rrf(
+            semantic_points=semantic_points,
+            keyword_points=keyword_points,
+            rrf_k=rrf_k,
+            limit=limit,
+        )
+
     def search_chunks(
         self,
         *,
@@ -847,87 +964,89 @@ class QdrantIndexer:
         if normalized_mode not in SEARCH_MODES:
             raise ValueError(f"mode must be one of: {', '.join(SEARCH_MODES)}")
 
+        results = self.search_chunk_variants(
+            bucket_name=bucket_name,
+            queries=[normalized_query],
+            limit=limit,
+            mode=normalized_mode,
+            rrf_k=rrf_k,
+        )
+        return list(results.get(normalized_query, []))
+
+    def search_chunk_variants(
+        self,
+        *,
+        bucket_name: str,
+        queries: list[str],
+        limit: int,
+        mode: str,
+        rrf_k: int = 60,
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Search many query variants with one dense and one sparse embedding pass."""
+        normalized_queries = [str(query).strip() for query in queries if str(query).strip()]
+        if not normalized_queries:
+            return {}
+
+        normalized_mode = mode.strip().lower()
+        if normalized_mode not in SEARCH_MODES:
+            raise ValueError(f"mode must be one of: {', '.join(SEARCH_MODES)}")
+
         resolved_limit = max(1, min(int(limit), 100))
         collection_name = self._collection_name(bucket_name)
         if not self._collection_exists(collection_name):
-            return []
+            return {query: [] for query in normalized_queries}
+
         from qdrant_client import models as qdrant_models
 
         query_filter = qdrant_models.Filter(
             must=[self._build_collection_field_condition(bucket_name)]
         )
 
-        dense_embedder = self._get_embedder()
-        dense_embeddings = list(dense_embedder.embed([normalized_query]))
-        if not dense_embeddings:
-            return []
-        dense_query = [float(value) for value in dense_embeddings[0]]
+        with measure("qdrant_search_chunk_variants"):
+            prepared_queries = self._prepare_query_embeddings(queries=normalized_queries)
+            if not prepared_queries:
+                return {query: [] for query in normalized_queries}
 
-        keyword_embedder = self._get_keyword_embedder()
-        keyword_embeddings = list(keyword_embedder.embed([normalized_query]))
-        if not keyword_embeddings:
-            return []
-        sparse_indices, sparse_values = self._coerce_sparse_embedding(keyword_embeddings[0])
-        has_sparse_query = bool(sparse_indices and sparse_values)
-        if normalized_mode == "keyword" and not has_sparse_query:
-            return []
-        sparse_query = self._build_sparse_vector(indices=sparse_indices, values=sparse_values)
+            results_by_query: dict[str, list[dict[str, Any]]] = {
+                query: [] for query in normalized_queries
+            }
 
-        if normalized_mode == "semantic":
-            points = self._search_dense(
-                collection_name=collection_name,
-                query_vector=dense_query,
-                limit=resolved_limit,
-                query_filter=query_filter,
-            )
-            return [
-                self._format_result_point(point, fallback_rank=index)
-                for index, point in enumerate(points)
-            ]
+            max_workers = min(self._variant_search_max_workers, len(prepared_queries))
+            if max_workers <= 1:
+                for prepared_query in prepared_queries:
+                    query = str(prepared_query.get("query", "")).strip()
+                    if not query:
+                        continue
+                    results_by_query[query] = self._search_prepared_query(
+                        collection_name=collection_name,
+                        prepared_query=prepared_query,
+                        limit=resolved_limit,
+                        mode=normalized_mode,
+                        rrf_k=rrf_k,
+                        query_filter=query_filter,
+                    )
+                return results_by_query
 
-        if normalized_mode == "keyword":
-            points = self._search_keyword(
-                collection_name=collection_name,
-                sparse_query=sparse_query,
-                limit=resolved_limit,
-                query_filter=query_filter,
-            )
-            return [
-                self._format_result_point(point, fallback_rank=index)
-                for index, point in enumerate(points)
-            ]
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {
+                    executor.submit(
+                        self._search_prepared_query,
+                        collection_name=collection_name,
+                        prepared_query=prepared_query,
+                        limit=resolved_limit,
+                        mode=normalized_mode,
+                        rrf_k=rrf_k,
+                        query_filter=query_filter,
+                    ): str(prepared_query.get("query", "")).strip()
+                    for prepared_query in prepared_queries
+                }
+                for future in as_completed(futures):
+                    query = futures[future]
+                    if not query:
+                        continue
+                    results_by_query[query] = future.result()
 
-        if not has_sparse_query:
-            semantic_points = self._search_dense(
-                collection_name=collection_name,
-                query_vector=dense_query,
-                limit=resolved_limit,
-                query_filter=query_filter,
-            )
-            return [
-                self._format_result_point(point, fallback_rank=index)
-                for index, point in enumerate(semantic_points)
-            ]
-
-        prefetch_limit = min(200, max(10, resolved_limit * 4))
-        semantic_points = self._search_dense(
-            collection_name=collection_name,
-            query_vector=dense_query,
-            limit=prefetch_limit,
-            query_filter=query_filter,
-        )
-        keyword_points = self._search_keyword(
-            collection_name=collection_name,
-            sparse_query=sparse_query,
-            limit=prefetch_limit,
-            query_filter=query_filter,
-        )
-        return self._rrf(
-            semantic_points=semantic_points,
-            keyword_points=keyword_points,
-            rrf_k=rrf_k,
-            limit=resolved_limit,
-        )
+            return results_by_query
 
     def upsert_document_chunks(
         self,
@@ -942,191 +1061,202 @@ class QdrantIndexer:
         storage_bucket_name: str | None = None,
     ) -> None:
         """Embed chunk text and upsert vectors into Qdrant."""
-        if not chunks:
-            return
+        with measure("qdrant_upsert_document_chunks"):
+            if not chunks:
+                return
 
-        indexable_chunks: list[dict[str, Any]] = []
-        texts: list[str] = []
-        for chunk in chunks:
-            chunk_type = str(chunk.get("type", "text")).strip().lower()
-            if chunk_type == "image":
-                continue
-            text_value = str(chunk.get("text", "")).strip()
-            if not text_value:
-                continue
-            indexable_chunks.append(chunk)
-            texts.append(text_value)
-        if not indexable_chunks:
+            indexable_chunks: list[dict[str, Any]] = []
+            texts: list[str] = []
+            for chunk in chunks:
+                chunk_type = str(chunk.get("type", "text")).strip().lower()
+                if chunk_type == "image":
+                    continue
+                text_value = str(chunk.get("text", "")).strip()
+                if not text_value:
+                    continue
+                indexable_chunks.append(chunk)
+                texts.append(text_value)
+            if not indexable_chunks:
+                self.delete_document(bucket_name, document_id)
+                return
+
+            embedder = self._get_embedder()
+            embeddings = list(embedder.embed(texts))
+            if not embeddings:
+                self.delete_document(bucket_name, document_id)
+                return
+            keyword_embedder = self._get_keyword_embedder()
+            sparse_embeddings = list(keyword_embedder.embed(texts))
+            if sparse_embeddings and len(sparse_embeddings) != len(embeddings):
+                sparse_embeddings = sparse_embeddings[: len(embeddings)]
+
+            first_vector = embeddings[0]
+            vector_size = len(first_vector)
+            collection_name = self._collection_name(bucket_name)
+            self._ensure_collection(collection_name, vector_size)
             self.delete_document(bucket_name, document_id)
-            return
 
-        embedder = self._get_embedder()
-        embeddings = list(embedder.embed(texts))
-        if not embeddings:
-            self.delete_document(bucket_name, document_id)
-            return
-        keyword_embedder = self._get_keyword_embedder()
-        sparse_embeddings = list(keyword_embedder.embed(texts))
-        if sparse_embeddings and len(sparse_embeddings) != len(embeddings):
-            sparse_embeddings = sparse_embeddings[: len(embeddings)]
+            from qdrant_client import models as qdrant_models
 
-        first_vector = embeddings[0]
-        vector_size = len(first_vector)
-        collection_name = self._collection_name(bucket_name)
-        self._ensure_collection(collection_name, vector_size)
-        self.delete_document(bucket_name, document_id)
+            if storage_bucket_name:
+                minio_location = (
+                    f"{storage_bucket_name}/"
+                    f"{build_storage_object_name(bucket_name, file_path)}"
+                )
+            else:
+                minio_location = f"{bucket_name}/{file_path}"
+            resolved_document_year = str(document_year or "").strip()
+            del meta_key
 
-        from qdrant_client import models as qdrant_models
+            points: list[qdrant_models.PointStruct] = []
+            for index, (chunk, embedding) in enumerate(
+                zip(indexable_chunks, embeddings, strict=False)
+            ):
+                chunk_index = int(chunk.get("chunk_index", len(points)))
+                raw_metadata = chunk.get("metadata")
+                chunk_metadata = raw_metadata if isinstance(raw_metadata, Mapping) else {}
+                section_title = str(chunk_metadata.get("section_title", "") or "")
+                section_id = str(
+                    chunk_metadata.get("parent_section_id", "")
+                    or chunk_metadata.get("section_id", "")
+                ).strip()
+                raw_orig_elements = chunk.get("orig_elements", [])
+                orig_elements: list[dict[str, Any]] = []
+                if isinstance(raw_orig_elements, list):
+                    for value in raw_orig_elements:
+                        if not isinstance(value, Mapping):
+                            continue
+                        orig_elements.append({str(key): field for key, field in value.items()})
 
-        if storage_bucket_name:
-            minio_location = (
-                f"{storage_bucket_name}/"
-                f"{build_storage_object_name(bucket_name, file_path)}"
-            )
-        else:
-            minio_location = f"{bucket_name}/{file_path}"
-        resolved_document_year = str(document_year or "").strip()
-        del meta_key
-
-        points: list[qdrant_models.PointStruct] = []
-        for index, (chunk, embedding) in enumerate(zip(indexable_chunks, embeddings, strict=False)):
-            chunk_index = int(chunk.get("chunk_index", len(points)))
-            raw_metadata = chunk.get("metadata")
-            chunk_metadata = raw_metadata if isinstance(raw_metadata, Mapping) else {}
-            section_title = str(chunk_metadata.get("section_title", "") or "")
-            section_id = str(
-                chunk_metadata.get("parent_section_id", "") or chunk_metadata.get("section_id", "")
-            ).strip()
-            raw_orig_elements = chunk.get("orig_elements", [])
-            orig_elements: list[dict[str, Any]] = []
-            if isinstance(raw_orig_elements, list):
-                for value in raw_orig_elements:
-                    if not isinstance(value, Mapping):
-                        continue
-                    orig_elements.append({str(key): field for key, field in value.items()})
-
-            raw_page_numbers = chunk.get("page_numbers", [])
-            page_numbers: list[int] = []
-            if isinstance(raw_page_numbers, list):
-                for value in raw_page_numbers:
-                    try:
-                        page_number = int(value)
-                    except (TypeError, ValueError):
-                        continue
-                    if page_number > 0 and page_number not in page_numbers:
-                        page_numbers.append(page_number)
-            if not page_numbers and orig_elements:
-                page_numbers = _coerce_chunk_page_numbers(orig_elements)
-            if not page_numbers:
-                page_start = _safe_int(chunk_metadata.get("page_start"))
-                page_end = _safe_int(chunk_metadata.get("page_end"))
-                if page_start is not None and page_end is not None:
-                    for page_number in range(page_start, page_end + 1):
-                        if page_number not in page_numbers:
-                            page_numbers.append(page_number)
-                elif page_start is not None:
-                    page_numbers.append(page_start)
-                elif page_end is not None:
-                    page_numbers.append(page_end)
-            chunk_page_start = _safe_int(chunk_metadata.get("page_start"))
-            chunk_page_end = _safe_int(chunk_metadata.get("page_end"))
-            if chunk_page_start is None and page_numbers:
-                chunk_page_start = min(page_numbers)
-            if chunk_page_end is None and page_numbers:
-                chunk_page_end = max(page_numbers)
-            if chunk_page_start is None and chunk_page_end is not None:
-                chunk_page_start = chunk_page_end
-
-            raw_bounding_boxes = chunk.get("bounding_boxes", [])
-            bounding_boxes: list[dict[str, Any]] = []
-            if isinstance(raw_bounding_boxes, list):
-                for value in raw_bounding_boxes:
-                    if not isinstance(value, Mapping):
-                        continue
-                    points_payload = _normalize_coordinate_points(value.get("points"))
-                    if not points_payload:
-                        continue
-                    payload_box: dict[str, Any] = {"points": points_payload}
-
-                    raw_page_number = value.get("page_number")
-                    if raw_page_number is not None:
-                        bbox_page_number: int | None
+                raw_page_numbers = chunk.get("page_numbers", [])
+                page_numbers: list[int] = []
+                if isinstance(raw_page_numbers, list):
+                    for value in raw_page_numbers:
                         try:
-                            bbox_page_number = int(raw_page_number)
+                            page_number = int(value)
                         except (TypeError, ValueError):
-                            bbox_page_number = None
-                        if bbox_page_number is not None and bbox_page_number > 0:
-                            payload_box["page_number"] = bbox_page_number
+                            continue
+                        if page_number > 0 and page_number not in page_numbers:
+                            page_numbers.append(page_number)
+                if not page_numbers and orig_elements:
+                    page_numbers = _coerce_chunk_page_numbers(orig_elements)
+                if not page_numbers:
+                    page_start = _safe_int(chunk_metadata.get("page_start"))
+                    page_end = _safe_int(chunk_metadata.get("page_end"))
+                    if page_start is not None and page_end is not None:
+                        for page_number in range(page_start, page_end + 1):
+                            if page_number not in page_numbers:
+                                page_numbers.append(page_number)
+                    elif page_start is not None:
+                        page_numbers.append(page_start)
+                    elif page_end is not None:
+                        page_numbers.append(page_end)
+                chunk_page_start = _safe_int(chunk_metadata.get("page_start"))
+                chunk_page_end = _safe_int(chunk_metadata.get("page_end"))
+                if chunk_page_start is None and page_numbers:
+                    chunk_page_start = min(page_numbers)
+                if chunk_page_end is None and page_numbers:
+                    chunk_page_end = max(page_numbers)
+                if chunk_page_start is None and chunk_page_end is not None:
+                    chunk_page_start = chunk_page_end
 
-                    raw_layout_width = value.get("layout_width")
-                    if isinstance(raw_layout_width, (int, float)):
-                        payload_box["layout_width"] = float(raw_layout_width)
-                    raw_layout_height = value.get("layout_height")
-                    if isinstance(raw_layout_height, (int, float)):
-                        payload_box["layout_height"] = float(raw_layout_height)
+                raw_bounding_boxes = chunk.get("bounding_boxes", [])
+                bounding_boxes: list[dict[str, Any]] = []
+                if isinstance(raw_bounding_boxes, list):
+                    for value in raw_bounding_boxes:
+                        if not isinstance(value, Mapping):
+                            continue
+                        points_payload = _normalize_coordinate_points(value.get("points"))
+                        if not points_payload:
+                            continue
+                        payload_box: dict[str, Any] = {"points": points_payload}
 
-                    raw_system = value.get("system")
-                    if isinstance(raw_system, str):
-                        normalized_system = raw_system.strip()
-                        if normalized_system:
-                            payload_box["system"] = normalized_system
+                        raw_page_number = value.get("page_number")
+                        if raw_page_number is not None:
+                            bbox_page_number: int | None
+                            try:
+                                bbox_page_number = int(raw_page_number)
+                            except (TypeError, ValueError):
+                                bbox_page_number = None
+                            if bbox_page_number is not None and bbox_page_number > 0:
+                                payload_box["page_number"] = bbox_page_number
 
-                    bounding_boxes.append(payload_box)
-            if not bounding_boxes and orig_elements:
-                bounding_boxes = _coerce_chunk_bounding_boxes(orig_elements)
+                        raw_layout_width = value.get("layout_width")
+                        if isinstance(raw_layout_width, (int, float)):
+                            payload_box["layout_width"] = float(raw_layout_width)
+                        raw_layout_height = value.get("layout_height")
+                        if isinstance(raw_layout_height, (int, float)):
+                            payload_box["layout_height"] = float(raw_layout_height)
 
-            point_id = compute_chunk_point_id(
-                bucket_name=bucket_name,
-                document_id=document_id,
-                chunk_index=chunk_index,
-            )
-            vector = [float(value) for value in embedding]
-            named_vector_payload: dict[str, Any] = {self._dense_vector_name: vector}
-            if index < len(sparse_embeddings):
-                sparse_indices, sparse_values = self._coerce_sparse_embedding(
-                    sparse_embeddings[index]
+                        raw_system = value.get("system")
+                        if isinstance(raw_system, str):
+                            normalized_system = raw_system.strip()
+                            if normalized_system:
+                                payload_box["system"] = normalized_system
+
+                        bounding_boxes.append(payload_box)
+                if not bounding_boxes and orig_elements:
+                    bounding_boxes = _coerce_chunk_bounding_boxes(orig_elements)
+
+                point_id = compute_chunk_point_id(
+                    bucket_name=bucket_name,
+                    document_id=document_id,
+                    chunk_index=chunk_index,
                 )
-                if sparse_indices and sparse_values:
-                    named_vector_payload[self._keyword_vector_name] = self._build_sparse_vector(
-                        indices=sparse_indices,
-                        values=sparse_values,
+                vector = [float(value) for value in embedding]
+                named_vector_payload: dict[str, Any] = {self._dense_vector_name: vector}
+                if index < len(sparse_embeddings):
+                    sparse_indices, sparse_values = self._coerce_sparse_embedding(
+                        sparse_embeddings[index]
                     )
-            resolver_url = build_resolver_url(
-                bucket_name,
-                file_path,
-                page_start=chunk_page_start,
-            )
-            payload = {
-                "document_id": document_id,
-                "evidence_base_collection": bucket_name,
-                "collection_name": bucket_name,
-                "year": resolved_document_year,
-                "partition_key": partition_key,
-                "minio_location": minio_location,
-                "file_path": file_path,
-                "resolver_url": resolver_url,
-                "chunk_index": chunk_index,
-                "chunk_id": str(chunk.get("chunk_id", "")),
-                "chunk_type": str(chunk.get("type", "text")),
-                "section_id": section_id,
-                "section_title": section_title,
-                "page_start": chunk_page_start,
-                "page_end": chunk_page_end,
-                "filename": chunk_metadata.get("filename"),
-                "text": str(chunk.get("text", "")),
-                "bounding_boxes": bounding_boxes,
-                "orig_elements": orig_elements,
-            }
-            points.append(
-                qdrant_models.PointStruct(
-                    id=point_id,
-                    vector=named_vector_payload,
-                    payload=payload,
+                    if sparse_indices and sparse_values:
+                        named_vector_payload[self._keyword_vector_name] = (
+                            self._build_sparse_vector(
+                                indices=sparse_indices,
+                                values=sparse_values,
+                            )
+                        )
+                resolver_url = build_resolver_url(
+                    bucket_name,
+                    file_path,
+                    page_start=chunk_page_start,
                 )
-            )
+                payload = {
+                    "document_id": document_id,
+                    "evidence_base_collection": bucket_name,
+                    "collection_name": bucket_name,
+                    "year": resolved_document_year,
+                    "partition_key": partition_key,
+                    "minio_location": minio_location,
+                    "file_path": file_path,
+                    "resolver_url": resolver_url,
+                    "chunk_index": chunk_index,
+                    "chunk_id": str(chunk.get("chunk_id", "")),
+                    "chunk_type": str(chunk.get("type", "text")),
+                    "section_id": section_id,
+                    "section_title": section_title,
+                    "page_start": chunk_page_start,
+                    "page_end": chunk_page_end,
+                    "filename": chunk_metadata.get("filename"),
+                    "text": str(chunk.get("text", "")),
+                    "bounding_boxes": bounding_boxes,
+                    "orig_elements": orig_elements,
+                }
+                points.append(
+                    qdrant_models.PointStruct(
+                        id=point_id,
+                        vector=named_vector_payload,
+                        payload=payload,
+                    )
+                )
 
-        if points:
-            self._qdrant_client.upsert(collection_name=collection_name, points=points, wait=True)
+            if points:
+                for batch in self._iter_batches(points, batch_size=self._upsert_batch_size):
+                    self._qdrant_client.upsert(
+                        collection_name=collection_name,
+                        points=batch,
+                        wait=True,
+                    )
 
     def migrate_legacy_collections_to_shared_collection(
         self,

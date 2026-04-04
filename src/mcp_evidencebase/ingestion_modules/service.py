@@ -52,6 +52,7 @@ from mcp_evidencebase.storage_layout import (
     normalize_collection_name,
     normalize_object_name,
 )
+from mcp_evidencebase.perf import measure, record_duration
 
 
 class DependencyConfigurationError(RuntimeError):
@@ -741,18 +742,6 @@ class IngestionService:
 
         sections_cache: dict[str, dict[str, dict[str, Any]]] = {}
 
-        def section_map_for_document(document_id: str) -> dict[str, dict[str, Any]]:
-            cached = sections_cache.get(document_id)
-            if cached is not None:
-                return cached
-            section_map: dict[str, dict[str, Any]] = {}
-            for section in self._repository.get_document_sections(document_id):
-                section_id = str(section.get("section_id", "")).strip()
-                if section_id:
-                    section_map[section_id] = section
-            sections_cache[document_id] = section_map
-            return section_map
-
         for result in results:
             document_id = str(result.get("document_id", "")).strip()
             section_id = (
@@ -762,7 +751,10 @@ class IngestionService:
             if not document_id or not section_id:
                 continue
 
-            section = section_map_for_document(document_id).get(section_id)
+            section = self._build_document_sections_lookup(
+                document_id=document_id,
+                sections_cache=sections_cache,
+            ).get(section_id)
             if section is None:
                 continue
 
@@ -782,6 +774,39 @@ class IngestionService:
                 result["section_title"] = section_title
 
         return results
+
+    def _build_document_sections_lookup(
+        self,
+        *,
+        document_id: str,
+        sections_cache: dict[str, dict[str, dict[str, Any]]] | None = None,
+    ) -> dict[str, dict[str, Any]]:
+        """Return cached section payloads keyed by section ID for one document."""
+        resolved_cache = sections_cache if sections_cache is not None else {}
+        cached = resolved_cache.get(document_id)
+        if cached is not None:
+            return cached
+
+        section_map: dict[str, dict[str, Any]] = {}
+        for section in self._repository.get_document_sections(document_id):
+            section_id = str(section.get("section_id", "")).strip()
+            if section_id:
+                section_map[section_id] = section
+        resolved_cache[document_id] = section_map
+        return section_map
+
+    def _hydrate_search_results(
+        self,
+        *,
+        bucket_name: str,
+        results: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Attach metadata and section payloads to Qdrant search results."""
+        results = self._hydrate_search_results_with_metadata(
+            bucket_name=bucket_name,
+            results=results,
+        )
+        return self._hydrate_search_results_with_sections(results=results)
 
     def _hydrate_search_results_with_metadata(
         self,
@@ -1347,6 +1372,7 @@ class IngestionService:
         etag: str | None = None,
     ) -> dict[str, str]:
         """Run only Unstructured partition extraction for one object."""
+        start_time = time.perf_counter()
         file_bytes = self._read_object_bytes(bucket_name, object_name)
         if not file_bytes:
             raise ValueError(f"Object '{object_name}' in bucket '{bucket_name}' is empty.")
@@ -1389,6 +1415,11 @@ class IngestionService:
         except Exception as exc:
             self._set_stage_failed(document_id, stage="partition", error=exc)
             raise
+        finally:
+            record_duration(
+                "partition_stage_object",
+                elapsed_seconds=time.perf_counter() - start_time,
+            )
 
     def meta_stage_object(
         self,
@@ -1516,6 +1547,7 @@ class IngestionService:
         etag: str | None = None,
     ) -> dict[str, str]:
         """Build chunk payload for one document and persist chunk-level progress."""
+        start_time = time.perf_counter()
         try:
             state, partition_key, partitions = self._load_partition_context(document_id=document_id)
             meta_key, _ = self._resolve_metadata_context(
@@ -1559,6 +1591,11 @@ class IngestionService:
         except Exception as exc:
             self._set_stage_failed(document_id, stage="chunk", error=exc)
             raise
+        finally:
+            record_duration(
+                "chunk_stage_object",
+                elapsed_seconds=time.perf_counter() - start_time,
+            )
 
     def upsert_stage_object(
         self,
@@ -1569,6 +1606,7 @@ class IngestionService:
         etag: str | None = None,
     ) -> dict[str, str]:
         """Embed and upsert chunks for one document into Qdrant."""
+        start_time = time.perf_counter()
         try:
             state, partition_key, partitions = self._load_partition_context(document_id=document_id)
             meta_key, metadata = self._resolve_metadata_context(
@@ -1628,6 +1666,11 @@ class IngestionService:
         except Exception as exc:
             self._set_stage_failed(document_id, stage="upsert", error=exc)
             raise
+        finally:
+            record_duration(
+                "upsert_stage_object",
+                elapsed_seconds=time.perf_counter() - start_time,
+            )
 
     def partition_object(
         self,
@@ -1789,6 +1832,24 @@ class IngestionService:
             )
         )
         return sections
+
+    def list_document_sections_lookup(
+        self,
+        *,
+        bucket_name: str,
+        document_id: str,
+    ) -> dict[str, dict[str, Any]]:
+        """Return one document's section payloads keyed by section ID."""
+        sections = self.list_document_sections(
+            bucket_name=bucket_name,
+            document_id=document_id,
+        )
+        section_map: dict[str, dict[str, Any]] = {}
+        for section in sections:
+            section_id = str(section.get("section_id", "")).strip()
+            if section_id:
+                section_map[section_id] = section
+        return section_map
 
     def rebuild_document_section_mapping(
         self,
@@ -2678,15 +2739,56 @@ class IngestionService:
         rrf_k: int = 60,
     ) -> list[dict[str, Any]]:
         """Search indexed chunks for one bucket using semantic/keyword/hybrid retrieval."""
-        results = self._qdrant_indexer.search_chunks(
-            bucket_name=bucket_name,
-            query=query,
-            limit=limit,
-            mode=mode,
-            rrf_k=rrf_k,
-        )
-        results = self._hydrate_search_results_with_metadata(
-            bucket_name=bucket_name,
-            results=results,
-        )
-        return self._hydrate_search_results_with_sections(results=results)
+        with measure("search_documents"):
+            results = self._qdrant_indexer.search_chunks(
+                bucket_name=bucket_name,
+                query=query,
+                limit=limit,
+                mode=mode,
+                rrf_k=rrf_k,
+            )
+            return self._hydrate_search_results(bucket_name=bucket_name, results=results)
+
+    def search_document_variants(
+        self,
+        *,
+        bucket_name: str,
+        queries: list[str],
+        limit: int = 10,
+        mode: str = "hybrid",
+        rrf_k: int = 60,
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Search multiple query variants and hydrate each result set."""
+        normalized_queries = [str(query).strip() for query in queries if str(query).strip()]
+        if not normalized_queries:
+            return {}
+
+        with measure("search_document_variants"):
+            search_many = getattr(self._qdrant_indexer, "search_chunk_variants", None)
+            if callable(search_many):
+                raw_results = search_many(
+                    bucket_name=bucket_name,
+                    queries=normalized_queries,
+                    limit=limit,
+                    mode=mode,
+                    rrf_k=rrf_k,
+                )
+            else:
+                raw_results = {
+                    query: self._qdrant_indexer.search_chunks(
+                        bucket_name=bucket_name,
+                        query=query,
+                        limit=limit,
+                        mode=mode,
+                        rrf_k=rrf_k,
+                    )
+                    for query in normalized_queries
+                }
+
+            hydrated_results: dict[str, list[dict[str, Any]]] = {}
+            for query in normalized_queries:
+                hydrated_results[query] = self._hydrate_search_results(
+                    bucket_name=bucket_name,
+                    results=list(raw_results.get(query, [])),
+                )
+            return hydrated_results

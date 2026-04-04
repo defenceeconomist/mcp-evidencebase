@@ -19,6 +19,8 @@ from mcp_evidencebase.ingestion_modules.wiring import (
     MinioObjectLike,
     build_ingestion_service,
     build_ingestion_settings,
+    get_cached_ingestion_service,
+    reset_cached_ingestion_service,
 )
 
 __all__ = [
@@ -31,5 +33,7 @@ __all__ = [
     "UnstructuredPartitionClient",
     "build_ingestion_service",
     "build_ingestion_settings",
+    "get_cached_ingestion_service",
+    "reset_cached_ingestion_service",
     "time",
 ]

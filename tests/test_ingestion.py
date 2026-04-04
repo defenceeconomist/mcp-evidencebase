@@ -13,6 +13,7 @@ from typing import Any, Literal
 import pytest
 
 import mcp_evidencebase.ingestion as ingestion_module
+import mcp_evidencebase.ingestion_modules.wiring as wiring_module
 from mcp_evidencebase.ingestion import (
     IngestionService,
     QdrantIndexer,
@@ -29,6 +30,8 @@ from mcp_evidencebase.ingestion import (
     extract_pdf_title_author,
 )
 from mcp_evidencebase.ingestion_modules.service import DependencyConfigurationError
+from mcp_evidencebase.perf import reset as reset_perf_stats
+from mcp_evidencebase.perf import snapshot as perf_snapshot
 
 pytestmark = pytest.mark.area_ingestion
 
@@ -708,6 +711,56 @@ def test_build_ingestion_service_allows_disabled_redis_and_qdrant() -> None:
 
     assert getattr(service._repository, "is_disabled", False) is True
     assert getattr(service._qdrant_indexer, "is_disabled", False) is True
+
+
+def test_get_cached_ingestion_service_reuses_instance_until_reset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Process-local cached ingestion service should be reused until explicitly reset."""
+    wiring_module.reset_cached_ingestion_service()
+    built_services: list[object] = []
+
+    def fake_build_ingestion_service(*args: Any, **kwargs: Any) -> object:
+        del args, kwargs
+        service = object()
+        built_services.append(service)
+        return service
+
+    monkeypatch.setattr(wiring_module, "build_ingestion_service", fake_build_ingestion_service)
+
+    first = wiring_module.get_cached_ingestion_service()
+    second = wiring_module.get_cached_ingestion_service()
+    wiring_module.reset_cached_ingestion_service()
+    third = wiring_module.get_cached_ingestion_service()
+
+    assert first is second
+    assert first is not third
+    assert len(built_services) == 2
+
+
+def test_reset_cached_ingestion_service_closes_redis_and_qdrant_clients() -> None:
+    """Reset should dispose of shared network clients before clearing the cache."""
+    wiring_module.reset_cached_ingestion_service()
+    closed_clients: list[str] = []
+
+    class ClosableClient:
+        def __init__(self, label: str) -> None:
+            self.label = label
+
+        def close(self) -> None:
+            closed_clients.append(self.label)
+
+    fake_service = types.SimpleNamespace(
+        _repository=types.SimpleNamespace(_redis=ClosableClient("redis")),
+        _qdrant_indexer=types.SimpleNamespace(_qdrant_client=ClosableClient("qdrant")),
+    )
+
+    wiring_module._CACHED_INGESTION_SERVICE = fake_service  # type: ignore[assignment]
+
+    wiring_module.reset_cached_ingestion_service()
+
+    assert wiring_module._CACHED_INGESTION_SERVICE is None
+    assert closed_clients == ["redis", "qdrant"]
 
 
 def test_build_ingestion_settings_supports_chunking_element_overrides() -> None:
@@ -2823,6 +2876,38 @@ def test_qdrant_upsert_skips_image_chunks_for_embedding() -> None:
     assert point.payload["text"] == "indexed narrative text"
 
 
+def test_qdrant_upsert_batches_large_documents_into_fixed_size_writes() -> None:
+    """Large document upserts should be split into deterministic Qdrant batches."""
+    install_qdrant_client_stub()
+    qdrant = FakeQdrantClient()
+    indexer = StubQdrantIndexer(
+        qdrant_client=qdrant,
+        fastembed_model="ignored",
+        fastembed_keyword_model="ignored-keyword",
+        collection_prefix="evidencebase",
+    )
+
+    indexer.upsert_document_chunks(
+        bucket_name="research-raw",
+        document_id="abc123",
+        file_path="paper.pdf",
+        chunks=[
+            {
+                "chunk_index": chunk_index,
+                "text": f"chunk text {chunk_index}",
+                "metadata": {"section_title": "Methods"},
+            }
+            for chunk_index in range(260)
+        ],
+        partition_key="partition-hash",
+        meta_key="meta-hash",
+        document_year="2024",
+    )
+
+    assert [len(call["points"]) for call in qdrant.upsert_calls] == [128, 128, 4]
+    assert all(call["wait"] is True for call in qdrant.upsert_calls)
+
+
 def test_qdrant_indexer_hybrid_search_merges_dense_and_keyword_results() -> None:
     """Verify hybrid search merges dense and keyword ranks with RRF."""
     install_qdrant_client_stub()
@@ -2973,6 +3058,89 @@ def test_qdrant_indexer_hybrid_search_merges_dense_and_keyword_results() -> None
             and getattr(getattr(condition, "match", None), "value", "") == "research-raw"
             for condition in must_conditions
         )
+
+
+def test_qdrant_variant_search_embeds_queries_once_per_embedder() -> None:
+    """Variant search should batch dense and sparse embedding work per request."""
+
+    class CountingDenseEmbedder:
+        def __init__(self) -> None:
+            self.calls: list[list[str]] = []
+
+        def embed(self, texts: list[str]) -> list[list[float]]:
+            self.calls.append(list(texts))
+            return [[0.1, 0.2, 0.3] for _ in texts]
+
+    class CountingSparseEmbedder:
+        def __init__(self) -> None:
+            self.calls: list[list[str]] = []
+
+        def embed(self, texts: list[str]) -> list[FakeSparseEmbedding]:
+            self.calls.append(list(texts))
+            return [FakeSparseEmbedding(indices=[1, 3], values=[0.8, 0.2]) for _ in texts]
+
+    class CountingQdrantIndexer(QdrantIndexer):
+        def __init__(self, *, dense_embedder: Any, sparse_embedder: Any, **kwargs: Any) -> None:
+            super().__init__(**kwargs)
+            self._dense_embedder = dense_embedder
+            self._sparse_embedder = sparse_embedder
+
+        def _get_embedder(self) -> Any:
+            return self._dense_embedder
+
+        def _get_keyword_embedder(self) -> Any:
+            return self._sparse_embedder
+
+    install_qdrant_client_stub()
+    qdrant = FakeQdrantClient()
+    qdrant.collection_names = {"evidence-base"}
+    qdrant.search_results["dense"] = [
+        types.SimpleNamespace(
+            id="chunk-a",
+            score=0.9,
+            payload={
+                "evidence_base_collection": "research-raw",
+                "document_id": "doc-a",
+                "minio_location": "research-raw/a.pdf",
+                "text": "dense match",
+            },
+        )
+    ]
+    qdrant.search_results["keyword"] = [
+        types.SimpleNamespace(
+            id="chunk-a",
+            score=0.8,
+            payload={
+                "evidence_base_collection": "research-raw",
+                "document_id": "doc-a",
+                "minio_location": "research-raw/a.pdf",
+                "text": "keyword match",
+            },
+        )
+    ]
+    dense_embedder = CountingDenseEmbedder()
+    sparse_embedder = CountingSparseEmbedder()
+    indexer = CountingQdrantIndexer(
+        qdrant_client=qdrant,
+        dense_embedder=dense_embedder,
+        sparse_embedder=sparse_embedder,
+        fastembed_model="ignored",
+        fastembed_keyword_model="ignored-keyword",
+        collection_prefix="evidencebase",
+    )
+
+    results = indexer.search_chunk_variants(
+        bucket_name="research-raw",
+        queries=["causal inference", "industrial participation"],
+        limit=5,
+        mode="hybrid",
+        rrf_k=60,
+    )
+
+    assert dense_embedder.calls == [["causal inference", "industrial participation"]]
+    assert sparse_embedder.calls == [["causal inference", "industrial participation"]]
+    assert set(results) == {"causal inference", "industrial participation"}
+    assert len(qdrant.search_calls) == 4
 
 
 def test_ingestion_service_search_documents_delegates_to_qdrant_indexer() -> None:
@@ -3151,6 +3319,52 @@ def test_ingestion_service_search_documents_hydrates_parent_section_from_redis()
     assert results[0]["author"] == "Doe, J."
     assert results[0]["year"] == "2024"
     assert results[0]["citation_key"] == "doe2024paper"
+
+
+def test_perf_stats_record_search_documents_invocations() -> None:
+    """Hot-path search instrumentation should record invocation counts."""
+
+    class SearchRecordingIndexer(RecordingQdrantIndexer):
+        def search_chunks(
+            self,
+            *,
+            bucket_name: str,
+            query: str,
+            limit: int,
+            mode: str,
+            rrf_k: int = 60,
+        ) -> list[dict[str, Any]]:
+            super().search_chunks(
+                bucket_name=bucket_name,
+                query=query,
+                limit=limit,
+                mode=mode,
+                rrf_k=rrf_k,
+            )
+            return []
+
+    reset_perf_stats()
+    repository = RedisDocumentRepository(FakeRedis(), key_prefix="test")
+    indexer = SearchRecordingIndexer()
+    service = IngestionService(
+        minio_client=types.SimpleNamespace(),
+        repository=repository,
+        partition_client=types.SimpleNamespace(),
+        qdrant_indexer=indexer,  # type: ignore[arg-type]
+        chunk_size_chars=1200,
+        chunk_overlap_chars=150,
+    )
+
+    service.search_documents(
+        bucket_name="research-raw",
+        query="causal effects",
+        limit=3,
+        mode="semantic",
+        rrf_k=60,
+    )
+
+    stats = perf_snapshot()
+    assert stats["search_documents"]["count"] >= 1
 
 
 def test_ingestion_service_rebuild_document_section_mapping_from_partitions() -> None:

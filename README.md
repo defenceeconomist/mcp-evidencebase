@@ -135,6 +135,33 @@ pytest -m integration_live tests/test_live_datastores_integration.py
 Configure live endpoints with `MCP_EVIDENCEBASE_LIVE_*` variables (or fall back to
 `MINIO_ENDPOINT`, `REDIS_URL`, and `QDRANT_URL`).
 
+Runtime perf harness:
+
+```bash
+./scripts/run_runtime_perf_harness.sh
+```
+
+This runs the fake-backed runtime regression slice by default and, when
+`MCP_EVIDENCEBASE_RUN_LIVE_INTEGRATION=1` is set, also runs the live staged-search
+and document-processing perf smoke tests against MinIO/Redis/Qdrant.
+
+Wave 1 stabilization workflow:
+
+```bash
+# 1) Keep the full suite green.
+pytest -q
+
+# 2) Run the targeted runtime regression harness.
+./scripts/run_runtime_perf_harness.sh
+
+# 3) Capture live baseline timings when the shared datastores are available.
+MCP_EVIDENCEBASE_RUN_LIVE_INTEGRATION=1 ./scripts/run_runtime_perf_harness.sh
+```
+
+The live perf slice runs with `pytest -s` and prints machine-readable `RUNTIME_PERF`
+lines. Keep the first successful live run for a branch as the acceptance baseline for
+future Wave 1 comparisons.
+
 Run live integration tests inside Docker Compose (recommended, same network as
 MinIO/Redis/Qdrant):
 

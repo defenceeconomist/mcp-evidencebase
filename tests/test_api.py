@@ -55,6 +55,9 @@ class FakeIngestionService:
     metadata_seed_fetches: list[dict[str, Any]] = field(default_factory=list)
     resolved_documents: list[tuple[str, str]] = field(default_factory=list)
     search_calls: list[tuple[str, str, int, str, int]] = field(default_factory=list)
+    search_variant_calls: list[tuple[str, tuple[str, ...], int, str, int]] = field(
+        default_factory=list
+    )
     section_fetches: list[tuple[str, str, str]] = field(default_factory=list)
     section_list_calls: list[tuple[str, str]] = field(default_factory=list)
     section_rebuild_calls: list[tuple[str, str | None]] = field(default_factory=list)
@@ -97,6 +100,30 @@ class FakeIngestionService:
             raise self.search_error
         self.search_calls.append((bucket_name, query, limit, mode, rrf_k))
         return self.search_results
+
+    def search_document_variants(
+        self,
+        *,
+        bucket_name: str,
+        queries: list[str],
+        limit: int = 10,
+        mode: str = "hybrid",
+        rrf_k: int = 60,
+    ) -> dict[str, list[dict[str, Any]]]:
+        if self.search_error is not None:
+            raise self.search_error
+        normalized_queries = tuple(query for query in queries if str(query).strip())
+        self.search_variant_calls.append((bucket_name, normalized_queries, limit, mode, rrf_k))
+        results: dict[str, list[dict[str, Any]]] = {}
+        for query in normalized_queries:
+            results[query] = self.search_documents(
+                bucket_name=bucket_name,
+                query=query,
+                limit=limit,
+                mode=mode,
+                rrf_k=rrf_k,
+            )
+        return results
 
     def upload_document(
         self,
@@ -231,6 +258,20 @@ class FakeIngestionService:
                 "section_text": "Full methods section text.",
             },
         ]
+
+    def list_document_sections_lookup(
+        self,
+        *,
+        bucket_name: str,
+        document_id: str,
+    ) -> dict[str, dict[str, Any]]:
+        return {
+            str(section["section_id"]): dict(section)
+            for section in self.list_document_sections(
+                bucket_name=bucket_name,
+                document_id=document_id,
+            )
+        }
 
     def rebuild_document_section_mapping(
         self,
@@ -786,9 +827,14 @@ def test_gpt_search_staged_retrieval_returns_section_citations(
         payload["results"][0]["source_material_url"]
         == "http://testserver/api/collections/research-raw/documents/resolve?file_path=paper.pdf"
     )
+    assert service.search_variant_calls == [
+        ("research-raw", tuple(payload["query_variants"]), 75, "hybrid", 60)
+    ]
     assert service.search_calls
     assert len(service.search_calls) >= 3
     assert all(call[2] == 75 for call in service.search_calls)
+    assert service.section_list_calls == [("research-raw", "doc-1")]
+    assert service.section_fetches == []
 
 
 def test_gpt_search_defaults_to_minimal_response_shape(
