@@ -74,6 +74,39 @@
   overflow-y: auto;
 }
 
+.table-sort-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+}
+
+.table-sort-btn-icon-only {
+  justify-content: center;
+}
+
+.table-sort-btn:hover {
+  color: var(--bs-primary);
+}
+
+.table-sort-indicator {
+  min-width: 0.9rem;
+  color: var(--bs-secondary-color);
+  text-align: center;
+}
+
+.table-sort-btn.is-active .table-sort-indicator,
+.bulk-sort-header.is-active .bulk-sort-indicator {
+  color: var(--bs-primary);
+}
+
 .detail-field-row {
   border: 1px solid var(--bs-border-color);
   border-radius: 0.5rem;
@@ -136,6 +169,13 @@
   gap: 0.35rem;
 }
 
+.detail-type-column,
+.detail-type-cell {
+  width: 2.75rem;
+  min-width: 2.75rem;
+  text-align: center;
+}
+
 .detail-tree-cell.depth-1,
 .hot-tree-cell-inner.depth-1 {
   padding-left: 1.1rem;
@@ -148,6 +188,28 @@
   justify-content: center;
   width: 1rem;
   color: var(--bs-secondary-color);
+}
+
+.item-type-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+  color: var(--bs-secondary-color);
+  flex: 0 0 auto;
+}
+
+.detail-folder-row .item-type-icon,
+.hot-tree-label-folder + .item-type-icon,
+.item-type-icon-folder {
+  color: var(--bs-warning-text-emphasis);
+}
+
+.item-type-icon svg {
+  width: 1rem;
+  height: 1rem;
+  fill: currentColor;
 }
 
 .detail-folder-row td {
@@ -165,6 +227,30 @@
 
 .hot-tree-label-folder {
   font-weight: 600;
+}
+
+.hot-type-cell {
+  padding-top: 0.35rem !important;
+  padding-bottom: 0.35rem !important;
+  text-align: center !important;
+}
+
+.bulk-sort-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.bulk-sort-header-icon-only {
+  justify-content: center;
+}
+
+.bulk-sort-indicator {
+  min-width: 0.9rem;
+  color: var(--bs-secondary-color);
 }
 
 .hot-tree-chevron-spacer {

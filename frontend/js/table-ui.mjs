@@ -22,6 +22,280 @@ export const getFolderKeyFromFilePath = (filePath, normalizeText) => {
   return segments[0];
 };
 
+const DEFAULT_CHILD_SORT = Object.freeze({
+  key: "pages",
+  direction: "asc",
+});
+
+const DEFAULT_TABLE_SORT = Object.freeze({
+  key: "object_type",
+  direction: "asc",
+});
+
+const ROMAN_NUMERAL_VALUES = Object.freeze({
+  i: 1,
+  v: 5,
+  x: 10,
+  l: 50,
+  c: 100,
+  d: 500,
+  m: 1000,
+});
+
+const normalizeSortKey = (value) => String(value || "").trim();
+
+const normalizeSortDirection = (value) => (String(value || "").toLowerCase() === "desc" ? "desc" : "asc");
+
+const normalizeSortConfig = (sortConfig) => {
+  const key = normalizeSortKey(sortConfig?.key);
+  if (!key) {
+    return null;
+  }
+  return {
+    key,
+    direction: normalizeSortDirection(sortConfig?.direction),
+  };
+};
+
+const isDefaultTableSort = (sortConfig) => {
+  const normalizedSortConfig = normalizeSortConfig(sortConfig);
+  return Boolean(
+    normalizedSortConfig &&
+      normalizedSortConfig.key === DEFAULT_TABLE_SORT.key &&
+      normalizedSortConfig.direction === DEFAULT_TABLE_SORT.direction
+  );
+};
+
+const parseRomanNumeral = (value) => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized || /[^ivxlcdm]/.test(normalized)) {
+    return Number.NaN;
+  }
+  let total = 0;
+  let previous = 0;
+  for (let index = normalized.length - 1; index >= 0; index -= 1) {
+    const numeralValue = ROMAN_NUMERAL_VALUES[normalized[index]];
+    if (!numeralValue) {
+      return Number.NaN;
+    }
+    if (numeralValue < previous) {
+      total -= numeralValue;
+    } else {
+      total += numeralValue;
+      previous = numeralValue;
+    }
+  }
+  return total;
+};
+
+const parseLeadingPageNumber = (value) => {
+  const normalized = String(value || "").trim();
+  if (!normalized) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  const numericMatch = normalized.match(/-?\d+/);
+  if (numericMatch) {
+    return Number.parseInt(numericMatch[0], 10);
+  }
+
+  const romanMatch = normalized.match(/[ivxlcdm]+/i);
+  if (romanMatch) {
+    const parsedRoman = parseRomanNumeral(romanMatch[0]);
+    if (Number.isFinite(parsedRoman)) {
+      return parsedRoman;
+    }
+  }
+
+  return Number.POSITIVE_INFINITY;
+};
+
+const buildSortAccessor = ({
+  record,
+  sortKey,
+  filenameFromPath,
+  getRecordBibtexFieldValue,
+}) => {
+  const normalizedSortKey = normalizeSortKey(sortKey);
+  if (!normalizedSortKey) {
+    return {
+      rank: 1,
+      numericValue: Number.POSITIVE_INFINITY,
+      textValue: "",
+    };
+  }
+
+  if (normalizedSortKey === "pages") {
+    const rawPages = getRecordBibtexFieldValue(record, "pages");
+    const numericValue = parseLeadingPageNumber(rawPages);
+    return {
+      rank: Number.isFinite(numericValue) ? 0 : 1,
+      numericValue,
+      textValue: rawPages.toLowerCase(),
+    };
+  }
+
+  if (normalizedSortKey === "object_type") {
+    const objectType =
+      record?.kind === "folder"
+        ? "folder"
+        : String(filenameFromPath(record?.file_path || "").split(".").pop() || "file").trim().toLowerCase();
+    return {
+      rank: objectType ? 0 : 1,
+      numericValue: Number.NaN,
+      textValue: objectType,
+    };
+  }
+
+  const rawValue =
+    normalizedSortKey === "title"
+      ? record?.kind === "folder"
+        ? record.title || record.folder_name
+        : record?.title || filenameFromPath(record?.file_path)
+      : normalizedSortKey === "author"
+        ? getRecordBibtexFieldValue(record, "author") || record?.author || ""
+        : normalizedSortKey === "publication"
+          ? record?.publication || ""
+          : normalizedSortKey === "file_path"
+            ? record?.file_path || ""
+            : normalizedSortKey === "year"
+              ? record?.year || getRecordBibtexFieldValue(record, "year")
+              : normalizedSortKey in (record || {})
+                ? record?.[normalizedSortKey]
+                : getRecordBibtexFieldValue(record, normalizedSortKey);
+
+  const textValue = String(rawValue || "").trim();
+  const numericValue =
+    normalizedSortKey === "year" && textValue
+      ? Number.parseInt(textValue.replace(/[^\d-]+/g, ""), 10)
+      : Number.NaN;
+
+  return {
+    rank: textValue ? 0 : 1,
+    numericValue,
+    textValue: textValue.toLowerCase(),
+  };
+};
+
+const compareSortAccessors = (leftAccessor, rightAccessor, direction) => {
+  if (leftAccessor.rank !== rightAccessor.rank) {
+    return leftAccessor.rank - rightAccessor.rank;
+  }
+
+  if (Number.isFinite(leftAccessor.numericValue) && Number.isFinite(rightAccessor.numericValue)) {
+    if (leftAccessor.numericValue !== rightAccessor.numericValue) {
+      return direction === "desc"
+        ? rightAccessor.numericValue - leftAccessor.numericValue
+        : leftAccessor.numericValue - rightAccessor.numericValue;
+    }
+  }
+
+  if (leftAccessor.textValue !== rightAccessor.textValue) {
+    return direction === "desc"
+      ? rightAccessor.textValue.localeCompare(leftAccessor.textValue, undefined, {
+          numeric: true,
+          sensitivity: "base",
+        })
+      : leftAccessor.textValue.localeCompare(rightAccessor.textValue, undefined, {
+          numeric: true,
+          sensitivity: "base",
+        });
+  }
+
+  return 0;
+};
+
+const compareRecordsBySortConfig = ({
+  leftRecord,
+  rightRecord,
+  sortConfig,
+  filenameFromPath,
+  getRecordBibtexFieldValue,
+}) => {
+  const normalizedSortConfig = normalizeSortConfig(sortConfig);
+  if (!normalizedSortConfig) {
+    return 0;
+  }
+
+  const primaryComparison = compareSortAccessors(
+    buildSortAccessor({
+      record: leftRecord,
+      sortKey: normalizedSortConfig.key,
+      filenameFromPath,
+      getRecordBibtexFieldValue,
+    }),
+    buildSortAccessor({
+      record: rightRecord,
+      sortKey: normalizedSortConfig.key,
+      filenameFromPath,
+      getRecordBibtexFieldValue,
+    }),
+    normalizedSortConfig.direction
+  );
+  if (primaryComparison !== 0) {
+    return primaryComparison;
+  }
+
+  const tieBreakerKeys = ["title", "file_path"];
+  for (const tieBreakerKey of tieBreakerKeys) {
+    if (tieBreakerKey === normalizedSortConfig.key) {
+      continue;
+    }
+    const tieBreakerComparison = compareSortAccessors(
+      buildSortAccessor({
+        record: leftRecord,
+        sortKey: tieBreakerKey,
+        filenameFromPath,
+        getRecordBibtexFieldValue,
+      }),
+      buildSortAccessor({
+        record: rightRecord,
+        sortKey: tieBreakerKey,
+        filenameFromPath,
+        getRecordBibtexFieldValue,
+      }),
+      "asc"
+    );
+    if (tieBreakerComparison !== 0) {
+      return tieBreakerComparison;
+    }
+  }
+
+  return String(leftRecord?.document_id || leftRecord?.item_id || "").localeCompare(
+    String(rightRecord?.document_id || rightRecord?.item_id || ""),
+    undefined,
+    {
+      numeric: true,
+      sensitivity: "base",
+    }
+  );
+};
+
+const sortRecords = ({
+  records,
+  sortConfig,
+  filenameFromPath,
+  getRecordBibtexFieldValue,
+}) => {
+  const normalizedSortConfig = normalizeSortConfig(sortConfig);
+  if (!normalizedSortConfig) {
+    return [...records];
+  }
+  return [...records]
+    .map((record, index) => ({ record, index }))
+    .sort((leftEntry, rightEntry) => {
+      const comparison = compareRecordsBySortConfig({
+        leftRecord: leftEntry.record,
+        rightRecord: rightEntry.record,
+        sortConfig: normalizedSortConfig,
+        filenameFromPath,
+        getRecordBibtexFieldValue,
+      });
+      return comparison || leftEntry.index - rightEntry.index;
+    })
+    .map((entry) => entry.record);
+};
+
 const compareMetadataValue = (value) => {
   if (Array.isArray(value) || (value && typeof value === "object")) {
     try {
@@ -140,6 +414,7 @@ export const buildGroupedDocumentItems = ({
   bibtexFields,
   getRecordBibtexFieldValue,
   expandedFolderKeys,
+  sortConfig = DEFAULT_TABLE_SORT,
 }) => {
   const normalizedQuery = normalizeText(titleSearchQuery).toLowerCase();
   const folderGroups = new Map();
@@ -166,7 +441,6 @@ export const buildGroupedDocumentItems = ({
   const visibleItems = [];
   const folderItems = [];
   const visibleDocuments = [];
-  const emittedFolders = new Set();
 
   const documentMatchesTitleQuery = (documentRecord) => {
     if (!normalizedQuery) {
@@ -186,14 +460,29 @@ export const buildGroupedDocumentItems = ({
     return label.includes(normalizedQuery);
   };
 
+  const sortedFolderChildren = new Map(
+    [...folderGroups.entries()].map(([folderKey, childDocuments]) => [
+      folderKey,
+      sortRecords({
+        records: childDocuments,
+        sortConfig: isDefaultTableSort(sortConfig)
+          ? DEFAULT_CHILD_SORT
+          : normalizeSortConfig(sortConfig) || DEFAULT_CHILD_SORT,
+        filenameFromPath,
+        getRecordBibtexFieldValue,
+      }),
+    ])
+  );
+
+  const topLevelEntries = [];
+  const emittedFolders = new Set();
   documents.forEach((documentRecord) => {
     const folderKey = getFolderKeyFromFilePath(documentRecord.file_path, normalizeText);
     if (!groupedFolderKeys.has(folderKey)) {
-      if (!documentMatchesTitleQuery(documentRecord)) {
-        return;
-      }
-      visibleItems.push(documentRecord);
-      visibleDocuments.push(documentRecord);
+      topLevelEntries.push({
+        item: documentRecord,
+        originalIndex: topLevelEntries.length,
+      });
       return;
     }
 
@@ -202,7 +491,7 @@ export const buildGroupedDocumentItems = ({
     }
     emittedFolders.add(folderKey);
 
-    const childDocuments = folderGroups.get(folderKey) || [];
+    const childDocuments = sortedFolderChildren.get(folderKey) || [];
     const folderItem = deriveFolderMetadata({
       childDocuments,
       folderKey,
@@ -215,18 +504,50 @@ export const buildGroupedDocumentItems = ({
     folderItem.selection_state = folderSelection.selectionState;
     folderItem.expanded = normalizedQuery ? true : expandedFolderKeys.has(folderKey);
     folderItems.push(folderItem);
+    topLevelEntries.push({
+      item: folderItem,
+      originalIndex: topLevelEntries.length,
+    });
+  });
 
-    const matchingChildren = childDocuments.filter((childDocument) => documentMatchesTitleQuery(childDocument));
-    const showFolder = folderMatchesTitleQuery(folderItem) || matchingChildren.length > 0;
+  const sortedTopLevelEntries = normalizeSortConfig(sortConfig)
+    ? [...topLevelEntries].sort((leftEntry, rightEntry) => {
+        const comparison = compareRecordsBySortConfig({
+          leftRecord: leftEntry.item,
+          rightRecord: rightEntry.item,
+          sortConfig,
+          filenameFromPath,
+          getRecordBibtexFieldValue,
+        });
+        return comparison || leftEntry.originalIndex - rightEntry.originalIndex;
+      })
+    : topLevelEntries;
+
+  sortedTopLevelEntries.forEach(({ item }) => {
+    if (!item || typeof item !== "object") {
+      return;
+    }
+
+    if (item.kind !== "folder") {
+      if (!documentMatchesTitleQuery(item)) {
+        return;
+      }
+      visibleItems.push(item);
+      visibleDocuments.push(item);
+      return;
+    }
+
+    const matchingChildren = item.child_documents.filter((childDocument) => documentMatchesTitleQuery(childDocument));
+    const showFolder = folderMatchesTitleQuery(item) || matchingChildren.length > 0;
     if (!showFolder) {
       return;
     }
 
-    visibleItems.push(folderItem);
-    const childItemsToRender = normalizedQuery ? matchingChildren : folderItem.expanded ? childDocuments : [];
+    visibleItems.push(item);
+    const childItemsToRender = normalizedQuery ? matchingChildren : item.expanded ? item.child_documents : [];
     childItemsToRender.forEach((childDocument) => {
       childDocument.depth = 1;
-      childDocument.parent_folder_key = folderKey;
+      childDocument.parent_folder_key = item.folder_key;
       visibleItems.push(childDocument);
       visibleDocuments.push(childDocument);
     });

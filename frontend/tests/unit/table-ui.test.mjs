@@ -74,7 +74,7 @@ test("buildGroupedDocumentItems creates a folder parent for shared prefixes", ()
       title: "Chapter 1",
       authors: [{ first_name: "Ada", last_name: "Lovelace", suffix: "" }],
       bulk_selected: false,
-      bibtex_fields: { title: "Chapter 1", booktitle: "The Book", author: "Lovelace, Ada", year: "2024", publisher: "Press" },
+      bibtex_fields: { title: "Chapter 1", booktitle: "The Book", author: "Lovelace, Ada", year: "2024", publisher: "Press", pages: "1-10" },
     },
     {
       document_id: "2",
@@ -82,7 +82,7 @@ test("buildGroupedDocumentItems creates a folder parent for shared prefixes", ()
       title: "Chapter 2",
       authors: [{ first_name: "Ada", last_name: "Lovelace", suffix: "" }],
       bulk_selected: false,
-      bibtex_fields: { title: "Chapter 2", booktitle: "The Book", author: "Lovelace, Ada", year: "2024", publisher: "Press" },
+      bibtex_fields: { title: "Chapter 2", booktitle: "The Book", author: "Lovelace, Ada", year: "2024", publisher: "Press", pages: "11-20" },
     },
     {
       document_id: "3",
@@ -111,6 +111,146 @@ test("buildGroupedDocumentItems creates a folder parent for shared prefixes", ()
     "document:3",
   ]);
   assert.equal(grouped.visibleItems[0].title, "The Book");
+});
+
+test("buildGroupedDocumentItems defaults to object type then title", () => {
+  const documents = [
+    {
+      document_id: "2",
+      file_path: "book/chapter-2.pdf",
+      title: "Alpha",
+      authors: [],
+      bulk_selected: false,
+      bibtex_fields: { title: "Chapter 2", booktitle: "The Book", pages: "21-30" },
+    },
+    {
+      document_id: "1",
+      file_path: "book/chapter-1.pdf",
+      title: "Zulu",
+      authors: [],
+      bulk_selected: false,
+      bibtex_fields: { title: "Chapter 1", booktitle: "The Book", pages: "1-20" },
+    },
+    {
+      document_id: "3",
+      file_path: "standalone.pdf",
+      title: "Beta",
+      authors: [],
+      bulk_selected: false,
+      bibtex_fields: { title: "Beta" },
+    },
+  ];
+
+  const grouped = buildGroupedDocumentItems({
+    documents,
+    titleSearchQuery: "",
+    normalizeText,
+    filenameFromPath,
+    bibtexFields,
+    getRecordBibtexFieldValue,
+    expandedFolderKeys: new Set(["book"]),
+  });
+
+  assert.deepEqual(grouped.visibleItems.map((item) => item.item_id), [
+    "folder:book",
+    "document:1",
+    "document:2",
+    "document:3",
+  ]);
+});
+
+test("buildGroupedDocumentItems sorts groups by the active sort while keeping children nested", () => {
+  const documents = [
+    {
+      document_id: "2",
+      file_path: "book/chapter-b.pdf",
+      title: "Beta",
+      authors: [],
+      bulk_selected: false,
+      bibtex_fields: { title: "Beta", booktitle: "The Book", pages: "11-20" },
+    },
+    {
+      document_id: "1",
+      file_path: "book/chapter-a.pdf",
+      title: "Alpha",
+      authors: [],
+      bulk_selected: false,
+      bibtex_fields: { title: "Alpha", booktitle: "The Book", pages: "1-10" },
+    },
+    {
+      document_id: "3",
+      file_path: "standalone.pdf",
+      title: "A standalone",
+      authors: [],
+      bulk_selected: false,
+      bibtex_fields: { title: "A standalone" },
+    },
+  ];
+
+  const grouped = buildGroupedDocumentItems({
+    documents,
+    titleSearchQuery: "",
+    normalizeText,
+    filenameFromPath,
+    bibtexFields,
+    getRecordBibtexFieldValue,
+    expandedFolderKeys: new Set(["book"]),
+    sortConfig: { key: "title", direction: "asc" },
+  });
+
+  assert.deepEqual(grouped.visibleItems.map((item) => item.item_id), [
+    "document:3",
+    "folder:book",
+    "document:1",
+    "document:2",
+  ]);
+});
+
+test("buildGroupedDocumentItems can sort by object type independently from title", () => {
+  const documents = [
+    {
+      document_id: "1",
+      file_path: "book/chapter-a.pdf",
+      title: "Alpha",
+      authors: [],
+      bulk_selected: false,
+      bibtex_fields: { title: "Alpha", booktitle: "The Book", pages: "1-10" },
+    },
+    {
+      document_id: "2",
+      file_path: "book/chapter-b.pdf",
+      title: "Beta",
+      authors: [],
+      bulk_selected: false,
+      bibtex_fields: { title: "Beta", booktitle: "The Book", pages: "11-20" },
+    },
+    {
+      document_id: "3",
+      file_path: "standalone.pdf",
+      title: "Standalone",
+      authors: [],
+      bulk_selected: false,
+      bibtex_fields: { title: "Standalone" },
+    },
+  ];
+
+  const grouped = buildGroupedDocumentItems({
+    documents,
+    titleSearchQuery: "",
+    normalizeText,
+    filenameFromPath,
+    bibtexFields,
+    getRecordBibtexFieldValue,
+    expandedFolderKeys: new Set(["book"]),
+    sortConfig: { key: "object_type", direction: "desc" },
+  });
+
+  assert.deepEqual(grouped.visibleItems.map((item) => item.item_id), [
+    "document:3",
+    "folder:book",
+    "document:1",
+    "document:2",
+  ]);
 });
 
 test("buildGroupedDocumentItems keeps single-child prefixes flat", () => {

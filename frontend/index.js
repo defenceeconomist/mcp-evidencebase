@@ -71,6 +71,9 @@ import {
   const detailTableScroll = document.getElementById("detail-table-scroll");
   const detailDocumentTable = document.getElementById("detail-document-table");
   const detailDocumentTableBody = document.getElementById("detail-document-tbody");
+  const detailSortButtons = detailDocumentTable
+    ? [...detailDocumentTable.querySelectorAll("[data-detail-sort-key]")]
+    : [];
   const detailFieldsForm = document.getElementById("detail-fields-form");
   const detailSelectedDocument = document.getElementById("detail-selected-document");
   const detailDocumentActions = document.getElementById("detail-document-actions");
@@ -304,6 +307,119 @@ import {
     return ordered;
   };
 
+  const normalizeTableSortKey = (value) => normalizeText(value);
+
+  const normalizeTableSortDirection = (value) => (normalizeText(value).toLowerCase() === "desc" ? "desc" : "asc");
+
+  const getDefaultTableSortState = () => ({
+    key: "object_type",
+    direction: "asc",
+  });
+
+  const getNormalizedTableSortState = () => {
+    const key = normalizeTableSortKey(tableSortState?.key);
+    if (!key) {
+      return getDefaultTableSortState();
+    }
+    return {
+      key,
+      direction: normalizeTableSortDirection(tableSortState?.direction),
+    };
+  };
+
+  const getNextTableSortState = (sortKey) => {
+    const normalizedSortKey = normalizeTableSortKey(sortKey);
+    const currentSortState = getNormalizedTableSortState();
+    if (!normalizedSortKey) {
+      return getDefaultTableSortState();
+    }
+    if (currentSortState.key !== normalizedSortKey) {
+      return {
+        key: normalizedSortKey,
+        direction: "asc",
+      };
+    }
+    if (currentSortState.direction === "asc") {
+      return {
+        key: normalizedSortKey,
+        direction: "desc",
+      };
+    }
+    return getDefaultTableSortState();
+  };
+
+  const getSortIndicatorText = (sortKey) => {
+    const normalizedSortKey = normalizeTableSortKey(sortKey);
+    const currentSortState = getNormalizedTableSortState();
+    if (!normalizedSortKey || currentSortState.key !== normalizedSortKey) {
+      return "↕";
+    }
+    return currentSortState.direction === "desc" ? "↓" : "↑";
+  };
+
+  const setTableSortState = (nextSortState) => {
+    tableSortState = {
+      key: normalizeTableSortKey(nextSortState?.key),
+      direction: normalizeTableSortDirection(nextSortState?.direction),
+    };
+    renderDocumentMeta();
+  };
+
+  const createItemTypeIcon = (record) => {
+    const icon = document.createElement("span");
+    const isFolder = record?.kind === "folder";
+    icon.className = `item-type-icon ${isFolder ? "item-type-icon-folder" : "item-type-icon-pdf"}`;
+    icon.setAttribute("aria-hidden", "true");
+    icon.innerHTML = isFolder
+      ? (
+          '<svg viewBox="0 0 16 16" focusable="false" aria-hidden="true">' +
+          '<path d="M1.5 3.5A1.5 1.5 0 0 1 3 2h3.1c.5 0 1 .2 1.3.6l.8.9H13A1.5 1.5 0 0 1 14.5 5v6A1.5 1.5 0 0 1 13 12.5H3A1.5 1.5 0 0 1 1.5 11z"/>' +
+          "</svg>"
+        )
+      : (
+          '<svg viewBox="0 0 16 16" focusable="false" aria-hidden="true">' +
+          '<path d="M3 1.5A1.5 1.5 0 0 0 1.5 3v10A1.5 1.5 0 0 0 3 14.5h10a1.5 1.5 0 0 0 1.5-1.5V6.2a1.5 1.5 0 0 0-.44-1.06L10.36 1.94A1.5 1.5 0 0 0 9.3 1.5zm6 1.06 3.44 3.44H10.5A1.5 1.5 0 0 1 9 4.5z"/>' +
+          '<path d="M4.1 9.1h1.8c1 0 1.66.58 1.66 1.46S6.9 12 5.9 12H4.1zm1.58 2.1c.42 0 .68-.23.68-.63s-.26-.63-.68-.63H5.2v1.26zM8.12 9.1h1.35c1.09 0 1.83.56 1.83 1.45S10.56 12 9.47 12H8.12zm1.29 2.08c.49 0 .81-.22.81-.63s-.32-.63-.81-.63h-.26v1.26zM12.02 9.1h2.26v.84h-1.23v.31h1.12v.8h-1.12V12h-1.03z"/>' +
+          "</svg>"
+        );
+    return icon;
+  };
+
+  const renderBulkTypeCell = (instance, td, row, col, prop, value, cellProperties) => {
+    Handsontable.renderers.TextRenderer(instance, td, row, col, prop, value, cellProperties);
+    const physicalRow = instance.toPhysicalRow(row);
+    const record = instance.getSourceDataAtRow(physicalRow);
+    td.innerHTML = "";
+    td.classList.add("hot-type-cell");
+    if (!record) {
+      return;
+    }
+    td.appendChild(createItemTypeIcon(record));
+  };
+
+  const renderDetailSortHeaders = () => {
+    if (!detailDocumentTable) {
+      return;
+    }
+    const currentSortState = getNormalizedTableSortState();
+    detailSortButtons.forEach((button) => {
+      const sortKey = normalizeTableSortKey(button.dataset.detailSortKey);
+      const indicator = button.querySelector(".table-sort-indicator");
+      const parentHeader = button.closest("th");
+      const isActive = Boolean(sortKey) && currentSortState.key === sortKey;
+      button.classList.toggle("is-active", isActive);
+      if (indicator) {
+        indicator.textContent = getSortIndicatorText(sortKey);
+      }
+      if (parentHeader) {
+        parentHeader.setAttribute(
+          "aria-sort",
+          isActive ? (currentSortState.direction === "desc" ? "descending" : "ascending") : "none"
+        );
+      }
+    });
+  };
+
   let minioBuckets = [];
   let selectedBucketName = null;
   let collectionsCollapsed = false;
@@ -313,6 +429,10 @@ import {
   let titleSearchQuery = "";
   let collectionsFilterQuery = "";
   let selectedItemId = null;
+  let tableSortState = {
+    key: "object_type",
+    direction: "asc",
+  };
   let bulkEditEnabled = false;
   let wasMobileLayout = window.matchMedia("(max-width: 991.98px)").matches;
   let documentTable = null;
@@ -2870,6 +2990,14 @@ import {
         className: "htCenter htMiddle",
         renderer: renderBulkCheckboxCell,
       },
+      {
+        data: "object_type",
+        type: "text",
+        readOnly: true,
+        width: 52,
+        className: "htCenter htMiddle",
+        renderer: renderBulkTypeCell,
+      },
       { data: "tree_label", type: "text", readOnly: true, width: 260, renderer: renderBulkTreeCell },
       { data: "file_path", type: "text", readOnly: true, width: 320 },
       {
@@ -2896,11 +3024,21 @@ import {
     ];
     const bulkHeaders = [
       "",
+      "",
       "Item",
       "File Path",
       "Document Type",
       "Citation Key",
       ...bulkBibtexFieldOrder.map((fieldName) => getBibtexFieldLabel(fieldName)),
+    ];
+    const bulkSortKeys = [
+      "",
+      "object_type",
+      "title",
+      "file_path",
+      "document_type",
+      "citation_key",
+      ...bulkBibtexFieldOrder,
     ];
 
     documentTable = new Handsontable(documentHotContainer, {
@@ -2910,7 +3048,7 @@ import {
       rowHeaders: true,
       width: "100%",
       stretchH: "none",
-      columnSorting: true,
+      columnSorting: false,
       dropdownMenu: ["filter_by_condition", "filter_by_value", "filter_action_bar"],
       filters: true,
       manualColumnResize: true,
@@ -2950,11 +3088,11 @@ import {
         return cellProperties;
       },
       afterGetColHeader(col, TH) {
-        if (col !== 0) {
+        if (col < 0) {
           return;
         }
         const headerLabelHost = TH.querySelector(".colHeader") || TH;
-        if (!headerLabelHost.querySelector("input.bulk-select-all-checkbox")) {
+        if (col === 0 && !headerLabelHost.querySelector("input.bulk-select-all-checkbox")) {
           headerLabelHost.textContent = "";
           const wrapper = document.createElement("div");
           wrapper.className = "d-flex justify-content-start align-items-center";
@@ -2989,10 +3127,54 @@ import {
           wrapper.appendChild(label);
           headerLabelHost.appendChild(wrapper);
         }
+        if (col > 0) {
+          headerLabelHost.textContent = "";
+          const sortKey = normalizeTableSortKey(bulkSortKeys[col]);
+          const currentSortState = getNormalizedTableSortState();
+          const wrapper = document.createElement("div");
+          const headerClassNames = ["bulk-sort-header"];
+          if (!bulkHeaders[col]) {
+            headerClassNames.push("bulk-sort-header-icon-only");
+          }
+          if (currentSortState.key === sortKey) {
+            headerClassNames.push("is-active");
+          }
+          wrapper.className = headerClassNames.join(" ");
+          wrapper.dataset.bulkSortKey = sortKey;
+
+          const label = document.createElement("span");
+          if (bulkHeaders[col]) {
+            label.textContent = bulkHeaders[col];
+          } else {
+            label.className = "visually-hidden";
+            label.textContent = "Type";
+          }
+          wrapper.appendChild(label);
+
+          const indicator = document.createElement("span");
+          indicator.className = "bulk-sort-indicator";
+          indicator.textContent = getSortIndicatorText(sortKey);
+          wrapper.appendChild(indicator);
+          headerLabelHost.appendChild(wrapper);
+          TH.setAttribute(
+            "aria-sort",
+            currentSortState.key === sortKey
+              ? currentSortState.direction === "desc"
+                ? "descending"
+                : "ascending"
+              : "none"
+          );
+        }
         window.requestAnimationFrame(syncBulkSelectAllHeaderCheckbox);
       },
       afterOnCellMouseDown(event, coords) {
         if (coords.row < 0) {
+          if (coords.col > 0) {
+            const nextSortKey = bulkSortKeys[coords.col];
+            if (nextSortKey) {
+              setTableSortState(getNextTableSortState(nextSortKey));
+            }
+          }
           return;
         }
         const physicalRow = documentTable.toPhysicalRow(coords.row);
@@ -3002,7 +3184,7 @@ import {
         }
         selectedItemId = record.item_id;
         const chevronToggle = event?.target?.closest?.(".hot-tree-chevron[data-folder-toggle='true']");
-        if (coords.col === 1 && record.kind === "folder" && chevronToggle) {
+        if (coords.col === 2 && record.kind === "folder" && chevronToggle) {
           toggleFolderExpanded(record.folder_key);
           return;
         }
@@ -3139,6 +3321,7 @@ import {
       bibtexFields,
       getRecordBibtexFieldValue,
       expandedFolderKeys,
+      sortConfig: getNormalizedTableSortState(),
     });
   };
 
@@ -3267,7 +3450,7 @@ import {
       documentMetaCount.textContent = `${visibleCount} of ${documents.length} documents`;
       return;
     }
-    documentMetaCount.textContent = `${visibleCount} documents`;
+    documentMetaCount.textContent = `${documents.length} documents`;
   };
 
   const getBulkSelectedDocuments = () => {
@@ -3372,7 +3555,7 @@ import {
     if (visibleItems.length === 0) {
       const row = document.createElement("tr");
       const cell = document.createElement("td");
-      cell.colSpan = 5;
+      cell.colSpan = 6;
       cell.className = "text-body-secondary py-3";
       cell.textContent = "No document metadata available.";
       row.appendChild(cell);
@@ -3395,6 +3578,10 @@ import {
       if (documentRecord.item_id === selectedItemId) {
         row.classList.add("table-active");
       }
+
+      const typeCell = document.createElement("td");
+      typeCell.className = "detail-type-cell";
+      typeCell.appendChild(createItemTypeIcon(documentRecord));
 
       const titleCell = document.createElement("td");
       const titleWrap = document.createElement("div");
@@ -3442,6 +3629,7 @@ import {
         renderParseStatusIntoCell(parseCell, documentRecord);
       }
 
+      row.appendChild(typeCell);
       row.appendChild(titleCell);
       row.appendChild(yearCell);
       row.appendChild(authorCell);
@@ -3808,6 +3996,7 @@ import {
     visibleDocuments = groupedItems.visibleDocuments;
     ensureSelectedItem(visibleItems);
     updateDocumentCount(visibleDocuments.length);
+    renderDetailSortHeaders();
 
     if (bulkEditEnabled) {
       detailViewContainer?.classList.add("d-none");
@@ -5461,6 +5650,12 @@ import {
         return;
       }
       setCollectionsCollapsed(!collectionsCollapsed);
+    });
+  });
+
+  detailSortButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      setTableSortState(getNextTableSortState(button.dataset.detailSortKey));
     });
   });
 

@@ -73,6 +73,15 @@ def _parse_split_selected_files(request: Request) -> set[str] | None:
     }
 
 
+def _format_split_page_range(page_start: int, page_end: int) -> str:
+    """Return a BibTeX-friendly page range for one split segment."""
+    if page_start <= 0 or page_end <= 0:
+        return ""
+    if page_start == page_end:
+        return str(page_start)
+    return f"{page_start}-{page_end}"
+
+
 @router.get("/metadata/schema")
 def get_metadata_schema() -> dict[str, Any]:
     """Return shared citation/author schema used by backend and frontend."""
@@ -422,6 +431,14 @@ async def upload_split_document(
     uploaded: list[dict[str, Any]] = []
     failures: list[dict[str, str]] = []
     for split_segment in split_segments:
+        split_metadata_overrides = dict(metadata_overrides)
+        if "pages" not in split_metadata_overrides:
+            split_page_range = _format_split_page_range(
+                split_segment.page_start,
+                split_segment.page_end,
+            )
+            if split_page_range:
+                split_metadata_overrides["pages"] = split_page_range
         try:
             split_payload = render_pdf_split_segment(
                 reader,
@@ -452,7 +469,7 @@ async def upload_split_document(
             task = enqueue_partition_task(
                 normalized_bucket_name,
                 object_name,
-                metadata_overrides=metadata_overrides,
+                metadata_overrides=split_metadata_overrides,
             )
             task_id = task.id
         except Exception as exc:
@@ -468,6 +485,7 @@ async def upload_split_document(
                 "page_start": split_segment.page_start,
                 "page_end": split_segment.page_end,
                 "page_count": split_segment.page_count,
+                "pages": split_metadata_overrides.get("pages", ""),
                 "queued": queued,
                 "task_id": task_id,
                 "queue_error": queue_error,

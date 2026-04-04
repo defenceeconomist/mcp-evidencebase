@@ -14,7 +14,7 @@
       rel="stylesheet"
       crossorigin="anonymous"
     />
-    <link href="./index.css?v=20260403a" rel="stylesheet" />
+    <link href="./index.css?v=20260404b" rel="stylesheet" />
   </head>
   <body class="bg-body-tertiary d-flex flex-column vh-100">
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
@@ -226,10 +226,42 @@
                               <table id="detail-document-table" class="table table-hover table-striped mb-0">
                                 <thead>
                                   <tr>
-                                    <th scope="col">Title</th>
-                                    <th scope="col">Year</th>
-                                    <th scope="col">Author</th>
-                                    <th scope="col">Publication</th>
+                                    <th scope="col" class="detail-type-column" data-detail-sort-column="object_type" aria-sort="none">
+                                      <button
+                                        type="button"
+                                        class="table-sort-btn table-sort-btn-icon-only"
+                                        data-detail-sort-key="object_type"
+                                        aria-label="Sort by object type"
+                                        title="Sort by object type"
+                                      >
+                                        <span class="visually-hidden">Type</span>
+                                        <span class="table-sort-indicator" aria-hidden="true"></span>
+                                      </button>
+                                    </th>
+                                    <th scope="col" data-detail-sort-column="title" aria-sort="none">
+                                      <button type="button" class="table-sort-btn" data-detail-sort-key="title">
+                                        <span class="table-sort-label">Title</span>
+                                        <span class="table-sort-indicator" aria-hidden="true"></span>
+                                      </button>
+                                    </th>
+                                    <th scope="col" data-detail-sort-column="year" aria-sort="none">
+                                      <button type="button" class="table-sort-btn" data-detail-sort-key="year">
+                                        <span class="table-sort-label">Year</span>
+                                        <span class="table-sort-indicator" aria-hidden="true"></span>
+                                      </button>
+                                    </th>
+                                    <th scope="col" data-detail-sort-column="author" aria-sort="none">
+                                      <button type="button" class="table-sort-btn" data-detail-sort-key="author">
+                                        <span class="table-sort-label">Author</span>
+                                        <span class="table-sort-indicator" aria-hidden="true"></span>
+                                      </button>
+                                    </th>
+                                    <th scope="col" data-detail-sort-column="publication" aria-sort="none">
+                                      <button type="button" class="table-sort-btn" data-detail-sort-key="publication">
+                                        <span class="table-sort-label">Publication</span>
+                                        <span class="table-sort-indicator" aria-hidden="true"></span>
+                                      </button>
+                                    </th>
                                     <th scope="col" class="text-nowrap"></th>
                                   </tr>
                                 </thead>
@@ -725,6 +757,6 @@
       src="https://cdn.jsdelivr.net/npm/dompurify@3.2.6/dist/purify.min.js"
       crossorigin="anonymous"
     ></script>
-    <script type="module" src="./index.js?v=20260404a"></script>
+    <script type="module" src="./index.js?v=20260404b"></script>
   </body>
 </html>

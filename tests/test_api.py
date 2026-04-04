@@ -1586,15 +1586,16 @@ def test_upload_split_document_uploads_chapters_and_queues_tasks(
     ]
     assert [item["page_start"] for item in payload["uploaded"]] == [1, 3, 5]
     assert [item["page_end"] for item in payload["uploaded"]] == [2, 4, 6]
+    assert [item["pages"] for item in payload["uploaded"]] == ["1-2", "3-4", "5-6"]
     assert [uploaded[1] for uploaded in service.uploaded] == [
         "Sample Book/Section 1.1.pdf",
         "Sample Book/Section 1.2.pdf",
         "Sample Book/Section 2.1.pdf",
     ]
     assert fake_task.calls == [
-        ("research-raw", "Sample Book/Section 1.1.pdf", None, True),
-        ("research-raw", "Sample Book/Section 1.2.pdf", None, True),
-        ("research-raw", "Sample Book/Section 2.1.pdf", None, True),
+        ("research-raw", "Sample Book/Section 1.1.pdf", None, True, {"pages": "1-2"}),
+        ("research-raw", "Sample Book/Section 1.2.pdf", None, True, {"pages": "3-4"}),
+        ("research-raw", "Sample Book/Section 2.1.pdf", None, True, {"pages": "5-6"}),
     ]
 
 
@@ -1642,13 +1643,14 @@ def test_upload_split_document_honors_custom_folder_and_embeds_author_metadata(
             "Edited Book/Chapter 1.pdf",
             None,
             True,
-            {
-                "document_type": "incollection",
-                "booktitle": "Edited Book",
-                "author": "Jane Editor",
-            },
-        ),
-    ]
+                {
+                    "document_type": "incollection",
+                    "booktitle": "Edited Book",
+                    "author": "Jane Editor",
+                    "pages": "1-3",
+                },
+            ),
+        ]
 
 
 def test_trigger_bucket_scan_queues_task(
