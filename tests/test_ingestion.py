@@ -106,12 +106,43 @@ class FakeCollectionsResponse:
 class FakeQdrantClient:
     def __init__(self) -> None:
         self.collection_names: set[str] = set()
+        self.collection_points: dict[str, list[Any]] = defaultdict(list)
         self.upsert_calls: list[dict[str, Any]] = []
         self.delete_calls: list[dict[str, Any]] = []
         self.set_payload_calls: list[dict[str, Any]] = []
         self.search_calls: list[dict[str, Any]] = []
         self.search_results: dict[str, list[Any]] = {"dense": [], "keyword": []}
         self.scroll_points: list[Any] = []
+
+    @staticmethod
+    def _match_payload_condition(payload: Mapping[str, Any], condition: Any) -> bool:
+        key = str(getattr(condition, "key", "")).strip()
+        match = getattr(condition, "match", None)
+        value = str(getattr(match, "value", "")).strip()
+        return str(payload.get(key, "")).strip() == value
+
+    @classmethod
+    def _matches_filter(cls, payload: Mapping[str, Any], filter_value: Any) -> bool:
+        if filter_value is None:
+            return True
+        must_conditions = getattr(filter_value, "must", None)
+        should_conditions = getattr(filter_value, "should", None)
+        if isinstance(must_conditions, list) and any(
+            not cls._match_payload_condition(payload, condition) for condition in must_conditions
+        ):
+            return False
+        if isinstance(should_conditions, list) and should_conditions:
+            return any(
+                cls._match_payload_condition(payload, condition)
+                for condition in should_conditions
+            )
+        return True
+
+    def _get_collection_points(self, collection_name: str) -> list[Any]:
+        points = self.collection_points.get(collection_name)
+        if points:
+            return list(points)
+        return list(self.scroll_points)
 
     def get_collections(self) -> FakeCollectionsResponse:
         return FakeCollectionsResponse(
@@ -130,15 +161,8 @@ class FakeQdrantClient:
     def delete_collection(self, collection_name: str) -> None:
         self.collection_names.discard(collection_name)
 
-    def delete(self, *, collection_name: str, points_selector: Any) -> None:
-        self.delete_calls.append(
-            {
-                "collection_name": collection_name,
-                "points_selector": points_selector,
-            }
-        )
-
     def upsert(self, *, collection_name: str, points: list[Any], wait: bool) -> None:
+        self.collection_names.add(collection_name)
         self.upsert_calls.append(
             {
                 "collection_name": collection_name,
@@ -146,6 +170,17 @@ class FakeQdrantClient:
                 "wait": wait,
             }
         )
+        current_points = {
+            str(getattr(point, "id", "")): point
+            for point in self.collection_points.get(collection_name, [])
+            if getattr(point, "id", None) is not None
+        }
+        for point in points:
+            point_id = getattr(point, "id", None)
+            if point_id is None:
+                continue
+            current_points[str(point_id)] = point
+        self.collection_points[collection_name] = list(current_points.values())
 
     def scroll(
         self,
@@ -157,21 +192,14 @@ class FakeQdrantClient:
         with_vectors: bool,
         offset: Any = None,
     ) -> tuple[list[Any], None]:
-        del collection_name, limit, with_payload, with_vectors, offset
-        document_id = ""
-        must_conditions = getattr(scroll_filter, "must", None)
-        if isinstance(must_conditions, list):
-            for condition in must_conditions:
-                if getattr(condition, "key", "") != "document_id":
-                    continue
-                match = getattr(condition, "match", None)
-                document_id = str(getattr(match, "value", "")).strip()
-                break
-        points = [
-            point
-            for point in self.scroll_points
-            if str(getattr(point, "payload", {}).get("document_id", "")).strip() == document_id
-        ]
+        del limit, with_payload, with_vectors, offset
+        points = []
+        for point in self._get_collection_points(collection_name):
+            payload = getattr(point, "payload", {})
+            if not isinstance(payload, Mapping):
+                continue
+            if self._matches_filter(payload, scroll_filter):
+                points.append(point)
         return points, None
 
     def set_payload(
@@ -193,7 +221,7 @@ class FakeQdrantClient:
             }
         )
         point_ids = {str(point_id) for point_id in points}
-        for point in self.scroll_points:
+        for point in self._get_collection_points(collection_name):
             point_id = getattr(point, "id", None)
             if point_id is None or str(point_id) not in point_ids:
                 continue
@@ -209,11 +237,43 @@ class FakeQdrantClient:
         limit: int,
         with_payload: bool,
         with_vectors: bool,
+        query_filter: Any = None,
+        filter: Any = None,
     ) -> list[Any]:
         del collection_name, with_payload, with_vectors
         vector_name = str(query_vector[0]) if isinstance(query_vector, tuple) else "dense"
-        self.search_calls.append({"vector_name": vector_name, "limit": limit})
-        return list(self.search_results.get(vector_name, []))[:limit]
+        resolved_filter = query_filter if query_filter is not None else filter
+        self.search_calls.append(
+            {
+                "vector_name": vector_name,
+                "limit": limit,
+                "query_filter": resolved_filter,
+            }
+        )
+        points: list[Any] = []
+        for point in self.search_results.get(vector_name, []):
+            payload = getattr(point, "payload", {})
+            if not isinstance(payload, Mapping):
+                continue
+            if self._matches_filter(payload, resolved_filter):
+                points.append(point)
+        return points[:limit]
+
+    def delete(self, *, collection_name: str, points_selector: Any) -> None:
+        self.delete_calls.append(
+            {
+                "collection_name": collection_name,
+                "points_selector": points_selector,
+            }
+        )
+        filter_value = getattr(points_selector, "filter", None)
+        existing_points = self._get_collection_points(collection_name)
+        retained_points = []
+        for point in existing_points:
+            payload = getattr(point, "payload", {})
+            if not isinstance(payload, Mapping) or not self._matches_filter(payload, filter_value):
+                retained_points.append(point)
+        self.collection_points[collection_name] = retained_points
 
 
 class FakeMinioObjectResponse:
@@ -253,7 +313,9 @@ class FakeMinioClient:
 
     def get_object(self, bucket_name: str, object_name: str) -> FakeMinioObjectResponse:
         self.get_object_calls.append((bucket_name, object_name))
-        payload = self._buckets.get(bucket_name, {}).get(object_name, {}).get("payload", self._payload)
+        payload = self._buckets.get(bucket_name, {}).get(object_name, {}).get(
+            "payload", self._payload
+        )
         return FakeMinioObjectResponse(payload)
 
     def stat_object(self, bucket_name: str, object_name: str) -> Any:
@@ -351,6 +413,7 @@ class RecordingQdrantIndexer:
         self.upsert_calls: list[dict[str, Any]] = []
         self.rewrite_calls: list[dict[str, Any]] = []
         self.search_calls: list[dict[str, Any]] = []
+        self.migration_calls: list[dict[str, Any]] = []
 
     def upsert_document_chunks(
         self,
@@ -445,6 +508,22 @@ class RecordingQdrantIndexer:
             }
         )
         return []
+
+    def migrate_legacy_collections_to_shared_collection(
+        self,
+        *,
+        dry_run: bool = True,
+    ) -> dict[str, Any]:
+        self.migration_calls.append({"dry_run": dry_run})
+        return {
+            "shared_collection_name": "evidence-base",
+            "dry_run": dry_run,
+            "legacy_collections_seen": 0,
+            "legacy_collections_migrated": 0,
+            "legacy_collections_deleted": 0,
+            "legacy_points_migrated": 0,
+            "items": [],
+        }
 
 
 class FakeEmbedder:
@@ -566,6 +645,15 @@ def test_build_ingestion_settings_supports_qdrant_timeout_override() -> None:
 
     fallback_default = build_ingestion_settings({"QDRANT_TIMEOUT_SECONDS": "invalid"})
     assert fallback_default.qdrant_timeout_seconds == 30.0
+
+
+def test_build_ingestion_settings_supports_qdrant_collection_name_override() -> None:
+    """Confirm shared Qdrant collection name is configurable and defaults correctly."""
+    settings = build_ingestion_settings({})
+    assert settings.qdrant_collection_name == "evidence-base"
+
+    overridden = build_ingestion_settings({"QDRANT_COLLECTION_NAME": "custom-evidence-base"})
+    assert overridden.qdrant_collection_name == "custom-evidence-base"
 
 
 def test_build_ingestion_settings_do_not_default_redis_or_qdrant_urls() -> None:
@@ -2008,7 +2096,9 @@ def test_repository_relocate_source_location_updates_mapping_meta_and_state() ->
         == "Relocation test"
     )
     assert repository.get_metadata_by_key(f"{bucket_name}/{old_object_name}")["title"] == ""
-    assert repository.get_object_mapping(bucket_name, alias_object_name)["document_id"] == document_id
+    assert (
+        repository.get_object_mapping(bucket_name, alias_object_name)["document_id"] == document_id
+    )
     state = repository.get_state(document_id)
     assert state["file_path"] == new_object_name
     assert state["meta_key"] == f"{bucket_name}/{new_object_name}"
@@ -2211,6 +2301,7 @@ def test_qdrant_indexer_purge_prefixed_collections() -> None:
     """Validate only collections with the configured prefix are deleted."""
     qdrant = FakeQdrantClient()
     qdrant.collection_names = {
+        "evidence-base",
         "evidencebase_research_raw",
         "evidencebase_other",
         "unrelated_collection",
@@ -2224,7 +2315,8 @@ def test_qdrant_indexer_purge_prefixed_collections() -> None:
 
     deleted = indexer.purge_prefixed_collections()
 
-    assert deleted == 2
+    assert deleted == 3
+    assert "evidence-base" not in qdrant.collection_names
     assert "unrelated_collection" in qdrant.collection_names
     assert "evidencebase_research_raw" not in qdrant.collection_names
     assert "evidencebase_other" not in qdrant.collection_names
@@ -2234,11 +2326,13 @@ def test_qdrant_rewrite_document_source_paths_updates_payload_only() -> None:
     """Relocation should patch only payload path fields for existing points."""
     install_qdrant_client_stub()
     qdrant = FakeQdrantClient()
-    qdrant.collection_names = {"evidencebase_offsets"}
-    qdrant.scroll_points = [
+    qdrant.collection_names = {"evidence-base"}
+    qdrant.collection_points["evidence-base"] = [
         types.SimpleNamespace(
             id="point-1",
+            vector={"dense": [0.1, 0.2, 0.3]},
             payload={
+                "evidence_base_collection": "offsets",
                 "document_id": "doc-relocate",
                 "minio_location": "offsets/articles/relocate-me.pdf",
                 "resolver_url": "docs://offsets/articles/relocate-me.pdf?page=2",
@@ -2248,11 +2342,25 @@ def test_qdrant_rewrite_document_source_paths_updates_payload_only() -> None:
         ),
         types.SimpleNamespace(
             id="point-2",
+            vector={"dense": [0.1, 0.2, 0.3]},
             payload={
+                "evidence_base_collection": "offsets",
                 "document_id": "doc-relocate",
                 "minio_location": "offsets/articles/relocate-me.pdf",
                 "resolver_url": "docs://offsets/articles/relocate-me.pdf?page=5",
                 "page_start": 5,
+            },
+        ),
+        types.SimpleNamespace(
+            id="point-3",
+            vector={"dense": [0.1, 0.2, 0.3]},
+            payload={
+                "evidence_base_collection": "other-bucket",
+                "document_id": "doc-relocate",
+                "minio_location": "other-bucket/articles/leave-alone.pdf",
+                "resolver_url": "docs://other-bucket/articles/leave-alone.pdf?page=3",
+                "file_path": "articles/leave-alone.pdf",
+                "page_start": 3,
             },
         ),
     ]
@@ -2278,14 +2386,101 @@ def test_qdrant_rewrite_document_source_paths_updates_payload_only() -> None:
     assert {
         "minio_location": "offsets/relocate-me.pdf",
         "file_path": "relocate-me.pdf",
+        "evidence_base_collection": "offsets",
         "collection_name": "offsets",
     } in payloads
     assert {"resolver_url": "docs://offsets/relocate-me.pdf?page=2"} in payloads
     assert {"resolver_url": "docs://offsets/relocate-me.pdf?page=5"} in payloads
-    for point in qdrant.scroll_points:
+    for point in qdrant.collection_points["evidence-base"][:2]:
         assert point.payload["minio_location"] == "offsets/relocate-me.pdf"
         assert point.payload["file_path"] == "relocate-me.pdf"
         assert str(point.payload["resolver_url"]).startswith("docs://offsets/relocate-me.pdf")
+    untouched_point = qdrant.collection_points["evidence-base"][2]
+    assert untouched_point.payload["minio_location"] == "other-bucket/articles/leave-alone.pdf"
+    assert untouched_point.payload["file_path"] == "articles/leave-alone.pdf"
+
+
+def test_qdrant_delete_document_filters_by_document_and_collection() -> None:
+    """Deleting one document should not remove same-id points from other folders."""
+    install_qdrant_client_stub()
+    qdrant = FakeQdrantClient()
+    qdrant.collection_names = {"evidence-base"}
+    qdrant.collection_points["evidence-base"] = [
+        types.SimpleNamespace(
+            id="point-1",
+            vector={"dense": [0.1, 0.2, 0.3]},
+            payload={"document_id": "doc-1", "evidence_base_collection": "offsets"},
+        ),
+        types.SimpleNamespace(
+            id="point-2",
+            vector={"dense": [0.1, 0.2, 0.3]},
+            payload={"document_id": "doc-1", "evidence_base_collection": "other"},
+        ),
+    ]
+    indexer = StubQdrantIndexer(
+        qdrant_client=qdrant,
+        fastembed_model="ignored",
+        fastembed_keyword_model="ignored-keyword",
+        collection_prefix="evidencebase",
+    )
+
+    indexer.delete_document("offsets", "doc-1")
+
+    remaining_points = qdrant.collection_points["evidence-base"]
+    assert [getattr(point, "id", "") for point in remaining_points] == ["point-2"]
+
+
+def test_qdrant_indexer_migrates_legacy_collections_into_shared_collection() -> None:
+    """Legacy per-bucket collections should backfill into the shared collection."""
+    install_qdrant_client_stub()
+    qdrant = FakeQdrantClient()
+    qdrant.collection_names = {"evidencebase_offsets", "evidencebase_other"}
+    qdrant.collection_points["evidencebase_offsets"] = [
+        types.SimpleNamespace(
+            id="point-1",
+            vector={
+                "dense": [0.1, 0.2, 0.3],
+                "keyword": StubSparseVector(indices=[1], values=[1.0]),
+            },
+            payload={"document_id": "doc-1", "collection_name": "offsets", "file_path": "a.pdf"},
+        )
+    ]
+    qdrant.collection_points["evidencebase_other"] = [
+        types.SimpleNamespace(
+            id="point-2",
+            vector={
+                "dense": [0.4, 0.5, 0.6],
+                "keyword": StubSparseVector(indices=[2], values=[0.5]),
+            },
+            payload={"document_id": "doc-2", "collection_name": "other", "file_path": "b.pdf"},
+        )
+    ]
+    indexer = StubQdrantIndexer(
+        qdrant_client=qdrant,
+        fastembed_model="ignored",
+        fastembed_keyword_model="ignored-keyword",
+        collection_prefix="evidencebase",
+    )
+
+    report = indexer.migrate_legacy_collections_to_shared_collection(dry_run=False)
+
+    assert report["shared_collection_name"] == "evidence-base"
+    assert report["legacy_collections_seen"] == 2
+    assert report["legacy_collections_migrated"] == 2
+    assert report["legacy_collections_deleted"] == 2
+    assert report["legacy_points_migrated"] == 2
+    assert qdrant.collection_names == {"evidence-base"}
+    migrated_points = qdrant.collection_points["evidence-base"]
+    assert len(migrated_points) == 2
+    assert {point.payload["evidence_base_collection"] for point in migrated_points} == {
+        "offsets",
+        "other",
+    }
+    assert {point.payload["collection_name"] for point in migrated_points} == {"offsets", "other"}
+
+    rerun_report = indexer.migrate_legacy_collections_to_shared_collection(dry_run=False)
+    assert rerun_report["legacy_collections_seen"] == 0
+    assert rerun_report["legacy_points_migrated"] == 0
 
 
 def test_ingestion_service_purge_datastores_returns_deleted_counts() -> None:
@@ -2465,7 +2660,11 @@ def test_relocate_prefix_to_bucket_root_moves_one_document_without_reindexing() 
     assert state["partition_key"] == partition_key
     assert state["sections_count"] == "2"
     assert state["chunks_count"] == "3"
-    assert ("offsets", "relocate-me.pdf", "articles/relocate-me.pdf") in minio_client.copy_object_calls
+    assert (
+        "offsets",
+        "relocate-me.pdf",
+        "articles/relocate-me.pdf",
+    ) in minio_client.copy_object_calls
     assert repository.get_object_mapping("offsets", "relocate-me.pdf")["etag"].startswith("etag-")
     assert qdrant_indexer.upsert_calls == []
     assert qdrant_indexer.rewrite_calls == [
@@ -2542,7 +2741,7 @@ def test_qdrant_payload_contains_document_partition_meta_and_resolver_keys() -> 
 
     assert len(qdrant.upsert_calls) == 1
     upsert_call = qdrant.upsert_calls[0]
-    assert upsert_call["collection_name"] == "evidencebase_research_raw"
+    assert upsert_call["collection_name"] == "evidence-base"
     assert upsert_call["wait"] is True
 
     point = upsert_call["points"][0]
@@ -2556,6 +2755,7 @@ def test_qdrant_payload_contains_document_partition_meta_and_resolver_keys() -> 
     assert point.payload["partition_key"] == "partition-hash"
     assert "meta_key" not in point.payload
     assert "bucket_name" not in point.payload
+    assert point.payload["evidence_base_collection"] == "research-raw"
     assert point.payload["collection_name"] == "research-raw"
     assert point.payload["file_path"] == "paper.pdf"
     assert point.payload["resolver_url"] == "docs://research-raw/paper.pdf?page=1"
@@ -2627,12 +2827,13 @@ def test_qdrant_indexer_hybrid_search_merges_dense_and_keyword_results() -> None
     """Verify hybrid search merges dense and keyword ranks with RRF."""
     install_qdrant_client_stub()
     qdrant = FakeQdrantClient()
-    qdrant.collection_names = {"evidencebase_research_raw"}
+    qdrant.collection_names = {"evidence-base"}
     qdrant.search_results["dense"] = [
         types.SimpleNamespace(
             id="chunk-a",
             score=0.91,
             payload={
+                "evidence_base_collection": "research-raw",
                 "document_id": "doc-a",
                 "title": "Document A",
                 "author": "Doe, J.",
@@ -2644,13 +2845,31 @@ def test_qdrant_indexer_hybrid_search_merges_dense_and_keyword_results() -> None
                 "page_end": 3,
                 "text": "dense\n\nmatch",
             },
-        )
+        ),
+        types.SimpleNamespace(
+            id="chunk-other",
+            score=0.9,
+            payload={
+                "evidence_base_collection": "other-bucket",
+                "document_id": "doc-z",
+                "title": "Document Z",
+                "author": "Someone Else",
+                "year": "2020",
+                "minio_location": "other-bucket/z.pdf",
+                "section_title": "Other",
+                "section_id": "section-z",
+                "page_start": 1,
+                "page_end": 1,
+                "text": "other bucket match",
+            },
+        ),
     ]
     qdrant.search_results["keyword"] = [
         types.SimpleNamespace(
             id="chunk-b",
             score=0.88,
             payload={
+                "evidence_base_collection": "research-raw",
                 "document_id": "doc-b",
                 "title": "Document B",
                 "author": "Smith, R.",
@@ -2667,6 +2886,7 @@ def test_qdrant_indexer_hybrid_search_merges_dense_and_keyword_results() -> None
             id="chunk-a",
             score=0.7,
             payload={
+                "evidence_base_collection": "research-raw",
                 "document_id": "doc-a",
                 "title": "Document A",
                 "author": "Doe, J.",
@@ -2745,6 +2965,14 @@ def test_qdrant_indexer_hybrid_search_merges_dense_and_keyword_results() -> None
         == "/resolver.html?bucket=research-raw&file_path=b.pdf&page=5"
     )
     assert [call["vector_name"] for call in qdrant.search_calls] == ["dense", "keyword"]
+    for call in qdrant.search_calls:
+        must_conditions = getattr(call["query_filter"], "must", None)
+        assert isinstance(must_conditions, list)
+        assert any(
+            getattr(condition, "key", "") == "evidence_base_collection"
+            and getattr(getattr(condition, "match", None), "value", "") == "research-raw"
+            for condition in must_conditions
+        )
 
 
 def test_ingestion_service_search_documents_delegates_to_qdrant_indexer() -> None:

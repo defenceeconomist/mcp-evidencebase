@@ -35,6 +35,37 @@ def test_main_purge_datastores_prints_summary(
     assert "qdrant_deleted_collections" in captured.out
 
 
+def test_main_migrate_qdrant_to_shared_collection_prints_summary_json(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Ensure migration flag calls the Qdrant backfill workflow and prints JSON."""
+
+    class FakeService:
+        def migrate_legacy_qdrant_collections(self, *, dry_run: bool = True) -> dict[str, Any]:
+            assert dry_run is False
+            return {
+                "shared_collection_name": "evidence-base",
+                "legacy_collections_seen": 2,
+                "legacy_points_migrated": 14,
+            }
+
+    monkeypatch.setattr(cli, "build_ingestion_service", lambda: FakeService())
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["mcp-evidencebase", "--migrate-qdrant-to-shared-collection", "--apply"],
+    )
+
+    exit_code = cli.main()
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert '"shared_collection_name": "evidence-base"' in captured.out
+    assert '"legacy_collections_seen": 2' in captured.out
+    assert '"legacy_points_migrated": 14' in captured.out
+
+
 def test_main_healthcheck_exits_non_zero_when_runtime_is_not_ready(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],

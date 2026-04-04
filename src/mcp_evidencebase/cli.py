@@ -37,6 +37,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Purge Redis and Qdrant data for the configured application prefix.",
     )
     parser.add_argument(
+        "--migrate-qdrant-to-shared-collection",
+        action="store_true",
+        help="Backfill legacy per-bucket Qdrant collections into the shared collection.",
+    )
+    parser.add_argument(
         "--relocate-prefix-to-root",
         action="store_true",
         help="Relocate one bucket prefix to the bucket root without reindexing.",
@@ -115,6 +120,16 @@ def main() -> int:
             print(str(exc))
             return 1
         print(summary)
+        return 0
+    if args.migrate_qdrant_to_shared_collection:
+        try:
+            summary = build_ingestion_service().migrate_legacy_qdrant_collections(
+                dry_run=not bool(args.apply),
+            )
+        except (DependencyConfigurationError, DependencyDisabledError, ValueError) as exc:
+            print(str(exc))
+            return 1
+        print(json.dumps(summary, sort_keys=True))
         return 0
     if args.relocate_prefix_to_root:
         if not args.bucket:

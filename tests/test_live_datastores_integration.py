@@ -467,6 +467,8 @@ def test_live_partition_chunk_and_search_round_trip(live_stack: _LiveStack) -> N
     first_payload = getattr(indexed_points[0], "payload", {})
     assert isinstance(first_payload, dict)
     assert first_payload["document_id"] == document_id
+    assert first_payload["evidence_base_collection"] == live_stack.bucket_name
+    assert first_payload["collection_name"] == live_stack.bucket_name
     assert first_payload["minio_location"] == f"{live_stack.bucket_name}/{object_name}"
     assert str(first_payload.get("resolver_url", "")).startswith(
         f"docs://{live_stack.bucket_name}/{object_name}"
@@ -745,6 +747,8 @@ def test_live_relocate_prefix_to_bucket_root_updates_minio_redis_and_qdrant(
     for point in indexed_points_after:
         payload_mapping = getattr(point, "payload", {})
         assert isinstance(payload_mapping, dict)
+        assert payload_mapping["evidence_base_collection"] == live_stack.bucket_name
+        assert payload_mapping["collection_name"] == live_stack.bucket_name
         assert (
             payload_mapping["minio_location"]
             == f"{live_stack.bucket_name}/{relocated_object_name}"

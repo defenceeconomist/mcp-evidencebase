@@ -42,8 +42,6 @@ from mcp_evidencebase.ingestion_modules.metadata import (
     normalize_etag,
     utc_now_iso,
 )
-from mcp_evidencebase.ingestion_modules.qdrant import QdrantIndexer
-from mcp_evidencebase.ingestion_modules.repository import RedisDocumentRepository
 from mcp_evidencebase.storage_layout import (
     COLLECTION_MARKER_FILENAME,
     DEFAULT_STORAGE_BUCKET_NAME,
@@ -144,6 +142,15 @@ class DisabledQdrantIndexer:
     def search_chunks(self, *args: Any, **kwargs: Any) -> list[dict[str, Any]]:
         del args, kwargs
         self._raise("search_chunks")
+        raise AssertionError("unreachable")
+
+    def migrate_legacy_collections_to_shared_collection(
+        self,
+        *args: Any,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        del args, kwargs
+        self._raise("migrate_legacy_collections_to_shared_collection")
         raise AssertionError("unreachable")
 
 
@@ -1137,15 +1144,24 @@ class IngestionService:
         return cast(bool, self._qdrant_indexer.ensure_bucket_collection(bucket_name))
 
     def delete_bucket_qdrant_collection(self, bucket_name: str) -> bool:
-        """Delete the bucket-level Qdrant collection when present.
+        """Delete the bucket's Qdrant points from the shared collection when present.
 
         Args:
             bucket_name: Bucket whose collection should be removed.
 
         Returns:
-            ``True`` when a collection is removed, otherwise ``False``.
+            ``True`` when the shared collection exists and a delete is issued.
         """
         return cast(bool, self._qdrant_indexer.delete_bucket_collection(bucket_name))
+
+    def migrate_legacy_qdrant_collections(self, *, dry_run: bool = True) -> dict[str, Any]:
+        """Backfill legacy per-bucket Qdrant collections into the shared collection."""
+        return cast(
+            dict[str, Any],
+            self._qdrant_indexer.migrate_legacy_collections_to_shared_collection(
+                dry_run=dry_run
+            ),
+        )
 
     def list_bucket_objects(self, bucket_name: str) -> list[tuple[str, str]]:
         """Return non-directory object names and ETags for one logical collection.
@@ -2492,7 +2508,8 @@ class IngestionService:
     ) -> dict[str, Any]:
         """Merge legacy physical buckets into the shared storage bucket."""
         normalized_target_bucket_name = (
-            str(target_bucket_name or self._storage_bucket_name).strip() or self._storage_bucket_name
+            str(target_bucket_name or self._storage_bucket_name).strip()
+            or self._storage_bucket_name
         )
         normalized_source_bucket_names: list[str] = []
         seen_bucket_names: set[str] = set()
@@ -2510,7 +2527,9 @@ class IngestionService:
 
         existing_target_objects: set[str] = set()
         if self._bucket_exists(normalized_target_bucket_name):
-            for item in self._minio_client.list_objects(normalized_target_bucket_name, recursive=True):
+            for item in self._minio_client.list_objects(
+                normalized_target_bucket_name, recursive=True
+            ):
                 object_name = str(getattr(item, "object_name", "")).strip()
                 if object_name:
                     existing_target_objects.add(object_name)

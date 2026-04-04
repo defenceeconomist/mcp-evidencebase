@@ -42,6 +42,7 @@ class IngestionSettings:
     qdrant_api_key: str | None
     qdrant_timeout_seconds: float
     qdrant_collection_prefix: str
+    qdrant_collection_name: str
     unstructured_api_url: str
     unstructured_api_key: str | None
     unstructured_strategy: str
@@ -118,6 +119,7 @@ def build_ingestion_settings(env: Mapping[str, str] | None = None) -> IngestionS
         qdrant_api_key=source.get("QDRANT_API_KEY") or None,
         qdrant_timeout_seconds=max(1.0, _safe_float("QDRANT_TIMEOUT_SECONDS", 30.0)),
         qdrant_collection_prefix=source.get("QDRANT_COLLECTION_PREFIX", "evidencebase"),
+        qdrant_collection_name=source.get("QDRANT_COLLECTION_NAME", "evidence-base"),
         unstructured_api_url=source.get(
             "UNSTRUCTURED_API_URL", "https://api.unstructuredapp.io/general/v0/general"
         ),
@@ -206,6 +208,7 @@ def build_ingestion_service(
             fastembed_model=resolved_settings.fastembed_model,
             fastembed_keyword_model=resolved_settings.fastembed_keyword_model,
             collection_prefix=resolved_settings.qdrant_collection_prefix,
+            collection_name=resolved_settings.qdrant_collection_name,
         )
     else:
         qdrant_indexer = DisabledQdrantIndexer()

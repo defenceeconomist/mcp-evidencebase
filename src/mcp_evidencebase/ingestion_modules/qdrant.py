@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
+from itertools import islice
 from typing import Any
 from urllib.parse import quote
 
@@ -31,22 +32,42 @@ class QdrantIndexer:
         fastembed_model: str,
         fastembed_keyword_model: str,
         collection_prefix: str,
+        collection_name: str = "evidence-base",
     ) -> None:
         """Initialize indexer with a Qdrant client and embedding model name."""
         self._qdrant_client = qdrant_client
         self._fastembed_model = fastembed_model
         self._fastembed_keyword_model = fastembed_keyword_model
         self._collection_prefix = collection_prefix
+        self._shared_collection_name = str(collection_name).strip() or "evidence-base"
         self._embedder: Any | None = None
         self._keyword_embedder: Any | None = None
         self._dense_vector_name = "dense"
         self._keyword_vector_name = "keyword"
 
-    def _collection_name(self, bucket_name: str) -> str:
+    def _collection_name(self, bucket_name: str = "") -> str:
+        del bucket_name
+        return self._shared_collection_name
+
+    def _legacy_collection_name(self, bucket_name: str) -> str:
         normalized_bucket = re.sub(r"[^a-zA-Z0-9_]+", "_", bucket_name).strip("_").lower()
         if not normalized_bucket:
             normalized_bucket = "default"
         return f"{self._collection_prefix}_{normalized_bucket}"
+
+    def _list_collection_names(self) -> set[str]:
+        return {
+            str(collection.name)
+            for collection in self._qdrant_client.get_collections().collections
+        }
+
+    def _legacy_collection_names(self) -> list[str]:
+        prefix = f"{self._collection_prefix}_"
+        return sorted(
+            collection_name
+            for collection_name in self._list_collection_names()
+            if collection_name.startswith(prefix)
+        )
 
     def _get_embedder(self) -> Any:
         if self._embedder is None:
@@ -141,14 +162,104 @@ class QdrantIndexer:
             )
 
     def _collection_exists(self, collection_name: str) -> bool:
-        collection_names = {
-            str(collection.name) for collection in self._qdrant_client.get_collections().collections
-        }
-        return collection_name in collection_names
+        return collection_name in self._list_collection_names()
+
+    @staticmethod
+    def _normalize_bucket_name(bucket_name: str) -> str:
+        return str(bucket_name).strip()
+
+    @staticmethod
+    def _extract_point_vectors(point: Any) -> Any:
+        vectors = getattr(point, "vector", None)
+        if vectors is not None:
+            return vectors
+        return getattr(point, "vectors", None)
+
+    def _extract_dense_vector_size(self, point: Any) -> int | None:
+        raw_vectors = self._extract_point_vectors(point)
+        if isinstance(raw_vectors, Mapping):
+            dense_vector = raw_vectors.get(self._dense_vector_name)
+            if isinstance(dense_vector, list):
+                return len(dense_vector)
+        if isinstance(raw_vectors, list):
+            return len(raw_vectors)
+        return None
+
+    @staticmethod
+    def _resolve_bucket_name_from_payload(payload: Mapping[str, Any]) -> str:
+        minio_location = str(payload.get("minio_location", ""))
+        bucket_name = str(
+            payload.get("evidence_base_collection", "")
+            or payload.get("collection_name", "")
+            or payload.get("bucket_name", "")
+        ).strip()
+        if bucket_name:
+            return bucket_name
+        bucket_name = QdrantIndexer._extract_collection_name_from_minio_location(minio_location)
+        if bucket_name:
+            return bucket_name
+        return QdrantIndexer._extract_bucket_from_minio_location(minio_location)
+
+    def _build_collection_field_condition(self, bucket_name: str) -> Any:
+        from qdrant_client import models as qdrant_models
+
+        return qdrant_models.FieldCondition(
+            key="evidence_base_collection",
+            match=qdrant_models.MatchValue(value=self._normalize_bucket_name(bucket_name)),
+        )
+
+    def _build_document_filter(self, *, bucket_name: str, document_id: str) -> Any:
+        from qdrant_client import models as qdrant_models
+
+        return qdrant_models.Filter(
+            must=[
+                self._build_collection_field_condition(bucket_name),
+                qdrant_models.FieldCondition(
+                    key="document_id",
+                    match=qdrant_models.MatchValue(value=document_id),
+                ),
+            ]
+        )
+
+    def _scroll_points(
+        self,
+        *,
+        collection_name: str,
+        scroll_filter: Any,
+        with_vectors: bool = False,
+    ) -> list[Any]:
+        points_to_update: list[Any] = []
+        offset: Any = None
+        while True:
+            response = self._qdrant_client.scroll(
+                collection_name=collection_name,
+                scroll_filter=scroll_filter,
+                limit=100,
+                with_payload=True,
+                with_vectors=with_vectors,
+                offset=offset,
+            )
+            points, offset = self._extract_scroll_points(response)
+            if not points:
+                break
+            points_to_update.extend(points)
+            if offset in (None, ""):
+                break
+        return points_to_update
+
+    @staticmethod
+    def _iter_batches(values: list[Any], *, batch_size: int) -> Any:
+        iterator = iter(values)
+        while True:
+            batch = list(islice(iterator, batch_size))
+            if not batch:
+                break
+            yield batch
 
     def ensure_bucket_collection(self, bucket_name: str) -> bool:
-        """Ensure a Qdrant collection exists for a bucket."""
-        collection_name = self._collection_name(bucket_name)
+        """Ensure the shared Qdrant collection exists."""
+        del bucket_name
+        collection_name = self._collection_name()
         if self._collection_exists(collection_name):
             return False
 
@@ -161,21 +272,35 @@ class QdrantIndexer:
         return True
 
     def delete_bucket_collection(self, bucket_name: str) -> bool:
-        """Delete the Qdrant collection for a bucket when it exists."""
+        """Delete all shared-collection points for one bucket when present."""
+        from qdrant_client import models as qdrant_models
+
         collection_name = self._collection_name(bucket_name)
         if not self._collection_exists(collection_name):
             return False
-        self._qdrant_client.delete_collection(collection_name=collection_name)
+        self._qdrant_client.delete(
+            collection_name=collection_name,
+            points_selector=qdrant_models.FilterSelector(
+                filter=qdrant_models.Filter(
+                    must=[self._build_collection_field_condition(bucket_name)]
+                )
+            ),
+        )
         return True
 
     def purge_prefixed_collections(self) -> int:
-        """Delete every collection that belongs to this application's prefix."""
-        prefix = f"{self._collection_prefix}_"
+        """Delete the shared collection and any legacy per-bucket collections."""
         deleted = 0
-        for collection in self._qdrant_client.get_collections().collections:
-            collection_name = str(getattr(collection, "name", "")).strip()
-            if not collection_name.startswith(prefix):
+        collection_names_to_delete: list[str] = []
+        shared_collection_name = self._collection_name()
+        if self._collection_exists(shared_collection_name):
+            collection_names_to_delete.append(shared_collection_name)
+        for collection_name in self._legacy_collection_names():
+            if collection_name == shared_collection_name:
                 continue
+            collection_names_to_delete.append(collection_name)
+
+        for collection_name in collection_names_to_delete:
             self._qdrant_client.delete_collection(collection_name=collection_name)
             deleted += 1
         return deleted
@@ -191,14 +316,7 @@ class QdrantIndexer:
         self._qdrant_client.delete(
             collection_name=collection_name,
             points_selector=qdrant_models.FilterSelector(
-                filter=qdrant_models.Filter(
-                    must=[
-                        qdrant_models.FieldCondition(
-                            key="document_id",
-                            match=qdrant_models.MatchValue(value=document_id),
-                        )
-                    ]
-                )
+                filter=self._build_document_filter(bucket_name=bucket_name, document_id=document_id)
             ),
         )
 
@@ -230,8 +348,6 @@ class QdrantIndexer:
         storage_bucket_name: str | None = None,
     ) -> int:
         """Patch path-bearing payload fields for one document without re-upserting vectors."""
-        from qdrant_client import models as qdrant_models
-
         collection_name = self._collection_name(bucket_name)
         if not self._collection_exists(collection_name):
             return 0
@@ -252,32 +368,13 @@ class QdrantIndexer:
         if normalized_old_object_name == normalized_new_object_name:
             return 0
 
-        points_to_update: list[Any] = []
-        offset: Any = None
-        scroll_filter = qdrant_models.Filter(
-            must=[
-                qdrant_models.FieldCondition(
-                    key="document_id",
-                    match=qdrant_models.MatchValue(value=normalized_document_id),
-                )
-            ]
+        points_to_update = self._scroll_points(
+            collection_name=collection_name,
+            scroll_filter=self._build_document_filter(
+                bucket_name=normalized_bucket_name,
+                document_id=normalized_document_id,
+            ),
         )
-
-        while True:
-            response = self._qdrant_client.scroll(
-                collection_name=collection_name,
-                scroll_filter=scroll_filter,
-                limit=100,
-                with_payload=True,
-                with_vectors=False,
-                offset=offset,
-            )
-            points, offset = self._extract_scroll_points(response)
-            if not points:
-                break
-            points_to_update.extend(points)
-            if offset in (None, ""):
-                break
 
         if not points_to_update:
             return 0
@@ -306,6 +403,7 @@ class QdrantIndexer:
             payload={
                 "minio_location": new_minio_location,
                 "file_path": normalized_new_object_name,
+                "evidence_base_collection": normalized_bucket_name,
                 "collection_name": normalized_bucket_name,
             },
             wait=True,
@@ -339,27 +437,18 @@ class QdrantIndexer:
         storage_bucket_name: str,
     ) -> int:
         """Rewrite physical storage payload fields for every point in one collection."""
+        from qdrant_client import models as qdrant_models
+
         collection_name = self._collection_name(bucket_name)
         if not self._collection_exists(collection_name):
             return 0
 
-        points_to_update: list[Any] = []
-        offset: Any = None
-        while True:
-            response = self._qdrant_client.scroll(
-                collection_name=collection_name,
-                scroll_filter=None,
-                limit=100,
-                with_payload=True,
-                with_vectors=False,
-                offset=offset,
-            )
-            points, offset = self._extract_scroll_points(response)
-            if not points:
-                break
-            points_to_update.extend(points)
-            if offset in (None, ""):
-                break
+        points_to_update = self._scroll_points(
+            collection_name=collection_name,
+            scroll_filter=qdrant_models.Filter(
+                must=[self._build_collection_field_condition(bucket_name)]
+            ),
+        )
 
         updated_points = 0
         for point in points_to_update:
@@ -370,10 +459,12 @@ class QdrantIndexer:
             resolver_url = str(payload.get("resolver_url", ""))
             file_path = str(payload.get("file_path", "")).strip()
             if not file_path:
-                file_path = self._extract_file_path_from_minio_location(payload.get("minio_location"))
+                file_path = self._extract_file_path_from_minio_location(
+                    payload.get("minio_location")
+                )
             if not file_path:
-                _resolver_bucket_name, resolver_file_path = self._extract_bucket_and_path_from_resolver_url(
-                    resolver_url
+                _resolver_bucket_name, resolver_file_path = (
+                    self._extract_bucket_and_path_from_resolver_url(resolver_url)
                 )
                 file_path = resolver_file_path
             if not file_path:
@@ -383,6 +474,7 @@ class QdrantIndexer:
                 collection_name=collection_name,
                 points=[point_id],
                 payload={
+                    "evidence_base_collection": bucket_name,
                     "collection_name": bucket_name,
                     "file_path": file_path,
                     "minio_location": (
@@ -419,31 +511,45 @@ class QdrantIndexer:
         collection_name: str,
         query_vector: list[float],
         limit: int,
+        query_filter: Any = None,
     ) -> list[Any]:
         """Run a dense-vector search query against Qdrant."""
         if hasattr(self._qdrant_client, "query_points"):
-            try:
-                response = self._qdrant_client.query_points(
-                    collection_name=collection_name,
-                    query=query_vector,
-                    using=self._dense_vector_name,
-                    limit=limit,
-                    with_payload=True,
-                    with_vectors=False,
-                )
-                return self._extract_query_points(response)
-            except TypeError:
-                pass
+            filter_attempts = [{"query_filter": query_filter}, {"filter": query_filter}]
+            if query_filter is None:
+                filter_attempts = [{}]
+            for extra_kwargs in filter_attempts:
+                try:
+                    response = self._qdrant_client.query_points(
+                        collection_name=collection_name,
+                        query=query_vector,
+                        using=self._dense_vector_name,
+                        limit=limit,
+                        with_payload=True,
+                        with_vectors=False,
+                        **extra_kwargs,
+                    )
+                    return self._extract_query_points(response)
+                except TypeError:
+                    continue
 
         if hasattr(self._qdrant_client, "search"):
-            response = self._qdrant_client.search(
-                collection_name=collection_name,
-                query_vector=(self._dense_vector_name, query_vector),
-                limit=limit,
-                with_payload=True,
-                with_vectors=False,
-            )
-            return self._extract_query_points(response)
+            filter_attempts = [{"query_filter": query_filter}, {"filter": query_filter}]
+            if query_filter is None:
+                filter_attempts = [{}]
+            for extra_kwargs in filter_attempts:
+                try:
+                    response = self._qdrant_client.search(
+                        collection_name=collection_name,
+                        query_vector=(self._dense_vector_name, query_vector),
+                        limit=limit,
+                        with_payload=True,
+                        with_vectors=False,
+                        **extra_kwargs,
+                    )
+                    return self._extract_query_points(response)
+                except TypeError:
+                    continue
 
         raise RuntimeError("The configured Qdrant client does not support search operations.")
 
@@ -453,31 +559,45 @@ class QdrantIndexer:
         collection_name: str,
         sparse_query: Any,
         limit: int,
+        query_filter: Any = None,
     ) -> list[Any]:
         """Run a sparse keyword-vector search query against Qdrant."""
         if hasattr(self._qdrant_client, "query_points"):
-            try:
-                response = self._qdrant_client.query_points(
-                    collection_name=collection_name,
-                    query=sparse_query,
-                    using=self._keyword_vector_name,
-                    limit=limit,
-                    with_payload=True,
-                    with_vectors=False,
-                )
-                return self._extract_query_points(response)
-            except TypeError:
-                pass
+            filter_attempts = [{"query_filter": query_filter}, {"filter": query_filter}]
+            if query_filter is None:
+                filter_attempts = [{}]
+            for extra_kwargs in filter_attempts:
+                try:
+                    response = self._qdrant_client.query_points(
+                        collection_name=collection_name,
+                        query=sparse_query,
+                        using=self._keyword_vector_name,
+                        limit=limit,
+                        with_payload=True,
+                        with_vectors=False,
+                        **extra_kwargs,
+                    )
+                    return self._extract_query_points(response)
+                except TypeError:
+                    continue
 
         if hasattr(self._qdrant_client, "search"):
-            response = self._qdrant_client.search(
-                collection_name=collection_name,
-                query_vector=(self._keyword_vector_name, sparse_query),
-                limit=limit,
-                with_payload=True,
-                with_vectors=False,
-            )
-            return self._extract_query_points(response)
+            filter_attempts = [{"query_filter": query_filter}, {"filter": query_filter}]
+            if query_filter is None:
+                filter_attempts = [{}]
+            for extra_kwargs in filter_attempts:
+                try:
+                    response = self._qdrant_client.search(
+                        collection_name=collection_name,
+                        query_vector=(self._keyword_vector_name, sparse_query),
+                        limit=limit,
+                        with_payload=True,
+                        with_vectors=False,
+                        **extra_kwargs,
+                    )
+                    return self._extract_query_points(response)
+                except TypeError:
+                    continue
 
         raise RuntimeError("The configured Qdrant client does not support search operations.")
 
@@ -591,7 +711,11 @@ class QdrantIndexer:
         except (TypeError, ValueError):
             score = 0.0
         minio_location = str(payload.get("minio_location", ""))
-        bucket_name = str(payload.get("bucket_name", "") or payload.get("collection_name", "")).strip()
+        bucket_name = str(
+            payload.get("evidence_base_collection", "")
+            or payload.get("bucket_name", "")
+            or payload.get("collection_name", "")
+        ).strip()
         if not bucket_name:
             bucket_name = self._extract_collection_name_from_minio_location(minio_location)
         if not bucket_name:
@@ -727,6 +851,11 @@ class QdrantIndexer:
         collection_name = self._collection_name(bucket_name)
         if not self._collection_exists(collection_name):
             return []
+        from qdrant_client import models as qdrant_models
+
+        query_filter = qdrant_models.Filter(
+            must=[self._build_collection_field_condition(bucket_name)]
+        )
 
         dense_embedder = self._get_embedder()
         dense_embeddings = list(dense_embedder.embed([normalized_query]))
@@ -749,6 +878,7 @@ class QdrantIndexer:
                 collection_name=collection_name,
                 query_vector=dense_query,
                 limit=resolved_limit,
+                query_filter=query_filter,
             )
             return [
                 self._format_result_point(point, fallback_rank=index)
@@ -760,6 +890,7 @@ class QdrantIndexer:
                 collection_name=collection_name,
                 sparse_query=sparse_query,
                 limit=resolved_limit,
+                query_filter=query_filter,
             )
             return [
                 self._format_result_point(point, fallback_rank=index)
@@ -771,6 +902,7 @@ class QdrantIndexer:
                 collection_name=collection_name,
                 query_vector=dense_query,
                 limit=resolved_limit,
+                query_filter=query_filter,
             )
             return [
                 self._format_result_point(point, fallback_rank=index)
@@ -782,11 +914,13 @@ class QdrantIndexer:
             collection_name=collection_name,
             query_vector=dense_query,
             limit=prefetch_limit,
+            query_filter=query_filter,
         )
         keyword_points = self._search_keyword(
             collection_name=collection_name,
             sparse_query=sparse_query,
             limit=prefetch_limit,
+            query_filter=query_filter,
         )
         return self._rrf(
             semantic_points=semantic_points,
@@ -845,7 +979,10 @@ class QdrantIndexer:
         from qdrant_client import models as qdrant_models
 
         if storage_bucket_name:
-            minio_location = f"{storage_bucket_name}/{build_storage_object_name(bucket_name, file_path)}"
+            minio_location = (
+                f"{storage_bucket_name}/"
+                f"{build_storage_object_name(bucket_name, file_path)}"
+            )
         else:
             minio_location = f"{bucket_name}/{file_path}"
         resolved_document_year = str(document_year or "").strip()
@@ -961,6 +1098,7 @@ class QdrantIndexer:
             )
             payload = {
                 "document_id": document_id,
+                "evidence_base_collection": bucket_name,
                 "collection_name": bucket_name,
                 "year": resolved_document_year,
                 "partition_key": partition_key,
@@ -989,3 +1127,106 @@ class QdrantIndexer:
 
         if points:
             self._qdrant_client.upsert(collection_name=collection_name, points=points, wait=True)
+
+    def migrate_legacy_collections_to_shared_collection(
+        self,
+        *,
+        dry_run: bool = True,
+    ) -> dict[str, Any]:
+        """Backfill legacy per-bucket collections into the shared collection."""
+        from qdrant_client import models as qdrant_models
+
+        shared_collection_name = self._collection_name()
+        migration_batch_size = 64
+        legacy_collection_names = [
+            collection_name
+            for collection_name in self._legacy_collection_names()
+            if collection_name != shared_collection_name
+        ]
+        report: dict[str, Any] = {
+            "shared_collection_name": shared_collection_name,
+            "legacy_collection_prefix": self._collection_prefix,
+            "dry_run": bool(dry_run),
+            "legacy_collections_seen": len(legacy_collection_names),
+            "legacy_collections_migrated": 0,
+            "legacy_collections_deleted": 0,
+            "legacy_points_migrated": 0,
+            "items": [],
+        }
+        shared_collection_created = False
+
+        for legacy_collection_name in legacy_collection_names:
+            legacy_points = self._scroll_points(
+                collection_name=legacy_collection_name,
+                scroll_filter=None,
+                with_vectors=True,
+            )
+            item_report: dict[str, Any] = {
+                "legacy_collection_name": legacy_collection_name,
+                "points_seen": len(legacy_points),
+                "points_migrated": 0,
+                "deleted": False,
+            }
+            report["items"].append(item_report)
+            if not legacy_points:
+                if not dry_run:
+                    self._qdrant_client.delete_collection(collection_name=legacy_collection_name)
+                    item_report["deleted"] = True
+                    report["legacy_collections_deleted"] += 1
+                    report["legacy_collections_migrated"] += 1
+                continue
+
+            points_to_upsert: list[qdrant_models.PointStruct] = []
+            for point in legacy_points:
+                payload = self._normalize_payload(getattr(point, "payload", {}))
+                evidence_base_collection = self._resolve_bucket_name_from_payload(payload)
+                if not evidence_base_collection:
+                    continue
+                payload["evidence_base_collection"] = evidence_base_collection
+                payload["collection_name"] = evidence_base_collection
+                point_id = getattr(point, "id", None)
+                vector_payload = self._extract_point_vectors(point)
+                if point_id is None or vector_payload is None:
+                    continue
+                points_to_upsert.append(
+                    qdrant_models.PointStruct(
+                        id=point_id,
+                        vector=vector_payload,
+                        payload=payload,
+                    )
+                )
+
+            item_report["points_migrated"] = len(points_to_upsert)
+            report["legacy_points_migrated"] += len(points_to_upsert)
+            if not points_to_upsert:
+                continue
+
+            if not dry_run and not self._collection_exists(shared_collection_name):
+                dense_vector_size = self._extract_dense_vector_size(points_to_upsert[0])
+                if dense_vector_size is None or dense_vector_size <= 0:
+                    raise RuntimeError(
+                        "Could not determine vector size while migrating "
+                        f"'{legacy_collection_name}'."
+                    )
+                self._ensure_collection(shared_collection_name, dense_vector_size)
+                shared_collection_created = True
+
+            if not dry_run:
+                for point_batch in self._iter_batches(
+                    points_to_upsert,
+                    batch_size=migration_batch_size,
+                ):
+                    self._qdrant_client.upsert(
+                        collection_name=shared_collection_name,
+                        points=point_batch,
+                        wait=True,
+                    )
+                self._qdrant_client.delete_collection(collection_name=legacy_collection_name)
+                item_report["deleted"] = True
+                report["legacy_collections_deleted"] += 1
+
+            report["legacy_collections_migrated"] += 1
+
+        report["shared_collection_created"] = shared_collection_created
+        report["shared_collection_exists"] = self._collection_exists(shared_collection_name)
+        return report
