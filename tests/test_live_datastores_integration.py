@@ -9,6 +9,8 @@ from urllib.parse import urlsplit
 from uuid import uuid4
 
 import pytest
+from fastapi.testclient import TestClient
+from pypdf import PdfWriter
 
 try:
     import redis
@@ -29,8 +31,15 @@ except ModuleNotFoundError:
     QdrantClient = Any  # type: ignore[assignment,misc]
     qdrant_models = None  # type: ignore[assignment]
 
+from mcp_evidencebase.api import app, get_bucket_service, get_ingestion_service
+from mcp_evidencebase.bucket_service import BucketService
 from mcp_evidencebase.ingestion import IngestionService, QdrantIndexer, RedisDocumentRepository
-from mcp_evidencebase.minio_settings import to_bool
+from mcp_evidencebase.minio_settings import MinioSettings, to_bool
+from mcp_evidencebase.storage_layout import (
+    DEFAULT_STORAGE_BUCKET_NAME,
+    build_collection_marker_object_name,
+    build_storage_object_name,
+)
 
 pytestmark = [pytest.mark.area_ingestion, pytest.mark.integration_live]
 
@@ -108,6 +117,21 @@ class _LiveQdrantIndexer(QdrantIndexer):
 
 
 @dataclass
+class _TaskResult:
+    id: str
+
+
+class _FakeTask:
+    def __init__(self, task_id: str) -> None:
+        self.task_id = task_id
+        self.calls: list[tuple[Any, ...]] = []
+
+    def delay(self, *args: Any) -> _TaskResult:
+        self.calls.append(args)
+        return _TaskResult(id=self.task_id)
+
+
+@dataclass
 class _LiveStack:
     service: IngestionService
     repository: RedisDocumentRepository
@@ -157,6 +181,51 @@ def _put_object(
     )
     stat_info = minio_client.stat_object(bucket_name, object_name)
     return str(getattr(stat_info, "etag", "")).strip('"')
+
+
+def _build_minimal_pdf_bytes(*, title: str) -> bytes:
+    writer = PdfWriter()
+    writer.add_blank_page(width=144, height=144)
+    writer.add_metadata({"/Title": title})
+    buffer = io.BytesIO()
+    writer.write(buffer)
+    return buffer.getvalue()
+
+
+def _build_live_bucket_service() -> BucketService:
+    settings = MinioSettings(
+        endpoint=_resolve_minio_endpoint(
+            _get_live_env(
+                "MCP_EVIDENCEBASE_LIVE_MINIO_ENDPOINT",
+                "MINIO_ENDPOINT",
+                "localhost:9000",
+            )
+        ),
+        access_key=_get_live_env(
+            "MCP_EVIDENCEBASE_LIVE_MINIO_ROOT_USER",
+            "MINIO_ROOT_USER",
+            "minioadmin",
+        ),
+        secret_key=_get_live_env(
+            "MCP_EVIDENCEBASE_LIVE_MINIO_ROOT_PASSWORD",
+            "MINIO_ROOT_PASSWORD",
+            "minioadmin",
+        ),
+        secure=to_bool(_get_live_env("MCP_EVIDENCEBASE_LIVE_MINIO_SECURE", "MINIO_SECURE", "")),
+        region=(os.getenv("MINIO_REGION") or "").strip() or None,
+        storage_bucket_name=(
+            str(os.getenv("EVIDENCEBASE_STORAGE_BUCKET", DEFAULT_STORAGE_BUCKET_NAME)).strip()
+            or DEFAULT_STORAGE_BUCKET_NAME
+        ),
+    )
+    return BucketService(settings=settings)
+
+
+def _cleanup_collection(stack: _LiveStack, *, bucket_name: str) -> None:
+    try:
+        stack.service.delete_collection(bucket_name=bucket_name, keep_partitions=False)
+    except Exception:
+        pass
 
 
 def _collection_name(stack: _LiveStack) -> str:
@@ -505,3 +574,99 @@ def test_live_delete_document_cleans_minio_redis_and_qdrant(live_stack: _LiveSta
     assert state.get("partition_key", "") == ""
     assert state.get("partitions_count", "0") == "0"
     _wait_for_empty_qdrant_document_points(live_stack, document_id)
+
+
+def test_live_api_collection_round_trip_create_upload_and_delete(
+    live_stack: _LiveStack,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Use live datastores through the API to create, upload into, and remove one collection."""
+    bucket_service = _build_live_bucket_service()
+    bucket_name = f"it-live-api-{uuid4().hex[:12]}"
+    object_name = "round-trip.pdf"
+    payload = _build_minimal_pdf_bytes(title="Live API collection round trip")
+    storage_bucket_name = bucket_service.settings.storage_bucket_name
+    marker_object_name = build_collection_marker_object_name(bucket_name)
+    storage_object_name = build_storage_object_name(bucket_name, object_name)
+    fake_task = _FakeTask("task-live-upload-1")
+
+    monkeypatch.setattr(
+        "mcp_evidencebase.api.validate_runtime_dependencies_on_startup",
+        lambda: None,
+    )
+    monkeypatch.setattr("mcp_evidencebase.api.partition_minio_object", fake_task)
+    app.dependency_overrides[get_bucket_service] = lambda: bucket_service
+    app.dependency_overrides[get_ingestion_service] = lambda: live_stack.service
+
+    try:
+        with TestClient(app) as client:
+            bucket_list_response = client.get("/buckets")
+            assert bucket_list_response.status_code == 200
+            assert bucket_name not in bucket_list_response.json()["buckets"]
+
+            create_response = client.post("/buckets", json={"bucket_name": bucket_name})
+            assert create_response.status_code == 200
+            assert create_response.json() == {
+                "bucket_name": bucket_name,
+                "created": True,
+            }
+
+            live_stack.minio_client.stat_object(storage_bucket_name, marker_object_name)
+
+            bucket_list_response = client.get("/buckets")
+            assert bucket_list_response.status_code == 200
+            assert bucket_name in bucket_list_response.json()["buckets"]
+
+            upload_response = client.post(
+                f"/collections/{bucket_name}/documents/upload?file_name={object_name}",
+                content=payload,
+                headers={"Content-Type": "application/pdf"},
+            )
+            assert upload_response.status_code == 200
+            assert upload_response.json() == {
+                "bucket_name": bucket_name,
+                "object_name": object_name,
+                "queued": True,
+                "task_id": "task-live-upload-1",
+                "queue_error": "",
+            }
+            assert fake_task.calls == [(bucket_name, object_name, None, True)]
+
+            live_stack.minio_client.stat_object(storage_bucket_name, storage_object_name)
+            source_mapping = live_stack.repository.get_object_mapping(bucket_name, object_name)
+            assert source_mapping["bucket_name"] == bucket_name
+            assert source_mapping["object_name"] == object_name
+            assert source_mapping["storage_bucket_name"] == storage_bucket_name
+            assert source_mapping["storage_object_name"] == storage_object_name
+            assert (
+                source_mapping["storage_location"]
+                == f"{storage_bucket_name}/{storage_object_name}"
+            )
+
+            document_id = source_mapping["document_id"]
+            assert live_stack.repository.list_document_ids(bucket_name) == [document_id]
+            state = live_stack.repository.get_state(document_id)
+            assert state["file_path"] == object_name
+            assert state["processing_state"] == "processing"
+            assert state["processing_stage"] == "queued"
+
+            delete_response = client.delete(f"/buckets/{bucket_name}")
+            assert delete_response.status_code == 200
+            assert delete_response.json() == {
+                "bucket_name": bucket_name,
+                "removed": True,
+            }
+
+            bucket_list_response = client.get("/buckets")
+            assert bucket_list_response.status_code == 200
+            assert bucket_name not in bucket_list_response.json()["buckets"]
+
+        with pytest.raises(S3Error):
+            live_stack.minio_client.stat_object(storage_bucket_name, marker_object_name)
+        with pytest.raises(S3Error):
+            live_stack.minio_client.stat_object(storage_bucket_name, storage_object_name)
+        assert live_stack.repository.get_object_mapping(bucket_name, object_name) == {}
+        assert live_stack.repository.list_document_ids(bucket_name) == []
+    finally:
+        app.dependency_overrides.clear()
+        _cleanup_collection(live_stack, bucket_name=bucket_name)
