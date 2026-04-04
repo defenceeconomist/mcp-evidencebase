@@ -141,6 +141,7 @@ class _LiveStack:
     partition_client: _StaticPartitionClient
     bucket_name: str
     redis_prefix: str
+    qdrant_collection_name: str
 
 
 def _env_enabled(name: str) -> bool:
@@ -230,7 +231,7 @@ def _cleanup_collection(stack: _LiveStack, *, bucket_name: str) -> None:
 
 
 def _collection_name(stack: _LiveStack) -> str:
-    return stack.qdrant_indexer._collection_name(stack.bucket_name)
+    return stack.qdrant_collection_name
 
 
 def _list_collection_names(qdrant_client: QdrantClient) -> set[str]:
@@ -344,6 +345,7 @@ def live_stack() -> Any:
     bucket_name = f"it-live-{run_id}"
     redis_prefix = f"it_live_{run_id}"
     collection_prefix = f"it_live_{run_id}"
+    qdrant_collection_name = f"it-live-qdrant-{run_id}"
 
     minio_client.make_bucket(bucket_name)
 
@@ -386,6 +388,7 @@ def live_stack() -> Any:
         fastembed_model="static-dense",
         fastembed_keyword_model="static-keyword",
         collection_prefix=collection_prefix,
+        collection_name=qdrant_collection_name,
     )
     service = IngestionService(
         minio_client=minio_client,
@@ -404,6 +407,7 @@ def live_stack() -> Any:
         partition_client=partition_client,
         bucket_name=bucket_name,
         redis_prefix=redis_prefix,
+        qdrant_collection_name=qdrant_collection_name,
     )
     try:
         yield stack
@@ -482,6 +486,15 @@ def test_live_partition_chunk_and_search_round_trip(live_stack: _LiveStack) -> N
     )
     assert results
     assert results[0]["document_id"] == document_id
+
+    semantic_results = live_stack.service.search_documents(
+        bucket_name=live_stack.bucket_name,
+        query="defense offsets retrieval",
+        limit=5,
+        mode="semantic",
+    )
+    assert semantic_results
+    assert semantic_results[0]["document_id"] == document_id
 
 
 def test_live_etag_changes_require_reprocessing(live_stack: _LiveStack) -> None:

@@ -47,9 +47,18 @@ services:
     environment:
       <<: *backend-environment
       CELERY_APP: ${CELERY_APP:-mcp_evidencebase.celery_app}
+      CELERY_WORKER_CONCURRENCY: ${CELERY_WORKER_CONCURRENCY:-2}
     volumes:
       - model-cache:/model-cache
-    command: ["celery", "-A", "mcp_evidencebase.celery_app", "worker", "--loglevel=info"]
+    command:
+      [
+        "celery",
+        "-A",
+        "mcp_evidencebase.celery_app",
+        "worker",
+        "--loglevel=info",
+        "--concurrency=${CELERY_WORKER_CONCURRENCY:-2}",
+      ]
     networks:
       - default
       - datastores
