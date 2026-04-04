@@ -18,6 +18,7 @@ from mcp_evidencebase.ingestion_modules.metadata import (
     build_resolver_url,
     compute_chunk_point_id,
 )
+from mcp_evidencebase.storage_layout import build_storage_object_name
 
 
 class QdrantIndexer:
@@ -202,6 +203,204 @@ class QdrantIndexer:
         )
 
     @staticmethod
+    def _extract_scroll_points(raw_response: Any) -> tuple[list[Any], Any]:
+        """Normalize scroll responses to ``(points, next_offset)``."""
+        if isinstance(raw_response, tuple) and raw_response:
+            first = raw_response[0]
+            if isinstance(first, list):
+                next_offset = raw_response[1] if len(raw_response) > 1 else None
+                return first, next_offset
+        points = getattr(raw_response, "points", None)
+        if isinstance(points, list):
+            return points, getattr(raw_response, "next_page_offset", None)
+        result = getattr(raw_response, "result", None)
+        if isinstance(result, list):
+            return result, getattr(raw_response, "next_page_offset", None)
+        if isinstance(raw_response, list):
+            return raw_response, None
+        return [], None
+
+    def rewrite_document_source_paths(
+        self,
+        *,
+        bucket_name: str,
+        document_id: str,
+        old_object_name: str,
+        new_object_name: str,
+        storage_bucket_name: str | None = None,
+    ) -> int:
+        """Patch path-bearing payload fields for one document without re-upserting vectors."""
+        from qdrant_client import models as qdrant_models
+
+        collection_name = self._collection_name(bucket_name)
+        if not self._collection_exists(collection_name):
+            return 0
+
+        normalized_bucket_name = bucket_name.strip()
+        normalized_document_id = document_id.strip()
+        normalized_old_object_name = old_object_name.strip().lstrip("/")
+        normalized_new_object_name = new_object_name.strip().lstrip("/")
+        if (
+            not normalized_bucket_name
+            or not normalized_document_id
+            or not normalized_old_object_name
+            or not normalized_new_object_name
+        ):
+            raise ValueError(
+                "bucket_name, document_id, old_object_name, and new_object_name must not be empty."
+            )
+        if normalized_old_object_name == normalized_new_object_name:
+            return 0
+
+        points_to_update: list[Any] = []
+        offset: Any = None
+        scroll_filter = qdrant_models.Filter(
+            must=[
+                qdrant_models.FieldCondition(
+                    key="document_id",
+                    match=qdrant_models.MatchValue(value=normalized_document_id),
+                )
+            ]
+        )
+
+        while True:
+            response = self._qdrant_client.scroll(
+                collection_name=collection_name,
+                scroll_filter=scroll_filter,
+                limit=100,
+                with_payload=True,
+                with_vectors=False,
+                offset=offset,
+            )
+            points, offset = self._extract_scroll_points(response)
+            if not points:
+                break
+            points_to_update.extend(points)
+            if offset in (None, ""):
+                break
+
+        if not points_to_update:
+            return 0
+
+        resolved_storage_bucket_name = str(storage_bucket_name or normalized_bucket_name).strip()
+        if resolved_storage_bucket_name == normalized_bucket_name:
+            new_minio_location = f"{normalized_bucket_name}/{normalized_new_object_name}"
+        else:
+            new_minio_location = (
+                f"{resolved_storage_bucket_name}/"
+                f"{build_storage_object_name(normalized_bucket_name, normalized_new_object_name)}"
+            )
+        point_ids: list[Any] = []
+        for point in points_to_update:
+            point_id = getattr(point, "id", None)
+            if point_id is None:
+                continue
+            point_ids.append(point_id)
+
+        if not point_ids:
+            return 0
+
+        self._qdrant_client.set_payload(
+            collection_name=collection_name,
+            points=point_ids,
+            payload={
+                "minio_location": new_minio_location,
+                "file_path": normalized_new_object_name,
+                "collection_name": normalized_bucket_name,
+            },
+            wait=True,
+        )
+
+        for point in points_to_update:
+            point_id = getattr(point, "id", None)
+            if point_id is None:
+                continue
+            payload = self._normalize_payload(getattr(point, "payload", {}))
+            page_start = _safe_int(payload.get("page_start"))
+            self._qdrant_client.set_payload(
+                collection_name=collection_name,
+                points=[point_id],
+                payload={
+                    "resolver_url": build_resolver_url(
+                        normalized_bucket_name,
+                        normalized_new_object_name,
+                        page_start=page_start,
+                    )
+                },
+                wait=True,
+            )
+
+        return len(point_ids)
+
+    def rewrite_collection_storage_metadata(
+        self,
+        *,
+        bucket_name: str,
+        storage_bucket_name: str,
+    ) -> int:
+        """Rewrite physical storage payload fields for every point in one collection."""
+        collection_name = self._collection_name(bucket_name)
+        if not self._collection_exists(collection_name):
+            return 0
+
+        points_to_update: list[Any] = []
+        offset: Any = None
+        while True:
+            response = self._qdrant_client.scroll(
+                collection_name=collection_name,
+                scroll_filter=None,
+                limit=100,
+                with_payload=True,
+                with_vectors=False,
+                offset=offset,
+            )
+            points, offset = self._extract_scroll_points(response)
+            if not points:
+                break
+            points_to_update.extend(points)
+            if offset in (None, ""):
+                break
+
+        updated_points = 0
+        for point in points_to_update:
+            point_id = getattr(point, "id", None)
+            if point_id is None:
+                continue
+            payload = self._normalize_payload(getattr(point, "payload", {}))
+            resolver_url = str(payload.get("resolver_url", ""))
+            file_path = str(payload.get("file_path", "")).strip()
+            if not file_path:
+                file_path = self._extract_file_path_from_minio_location(payload.get("minio_location"))
+            if not file_path:
+                _resolver_bucket_name, resolver_file_path = self._extract_bucket_and_path_from_resolver_url(
+                    resolver_url
+                )
+                file_path = resolver_file_path
+            if not file_path:
+                continue
+            page_start = _safe_int(payload.get("page_start"))
+            self._qdrant_client.set_payload(
+                collection_name=collection_name,
+                points=[point_id],
+                payload={
+                    "collection_name": bucket_name,
+                    "file_path": file_path,
+                    "minio_location": (
+                        f"{storage_bucket_name}/{build_storage_object_name(bucket_name, file_path)}"
+                    ),
+                    "resolver_url": build_resolver_url(
+                        bucket_name,
+                        file_path,
+                        page_start=page_start,
+                    ),
+                },
+                wait=True,
+            )
+            updated_points += 1
+
+        return updated_points
+
+    @staticmethod
     def _extract_query_points(raw_response: Any) -> list[Any]:
         """Normalize query/search responses to a list of scored points."""
         if isinstance(raw_response, list):
@@ -309,7 +508,12 @@ class QdrantIndexer:
         if not location or "/" not in location:
             return ""
         _, object_path = location.split("/", 1)
-        return object_path.strip()
+        normalized_object_path = object_path.strip()
+        if "/" in normalized_object_path:
+            _collection_name, nested_object_path = normalized_object_path.split("/", 1)
+            if nested_object_path.strip():
+                return nested_object_path.strip()
+        return normalized_object_path
 
     @staticmethod
     def _extract_bucket_from_minio_location(value: Any) -> str:
@@ -319,6 +523,19 @@ class QdrantIndexer:
             return ""
         bucket_name, _ = location.split("/", 1)
         return bucket_name.strip()
+
+    @staticmethod
+    def _extract_collection_name_from_minio_location(value: Any) -> str:
+        """Extract logical collection name from legacy or shared-bucket payload storage paths."""
+        location = str(value or "").strip().lstrip("/")
+        if not location or "/" not in location:
+            return ""
+        _bucket_name, object_path = location.split("/", 1)
+        normalized_object_path = object_path.strip()
+        if "/" not in normalized_object_path:
+            return ""
+        collection_name, _relative_path = normalized_object_path.split("/", 1)
+        return collection_name.strip()
 
     @staticmethod
     def _extract_bucket_and_path_from_resolver_url(value: Any) -> tuple[str, str]:
@@ -374,7 +591,11 @@ class QdrantIndexer:
         except (TypeError, ValueError):
             score = 0.0
         minio_location = str(payload.get("minio_location", ""))
-        bucket_name = self._extract_bucket_from_minio_location(minio_location)
+        bucket_name = str(payload.get("bucket_name", "") or payload.get("collection_name", "")).strip()
+        if not bucket_name:
+            bucket_name = self._extract_collection_name_from_minio_location(minio_location)
+        if not bucket_name:
+            bucket_name = self._extract_bucket_from_minio_location(minio_location)
         file_path = str(payload.get("file_path", "")).strip()
         if not file_path:
             file_path = self._extract_file_path_from_minio_location(minio_location)
@@ -399,6 +620,7 @@ class QdrantIndexer:
             "id": point_id,
             "score": score,
             "document_id": str(payload.get("document_id", "")),
+            "bucket_name": bucket_name,
             "title": str(payload.get("title", "")),
             "author": str(payload.get("author", "")),
             "year": str(payload.get("year", "")),
@@ -583,6 +805,7 @@ class QdrantIndexer:
         partition_key: str,
         meta_key: str,
         document_year: str | None = None,
+        storage_bucket_name: str | None = None,
     ) -> None:
         """Embed chunk text and upsert vectors into Qdrant."""
         if not chunks:
@@ -621,7 +844,10 @@ class QdrantIndexer:
 
         from qdrant_client import models as qdrant_models
 
-        minio_location = f"{bucket_name}/{file_path}"
+        if storage_bucket_name:
+            minio_location = f"{storage_bucket_name}/{build_storage_object_name(bucket_name, file_path)}"
+        else:
+            minio_location = f"{bucket_name}/{file_path}"
         resolved_document_year = str(document_year or "").strip()
         del meta_key
 
@@ -735,9 +961,11 @@ class QdrantIndexer:
             )
             payload = {
                 "document_id": document_id,
+                "collection_name": bucket_name,
                 "year": resolved_document_year,
                 "partition_key": partition_key,
                 "minio_location": minio_location,
+                "file_path": file_path,
                 "resolver_url": resolver_url,
                 "chunk_index": chunk_index,
                 "chunk_id": str(chunk.get("chunk_id", "")),

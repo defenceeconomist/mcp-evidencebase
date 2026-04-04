@@ -6,6 +6,8 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from mcp_evidencebase.storage_layout import DEFAULT_STORAGE_BUCKET_NAME
+
 
 @dataclass(frozen=True)
 class MinioSettings:
@@ -16,6 +18,7 @@ class MinioSettings:
     secret_key: str
     secure: bool
     region: str | None
+    storage_bucket_name: str
 
 
 def to_bool(value: str | None) -> bool:
@@ -42,4 +45,8 @@ def build_minio_settings(env: Mapping[str, str] | None = None) -> MinioSettings:
         secret_key=source.get("MINIO_ROOT_PASSWORD", "minioadmin"),
         secure=to_bool(source.get("MINIO_SECURE")),
         region=region if region else None,
+        storage_bucket_name=(
+            str(source.get("EVIDENCEBASE_STORAGE_BUCKET", DEFAULT_STORAGE_BUCKET_NAME)).strip()
+            or DEFAULT_STORAGE_BUCKET_NAME
+        ),
     )

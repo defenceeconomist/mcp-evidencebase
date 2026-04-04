@@ -276,6 +276,16 @@ script being on `PATH`, use:
 codex mcp add evidencebase -- /Users/lukeheley/Developer/mcp-evidencebase/.venv/bin/python -m mcp_evidencebase.mcp_server
 ```
 
+If Codex is running on the host while MinIO, Redis, and Qdrant stay on the
+Docker bridge, register the host-aware launcher instead:
+
+```bash
+codex mcp add evidencebase -- /Users/lukeheley/Developer/mcp-evidencebase/scripts/run_codex_mcp.sh
+```
+
+That launcher prefers the running `evidencebase-api` container when available,
+and falls back to host-reachable `localhost` datastore endpoints otherwise.
+
 VS Code attachment is preconfigured in `.vscode/mcp.json`.
 
 The MCP server uses the same environment-variable contract as the CLI and API:
@@ -313,11 +323,14 @@ The default local workflow uses the shared base file plus
 Services include:
 
 - NGINX reverse proxy (`52180` default)
-- Frontend dashboard
 - API service
-- Documentation site
 - Celery worker
-- Cloudflare Tunnel (`cloudflared`)
+- Dashboard and documentation routes served by the proxy
+
+Optional profile:
+
+- Cloudflare Tunnel (`cloudflared`, `--profile tunnel`) if you temporarily need
+  public ingress again
 
 External dependencies consumed from `shared-datastores`:
 
@@ -331,14 +344,21 @@ Readiness endpoints:
 - `GET /healthz`: dependency-aware readiness
 - `GET /readyz`: dependency-aware readiness alias
 
-Start stack (including Cloudflare Tunnel):
+Start stack:
 
 ```bash
 # Shared datastores must already be running.
 docker compose up -d
 ```
 
-`CLOUDFLARE_TUNNEL_TOKEN` is required because `cloudflared` always starts.
+If you explicitly enable the legacy tunnel profile:
+
+```bash
+docker compose --profile tunnel up -d
+```
+
+`CLOUDFLARE_TUNNEL_TOKEN` is only required when starting the optional
+`cloudflared` profile.
 
 ### Prebuilt Image Stack
 
@@ -379,40 +399,45 @@ http://localhost:52180/api/gpt/ping?message=hello
 shared datastore stack to be running and reachable on the external
 `shared-datastores` network.
 
-Public equivalents currently configured:
+Meshnet equivalents for your own devices:
 
 ```text
-https://evidencebase.heley.uk
-https://evidencebase.heley.uk/docs/
-https://evidencebase.heley.uk/docs/readme.html
-https://evidencebase.heley.uk/docs/reference.html
-https://evidencebase.heley.uk/minio/
-https://evidencebase.heley.uk/minio-console/
-https://evidencebase.heley.uk/redisinsight/
-https://evidencebase.heley.uk/dashboard/
-https://evidencebase.heley.uk/api/gpt/openapi.json
-https://evidencebase.heley.uk/api/gpt/ping?message=hello
+http://<meshnet-hostname-or-ip>:52180
+http://<meshnet-hostname-or-ip>:52180/docs/
+http://<meshnet-hostname-or-ip>:52180/docs/readme.html
+http://<meshnet-hostname-or-ip>:52180/docs/reference.html
+http://<meshnet-hostname-or-ip>:52180/minio/
+http://<meshnet-hostname-or-ip>:52180/minio-console/
+http://<meshnet-hostname-or-ip>:52180/redisinsight/
+http://<meshnet-hostname-or-ip>:52180/dashboard/
+http://<meshnet-hostname-or-ip>:52180/api/gpt/openapi.json
+http://<meshnet-hostname-or-ip>:52180/api/gpt/ping?message=hello
 ```
 
-Recommended public GPT-only hostname:
+Replace `<meshnet-hostname-or-ip>` with the NordVPN Meshnet hostname or Meshnet
+IP of the machine running the stack.
+
+### NordVPN Meshnet Access
+
+Current remote access is private-only: the public `evidencebase.heley.uk`
+deployment has been retired in favour of NordVPN Meshnet.
+
+1. Join the host machine and your client devices to the same NordVPN Meshnet.
+2. Start the shared datastores and local Evidence Base stack on the host.
+3. Reach the proxy from another device at `http://<meshnet-hostname-or-ip>:52180`.
+4. Set `GPT_ACTIONS_LINK_BASE_URL=http://<meshnet-hostname-or-ip>:52180` in
+   `.env` if you want generated resolver/source links to point at the Meshnet
+   host instead of `localhost`.
+5. Keep in mind that hosted ChatGPT Actions cannot reach Meshnet-only or other
+   private addresses. Use browsers/scripts on your own Meshnet devices, or
+   reintroduce a public HTTPS endpoint if you need cloud-hosted ChatGPT access.
+
+Example private GPT/API base over Meshnet:
 
 ```text
-https://open.heley.uk/api/gpt/openapi.json
-https://open.heley.uk/api/gpt/ping?message=hello
+http://<meshnet-hostname-or-ip>:52180/api/gpt/openapi.json
+http://<meshnet-hostname-or-ip>:52180/api/gpt/ping?message=hello
 ```
-
-### Cloudflare Split: Protected UI + Open GPT API
-
-To keep `evidencebase.heley.uk` behind Cloudflare Access while exposing only the GPT action API:
-
-1. In Cloudflare Zero Trust -> Networks -> Tunnels -> your named tunnel -> Public hostnames, add:
-   - Hostname: `open.heley.uk`
-   - Service: `http://proxy:80`
-2. Keep `evidencebase.heley.uk` mapped to `http://proxy:80` as-is.
-3. In Cloudflare Access -> Applications, ensure policy scope protects only `evidencebase.heley.uk/*` (not `*.heley.uk`).
-4. Do not attach Access protection to `open.heley.uk`.
-
-NGINX already restricts `open.heley.uk` to `/api/gpt/*` and returns `404` for all other paths.
 
 ### API Workflow Examples
 
@@ -512,36 +537,40 @@ Delete bucket:
 curl -sS -X DELETE "$BASE_URL/buckets/research-raw"
 ```
 
-### Custom GPT Ping Action (API Key + Bearer)
+### Private GPT/API Access (API Key + Bearer)
 
-Use this when creating an Action in the ChatGPT UI.
+Use this for GPT-facing endpoints from your own Meshnet-connected devices.
 
-1. Start named tunnel:
-   ```bash
-   docker compose up -d cloudflared
-   ```
-2. Set API key in `.env`:
+1. Set API key and link base in `.env`:
    ```bash
    GPT_ACTIONS_API_KEY=<your-api-key>
-   GPT_ACTIONS_LINK_BASE_URL=https://evidencebase.heley.uk
+   GPT_ACTIONS_LINK_BASE_URL=http://<meshnet-hostname-or-ip>:52180
    ```
-3. Verify ping from the `open.heley.uk` hostname:
+2. Start the local stack:
+   ```bash
+   docker compose up -d
+   ```
+3. Verify ping from another Meshnet device:
    ```bash
    curl -sS -H "Authorization: Bearer <your-api-key>" \
-     "https://open.heley.uk/api/gpt/ping?message=hello"
+     "http://<meshnet-hostname-or-ip>:52180/api/gpt/ping?message=hello"
    ```
-4. In ChatGPT -> Custom GPT -> Actions:
-   - Authentication type: `API key`
-   - Auth Type: `Bearer`
-   - API key value: same value as `GPT_ACTIONS_API_KEY`
-   - OpenAPI schema URL: `https://open.heley.uk/api/gpt/openapi.json`
+4. Fetch the schema from the same private base if needed:
+   ```bash
+   curl -sS -H "Authorization: Bearer <your-api-key>" \
+     "http://<meshnet-hostname-or-ip>:52180/api/gpt/openapi.json"
+   ```
 
-The ping action exposed to ChatGPT is `GET /api/gpt/ping` and requires API key over Bearer auth.
+The GPT-facing ping endpoint is `GET /api/gpt/ping` and requires API key over
+Bearer auth.
 
-Search wrapper exposed to ChatGPT Actions:
+Hosted ChatGPT custom Actions require a public HTTPS URL and will not be able to
+reach a Meshnet-only/private endpoint.
+
+Search wrapper for private GPT/API clients:
 
 ```bash
-curl -sS -X POST "https://open.heley.uk/api/gpt/search" \
+curl -sS -X POST "http://<meshnet-hostname-or-ip>:52180/api/gpt/search" \
   -H "Authorization: Bearer <your-api-key>" \
   -H "Content-Type: application/json" \
   -d '{"bucket_name":"research-raw","query":"causal inference","mode":"hybrid","limit":5,"rrf_k":80}'
@@ -583,7 +612,7 @@ Response behavior:
 Example with staged retrieval enabled (default):
 
 ```bash
-curl -sS -X POST "https://open.heley.uk/api/gpt/search" \
+curl -sS -X POST "http://<meshnet-hostname-or-ip>:52180/api/gpt/search" \
   -H "Authorization: Bearer <your-api-key>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -598,7 +627,7 @@ curl -sS -X POST "https://open.heley.uk/api/gpt/search" \
 Example fallback to one-pass retrieval:
 
 ```bash
-curl -sS -X POST "https://open.heley.uk/api/gpt/search" \
+curl -sS -X POST "http://<meshnet-hostname-or-ip>:52180/api/gpt/search" \
   -H "Authorization: Bearer <your-api-key>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -727,10 +756,10 @@ CHUNK_IMAGE_TEXT_MODE=placeholder
 CHUNK_PARAGRAPH_BREAK_STRATEGY=text
 CHUNK_PRESERVE_PAGE_BREAKS=true
 MINIO_SCAN_INTERVAL_SECONDS=15
-# Required because cloudflared starts with docker compose up.
-CLOUDFLARE_TUNNEL_TOKEN=<your-cloudflare-tunnel-token>
+# Only required when explicitly starting docker compose with --profile tunnel.
+CLOUDFLARE_TUNNEL_TOKEN=
 GPT_ACTIONS_API_KEY=<your-api-key>
-GPT_ACTIONS_LINK_BASE_URL=https://evidencebase.heley.uk
+GPT_ACTIONS_LINK_BASE_URL=http://localhost:52180
 ```
 
 The checked-in template is `.env.example`. If you use a different

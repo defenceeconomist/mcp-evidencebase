@@ -7,9 +7,10 @@ This article documents the GPT-facing API endpoints exposed by `mcp-evidencebase
 Use one of these API bases depending on environment:
 
 - Local via NGINX proxy: `http://localhost:52180/api`
-- Public GPT-only host (recommended): `https://open.heley.uk/api`
+- Private Meshnet host: `http://<meshnet-hostname-or-ip>:52180/api`
 
-The GPT-only host serves only `/api/gpt/*`.
+Replace `<meshnet-hostname-or-ip>` with the NordVPN Meshnet hostname or Meshnet
+IP of the machine running the stack.
 
 ## Endpoints
 
@@ -34,14 +35,17 @@ All GPT endpoints require this key. The API accepts any of these request auth fo
 If the key is missing on the server, endpoints return `503`.
 If a supplied key is invalid, endpoints return `401`.
 
-## ChatGPT Actions Setup
+## Private Client Setup
 
 Use:
 
-- OpenAPI schema URL: `https://open.heley.uk/api/gpt/openapi.json`
+- OpenAPI schema URL: `http://<meshnet-hostname-or-ip>:52180/api/gpt/openapi.json`
 - Authentication type: `API key`
 - Auth type: `Bearer`
 - API key value: same value as `GPT_ACTIONS_API_KEY`
+
+Hosted ChatGPT Actions require a public HTTPS endpoint. A Meshnet-only/private
+host works for your own devices, but not for ChatGPT's cloud-hosted Actions runtime.
 
 ## `searchCollection` Function
 
@@ -130,7 +134,7 @@ Example:
 
 ```bash
 curl -sS -H "Authorization: Bearer <your-api-key>" \
-  "https://open.heley.uk/api/gpt/ping?message=hello"
+  "http://<meshnet-hostname-or-ip>:52180/api/gpt/ping?message=hello"
 ```
 
 Response shape:
@@ -147,7 +151,7 @@ Response shape:
 ## Example: `searchCollection`
 
 ```bash
-curl -sS -X POST "https://open.heley.uk/api/gpt/search" \
+curl -sS -X POST "http://<meshnet-hostname-or-ip>:52180/api/gpt/search" \
   -H "Authorization: Bearer <your-api-key>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -161,7 +165,7 @@ curl -sS -X POST "https://open.heley.uk/api/gpt/search" \
 Example fallback to one-pass retrieval:
 
 ```bash
-curl -sS -X POST "https://open.heley.uk/api/gpt/search" \
+curl -sS -X POST "http://<meshnet-hostname-or-ip>:52180/api/gpt/search" \
   -H "Authorization: Bearer <your-api-key>" \
   -H "Content-Type: application/json" \
   -d '{

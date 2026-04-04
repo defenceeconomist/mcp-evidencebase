@@ -251,6 +251,61 @@ python<span class="w"> </span>-m<span class="w"> </span>mcp_evidencebase<span cl
 <p>The host-based command above works through the NGINX proxy and does not require
 direct <code class="docutils literal notranslate"><span class="pre">localhost:6333</span></code> access.</p>
 </section>
+<section id="mcp-server">
+<h3>MCP Server<a class="headerlink" href="#mcp-server" title="Link to this heading">¶</a></h3>
+<p>Evidence Base also ships a local stdio MCP server for direct attachment from
+Codex and VS Code.</p>
+<p>Install the package into the repo virtualenv first:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">&quot;.[dev]&quot;</span>
+</pre></div>
+</div>
+<p>Run the server directly:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>mcp-evidencebase-mcp
+</pre></div>
+</div>
+<p>Module fallback:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-m<span class="w"> </span>mcp_evidencebase.mcp_server
+</pre></div>
+</div>
+<p>The v1 MCP surface is intentionally read-only and exposes:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">healthcheck</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">list_buckets</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">list_documents</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">search_collection</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">list_document_sections</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">get_document_section</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">get_metadata_schema</span></code></p></li>
+</ul>
+<p>Codex attachment:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>codex<span class="w"> </span>mcp<span class="w"> </span>add<span class="w"> </span>evidencebase<span class="w"> </span>--<span class="w"> </span>mcp-evidencebase-mcp
+</pre></div>
+</div>
+<p>If you want to launch it from the repo virtualenv without relying on the console
+script being on <code class="docutils literal notranslate"><span class="pre">PATH</span></code>, use:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>codex<span class="w"> </span>mcp<span class="w"> </span>add<span class="w"> </span>evidencebase<span class="w"> </span>--<span class="w"> </span>/Users/lukeheley/Developer/mcp-evidencebase/.venv/bin/python<span class="w"> </span>-m<span class="w"> </span>mcp_evidencebase.mcp_server
+</pre></div>
+</div>
+<p>If Codex is running on the host while MinIO, Redis, and Qdrant stay on the
+Docker bridge, register the host-aware launcher instead:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>codex<span class="w"> </span>mcp<span class="w"> </span>add<span class="w"> </span>evidencebase<span class="w"> </span>--<span class="w"> </span>/Users/lukeheley/Developer/mcp-evidencebase/scripts/run_codex_mcp.sh
+</pre></div>
+</div>
+<p>That launcher prefers the running <code class="docutils literal notranslate"><span class="pre">evidencebase-api</span></code> container when available,
+and falls back to host-reachable <code class="docutils literal notranslate"><span class="pre">localhost</span></code> datastore endpoints otherwise.</p>
+<p>VS Code attachment is preconfigured in <code class="docutils literal notranslate"><span class="pre">.vscode/mcp.json</span></code>.</p>
+<p>The MCP server uses the same environment-variable contract as the CLI and API:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">MINIO_ENDPOINT</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">REDIS_URL</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">QDRANT_URL</span></code></p></li>
+<li><p>related <code class="docutils literal notranslate"><span class="pre">MCP_EVIDENCEBASE_REQUIRE_*</span></code> flags</p></li>
+</ul>
+<p>When your datastore endpoints are only reachable on the Docker network, a
+host-launched stdio MCP server will not be able to connect. In that case either
+expose host-reachable endpoints or launch the server from an environment that
+shares the datastore network.</p>
+</section>
 <section id="docker-compose-stack">
 <h3>Docker Compose Stack<a class="headerlink" href="#docker-compose-stack" title="Link to this heading">¶</a></h3>
 <p>Start the full local stack:</p>
@@ -271,11 +326,14 @@ docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> 
 <p>Services include:</p>
 <ul class="simple">
 <li><p>NGINX reverse proxy (<code class="docutils literal notranslate"><span class="pre">52180</span></code> default)</p></li>
-<li><p>Frontend dashboard</p></li>
 <li><p>API service</p></li>
-<li><p>Documentation site</p></li>
 <li><p>Celery worker</p></li>
-<li><p>Cloudflare Tunnel (<code class="docutils literal notranslate"><span class="pre">cloudflared</span></code>)</p></li>
+<li><p>Dashboard and documentation routes served by the proxy</p></li>
+</ul>
+<p>Optional profile:</p>
+<ul class="simple">
+<li><p>Cloudflare Tunnel (<code class="docutils literal notranslate"><span class="pre">cloudflared</span></code>, <code class="docutils literal notranslate"><span class="pre">--profile</span> <span class="pre">tunnel</span></code>) if you temporarily need
+public ingress again</p></li>
 </ul>
 <p>External dependencies consumed from <code class="docutils literal notranslate"><span class="pre">shared-datastores</span></code>:</p>
 <ul class="simple">
@@ -289,12 +347,17 @@ docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> 
 <li><p><code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/healthz</span></code>: dependency-aware readiness</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/readyz</span></code>: dependency-aware readiness alias</p></li>
 </ul>
-<p>Start stack (including Cloudflare Tunnel):</p>
+<p>Start stack:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Shared datastores must already be running.</span>
 docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>-d
 </pre></div>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">CLOUDFLARE_TUNNEL_TOKEN</span></code> is required because <code class="docutils literal notranslate"><span class="pre">cloudflared</span></code> always starts.</p>
+<p>If you explicitly enable the legacy tunnel profile:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docker<span class="w"> </span>compose<span class="w"> </span>--profile<span class="w"> </span>tunnel<span class="w"> </span>up<span class="w"> </span>-d
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">CLOUDFLARE_TUNNEL_TOKEN</span></code> is only required when starting the optional
+<code class="docutils literal notranslate"><span class="pre">cloudflared</span></code> profile.</p>
 </section>
 <section id="prebuilt-image-stack">
 <h3>Prebuilt Image Stack<a class="headerlink" href="#prebuilt-image-stack" title="Link to this heading">¶</a></h3>
@@ -329,40 +392,42 @@ http://localhost:52180/api/gpt/ping?message=hello
 <p><code class="docutils literal notranslate"><span class="pre">/minio/</span></code>, <code class="docutils literal notranslate"><span class="pre">/minio-console/</span></code>, <code class="docutils literal notranslate"><span class="pre">/redisinsight/</span></code>, and <code class="docutils literal notranslate"><span class="pre">/dashboard/</span></code> require the
 shared datastore stack to be running and reachable on the external
 <code class="docutils literal notranslate"><span class="pre">shared-datastores</span></code> network.</p>
-<p>Public equivalents currently configured:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>https://evidencebase.heley.uk
-https://evidencebase.heley.uk/docs/
-https://evidencebase.heley.uk/docs/readme.html
-https://evidencebase.heley.uk/docs/reference.html
-https://evidencebase.heley.uk/minio/
-https://evidencebase.heley.uk/minio-console/
-https://evidencebase.heley.uk/redisinsight/
-https://evidencebase.heley.uk/dashboard/
-https://evidencebase.heley.uk/api/gpt/openapi.json
-https://evidencebase.heley.uk/api/gpt/ping?message=hello
+<p>Meshnet equivalents for your own devices:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>http://&lt;meshnet-hostname-or-ip&gt;:52180
+http://&lt;meshnet-hostname-or-ip&gt;:52180/docs/
+http://&lt;meshnet-hostname-or-ip&gt;:52180/docs/readme.html
+http://&lt;meshnet-hostname-or-ip&gt;:52180/docs/reference.html
+http://&lt;meshnet-hostname-or-ip&gt;:52180/minio/
+http://&lt;meshnet-hostname-or-ip&gt;:52180/minio-console/
+http://&lt;meshnet-hostname-or-ip&gt;:52180/redisinsight/
+http://&lt;meshnet-hostname-or-ip&gt;:52180/dashboard/
+http://&lt;meshnet-hostname-or-ip&gt;:52180/api/gpt/openapi.json
+http://&lt;meshnet-hostname-or-ip&gt;:52180/api/gpt/ping?message=hello
 </pre></div>
 </div>
-<p>Recommended public GPT-only hostname:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>https://open.heley.uk/api/gpt/openapi.json
-https://open.heley.uk/api/gpt/ping?message=hello
-</pre></div>
-</div>
+<p>Replace <code class="docutils literal notranslate"><span class="pre">&lt;meshnet-hostname-or-ip&gt;</span></code> with the NordVPN Meshnet hostname or Meshnet
+IP of the machine running the stack.</p>
 </section>
-<section id="cloudflare-split-protected-ui-open-gpt-api">
-<h3>Cloudflare Split: Protected UI + Open GPT API<a class="headerlink" href="#cloudflare-split-protected-ui-open-gpt-api" title="Link to this heading">¶</a></h3>
-<p>To keep <code class="docutils literal notranslate"><span class="pre">evidencebase.heley.uk</span></code> behind Cloudflare Access while exposing only the GPT action API:</p>
+<section id="nordvpn-meshnet-access">
+<h3>NordVPN Meshnet Access<a class="headerlink" href="#nordvpn-meshnet-access" title="Link to this heading">¶</a></h3>
+<p>Current remote access is private-only: the public <code class="docutils literal notranslate"><span class="pre">evidencebase.heley.uk</span></code>
+deployment has been retired in favour of NordVPN Meshnet.</p>
 <ol class="arabic simple">
-<li><p>In Cloudflare Zero Trust -&gt; Networks -&gt; Tunnels -&gt; your named tunnel -&gt; Public hostnames, add:</p>
-<ul class="simple">
-<li><p>Hostname: <code class="docutils literal notranslate"><span class="pre">open.heley.uk</span></code></p></li>
-<li><p>Service: <code class="docutils literal notranslate"><span class="pre">http://proxy:80</span></code></p></li>
-</ul>
-</li>
-<li><p>Keep <code class="docutils literal notranslate"><span class="pre">evidencebase.heley.uk</span></code> mapped to <code class="docutils literal notranslate"><span class="pre">http://proxy:80</span></code> as-is.</p></li>
-<li><p>In Cloudflare Access -&gt; Applications, ensure policy scope protects only <code class="docutils literal notranslate"><span class="pre">evidencebase.heley.uk/*</span></code> (not <code class="docutils literal notranslate"><span class="pre">*.heley.uk</span></code>).</p></li>
-<li><p>Do not attach Access protection to <code class="docutils literal notranslate"><span class="pre">open.heley.uk</span></code>.</p></li>
+<li><p>Join the host machine and your client devices to the same NordVPN Meshnet.</p></li>
+<li><p>Start the shared datastores and local Evidence Base stack on the host.</p></li>
+<li><p>Reach the proxy from another device at <code class="docutils literal notranslate"><span class="pre">http://&lt;meshnet-hostname-or-ip&gt;:52180</span></code>.</p></li>
+<li><p>Set <code class="docutils literal notranslate"><span class="pre">GPT_ACTIONS_LINK_BASE_URL=http://&lt;meshnet-hostname-or-ip&gt;:52180</span></code> in
+<code class="docutils literal notranslate"><span class="pre">.env</span></code> if you want generated resolver/source links to point at the Meshnet
+host instead of <code class="docutils literal notranslate"><span class="pre">localhost</span></code>.</p></li>
+<li><p>Keep in mind that hosted ChatGPT Actions cannot reach Meshnet-only or other
+private addresses. Use browsers/scripts on your own Meshnet devices, or
+reintroduce a public HTTPS endpoint if you need cloud-hosted ChatGPT access.</p></li>
 </ol>
-<p>NGINX already restricts <code class="docutils literal notranslate"><span class="pre">open.heley.uk</span></code> to <code class="docutils literal notranslate"><span class="pre">/api/gpt/*</span></code> and returns <code class="docutils literal notranslate"><span class="pre">404</span></code> for all other paths.</p>
+<p>Example private GPT/API base over Meshnet:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>http://&lt;meshnet-hostname-or-ip&gt;:52180/api/gpt/openapi.json
+http://&lt;meshnet-hostname-or-ip&gt;:52180/api/gpt/ping?message=hello
+</pre></div>
+</div>
 </section>
 <section id="api-workflow-examples">
 <h3>API Workflow Examples<a class="headerlink" href="#api-workflow-examples" title="Link to this heading">¶</a></h3>
@@ -435,39 +500,40 @@ Qdrant write leave a document stuck in the final ingestion stage.</p>
 </pre></div>
 </div>
 </section>
-<section id="custom-gpt-ping-action-api-key-bearer">
-<h3>Custom GPT Ping Action (API Key + Bearer)<a class="headerlink" href="#custom-gpt-ping-action-api-key-bearer" title="Link to this heading">¶</a></h3>
-<p>Use this when creating an Action in the ChatGPT UI.</p>
+<section id="private-gpt-api-access-api-key-bearer">
+<h3>Private GPT/API Access (API Key + Bearer)<a class="headerlink" href="#private-gpt-api-access-api-key-bearer" title="Link to this heading">¶</a></h3>
+<p>Use this for GPT-facing endpoints from your own Meshnet-connected devices.</p>
 <ol class="arabic">
-<li><p>Start named tunnel:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>-d<span class="w"> </span>cloudflared
-</pre></div>
-</div>
-</li>
-<li><p>Set API key in <code class="docutils literal notranslate"><span class="pre">.env</span></code>:</p>
+<li><p>Set API key and link base in <code class="docutils literal notranslate"><span class="pre">.env</span></code>:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">GPT_ACTIONS_API_KEY</span><span class="o">=</span>&lt;your-api-key&gt;
-<span class="nv">GPT_ACTIONS_LINK_BASE_URL</span><span class="o">=</span>https://evidencebase.heley.uk
+<span class="nv">GPT_ACTIONS_LINK_BASE_URL</span><span class="o">=</span>http://&lt;meshnet-hostname-or-ip&gt;:52180
 </pre></div>
 </div>
 </li>
-<li><p>Verify ping from the <code class="docutils literal notranslate"><span class="pre">open.heley.uk</span></code> hostname:</p>
+<li><p>Start the local stack:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>-d
+</pre></div>
+</div>
+</li>
+<li><p>Verify ping from another Meshnet device:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-H<span class="w"> </span><span class="s2">&quot;Authorization: Bearer &lt;your-api-key&gt;&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">&quot;https://open.heley.uk/api/gpt/ping?message=hello&quot;</span>
+<span class="w">  </span><span class="s2">&quot;http://&lt;meshnet-hostname-or-ip&gt;:52180/api/gpt/ping?message=hello&quot;</span>
 </pre></div>
 </div>
 </li>
-<li><p>In ChatGPT -&gt; Custom GPT -&gt; Actions:</p>
-<ul class="simple">
-<li><p>Authentication type: <code class="docutils literal notranslate"><span class="pre">API</span> <span class="pre">key</span></code></p></li>
-<li><p>Auth Type: <code class="docutils literal notranslate"><span class="pre">Bearer</span></code></p></li>
-<li><p>API key value: same value as <code class="docutils literal notranslate"><span class="pre">GPT_ACTIONS_API_KEY</span></code></p></li>
-<li><p>OpenAPI schema URL: <code class="docutils literal notranslate"><span class="pre">https://open.heley.uk/api/gpt/openapi.json</span></code></p></li>
-</ul>
+<li><p>Fetch the schema from the same private base if needed:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-H<span class="w"> </span><span class="s2">&quot;Authorization: Bearer &lt;your-api-key&gt;&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="s2">&quot;http://&lt;meshnet-hostname-or-ip&gt;:52180/api/gpt/openapi.json&quot;</span>
+</pre></div>
+</div>
 </li>
 </ol>
-<p>The ping action exposed to ChatGPT is <code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/gpt/ping</span></code> and requires API key over Bearer auth.</p>
-<p>Search wrapper exposed to ChatGPT Actions:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s2">&quot;https://open.heley.uk/api/gpt/search&quot;</span><span class="w"> </span><span class="se">\</span>
+<p>The GPT-facing ping endpoint is <code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/gpt/ping</span></code> and requires API key over
+Bearer auth.</p>
+<p>Hosted ChatGPT custom Actions require a public HTTPS URL and will not be able to
+reach a Meshnet-only/private endpoint.</p>
+<p>Search wrapper for private GPT/API clients:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s2">&quot;http://&lt;meshnet-hostname-or-ip&gt;:52180/api/gpt/search&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Authorization: Bearer &lt;your-api-key&gt;&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{&quot;bucket_name&quot;:&quot;research-raw&quot;,&quot;query&quot;:&quot;causal inference&quot;,&quot;mode&quot;:&quot;hybrid&quot;,&quot;limit&quot;:5,&quot;rrf_k&quot;:80}&#39;</span>
@@ -504,7 +570,7 @@ section-level reranking.</p>
 <li><p><code class="docutils literal notranslate"><span class="pre">minimal_result_text_chars</span></code> controls snippet truncation for minimal mode (default <code class="docutils literal notranslate"><span class="pre">500</span></code>, clamped to <code class="docutils literal notranslate"><span class="pre">25..2000</span></code>)</p></li>
 </ul>
 <p>Example with staged retrieval enabled (default):</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s2">&quot;https://open.heley.uk/api/gpt/search&quot;</span><span class="w"> </span><span class="se">\</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s2">&quot;http://&lt;meshnet-hostname-or-ip&gt;:52180/api/gpt/search&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Authorization: Bearer &lt;your-api-key&gt;&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{</span>
@@ -517,7 +583,7 @@ section-level reranking.</p>
 </pre></div>
 </div>
 <p>Example fallback to one-pass retrieval:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s2">&quot;https://open.heley.uk/api/gpt/search&quot;</span><span class="w"> </span><span class="se">\</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s2">&quot;http://&lt;meshnet-hostname-or-ip&gt;:52180/api/gpt/search&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Authorization: Bearer &lt;your-api-key&gt;&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{</span>
@@ -644,10 +710,10 @@ run a beat process (or worker with beat enabled). The current API endpoint
 <span class="nv">CHUNK_PARAGRAPH_BREAK_STRATEGY</span><span class="o">=</span>text
 <span class="nv">CHUNK_PRESERVE_PAGE_BREAKS</span><span class="o">=</span><span class="nb">true</span>
 <span class="nv">MINIO_SCAN_INTERVAL_SECONDS</span><span class="o">=</span><span class="m">15</span>
-<span class="c1"># Required because cloudflared starts with docker compose up.</span>
-<span class="nv">CLOUDFLARE_TUNNEL_TOKEN</span><span class="o">=</span>&lt;your-cloudflare-tunnel-token&gt;
+<span class="c1"># Only required when explicitly starting docker compose with --profile tunnel.</span>
+<span class="nv">CLOUDFLARE_TUNNEL_TOKEN</span><span class="o">=</span>
 <span class="nv">GPT_ACTIONS_API_KEY</span><span class="o">=</span>&lt;your-api-key&gt;
-<span class="nv">GPT_ACTIONS_LINK_BASE_URL</span><span class="o">=</span>https://evidencebase.heley.uk
+<span class="nv">GPT_ACTIONS_LINK_BASE_URL</span><span class="o">=</span>http://localhost:52180
 </pre></div>
 </div>
 <p>The checked-in template is <code class="docutils literal notranslate"><span class="pre">.env.example</span></code>. If you use a different

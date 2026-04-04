@@ -8,6 +8,7 @@ x-backend-environment: &backend-environment
   MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
   MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
   MINIO_SECURE: ${MINIO_SECURE:-false}
+  EVIDENCEBASE_STORAGE_BUCKET: ${EVIDENCEBASE_STORAGE_BUCKET:-evidence-base}
   REDIS_URL: ${REDIS_URL:?REDIS_URL must be set in .env or the environment}
   REDIS_PREFIX: ${REDIS_PREFIX:-evidencebase}
   QDRANT_URL: ${QDRANT_URL:?QDRANT_URL must be set in .env or the environment}

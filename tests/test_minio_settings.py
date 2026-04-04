@@ -29,6 +29,7 @@ def test_build_minio_settings_uses_defaults() -> None:
     assert settings.secret_key == "minioadmin"
     assert settings.secure is False
     assert settings.region is None
+    assert settings.storage_bucket_name == "evidence-base"
 
 
 def test_build_minio_settings_reads_env_values() -> None:
@@ -40,6 +41,7 @@ def test_build_minio_settings_reads_env_values() -> None:
             "MINIO_ROOT_PASSWORD": "pass1",
             "MINIO_SECURE": "true",
             "MINIO_REGION": "us-east-1",
+            "EVIDENCEBASE_STORAGE_BUCKET": "shared-evidence",
         }
     )
 
@@ -48,3 +50,4 @@ def test_build_minio_settings_reads_env_values() -> None:
     assert settings.secret_key == "pass1"
     assert settings.secure is True
     assert settings.region == "us-east-1"
+    assert settings.storage_bucket_name == "shared-evidence"

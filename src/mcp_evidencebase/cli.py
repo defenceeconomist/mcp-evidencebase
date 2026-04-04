@@ -37,6 +37,33 @@ def build_parser() -> argparse.ArgumentParser:
         help="Purge Redis and Qdrant data for the configured application prefix.",
     )
     parser.add_argument(
+        "--relocate-prefix-to-root",
+        action="store_true",
+        help="Relocate one bucket prefix to the bucket root without reindexing.",
+    )
+    parser.add_argument(
+        "--bucket",
+        help="Bucket used by maintenance operations such as prefix relocation.",
+    )
+    parser.add_argument(
+        "--source-prefix",
+        default="articles/",
+        help="Source prefix for relocation operations (default: articles/).",
+    )
+    parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="Apply a maintenance operation; otherwise run in dry-run mode.",
+    )
+    parser.add_argument(
+        "--merge-buckets-into",
+        help="Merge legacy physical buckets into one shared storage bucket.",
+    )
+    parser.add_argument(
+        "--source-buckets",
+        help="Comma-separated legacy physical bucket names to merge into shared storage.",
+    )
+    parser.add_argument(
         "--search-bucket",
         help="Bucket/collection name used for semantic, keyword, or hybrid search.",
     )
@@ -88,6 +115,41 @@ def main() -> int:
             print(str(exc))
             return 1
         print(summary)
+        return 0
+    if args.relocate_prefix_to_root:
+        if not args.bucket:
+            parser.error("--bucket is required with --relocate-prefix-to-root.")
+        try:
+            summary = build_ingestion_service().relocate_prefix_to_bucket_root(
+                bucket_name=args.bucket,
+                source_prefix=args.source_prefix,
+                dry_run=not bool(args.apply),
+            )
+        except (DependencyConfigurationError, DependencyDisabledError, ValueError) as exc:
+            print(str(exc))
+            return 1
+        print(json.dumps(summary, sort_keys=True))
+        return 0
+    if args.merge_buckets_into:
+        if not args.source_buckets:
+            parser.error("--source-buckets is required with --merge-buckets-into.")
+        source_bucket_names = [
+            bucket_name.strip()
+            for bucket_name in str(args.source_buckets).split(",")
+            if bucket_name.strip()
+        ]
+        if not source_bucket_names:
+            parser.error("--source-buckets must include at least one bucket name.")
+        try:
+            summary = build_ingestion_service().merge_buckets_into_storage(
+                source_bucket_names=source_bucket_names,
+                target_bucket_name=args.merge_buckets_into,
+                dry_run=not bool(args.apply),
+            )
+        except (DependencyConfigurationError, DependencyDisabledError, ValueError) as exc:
+            print(str(exc))
+            return 1
+        print(json.dumps(summary, sort_keys=True))
         return 0
     if args.search_bucket or args.search_query:
         if not args.search_bucket or not args.search_query:

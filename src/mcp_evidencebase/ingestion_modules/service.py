@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import threading
 import time
+from collections import defaultdict
 from collections.abc import Mapping
 from pathlib import PurePosixPath
 from typing import Any, ClassVar, Protocol, cast
@@ -43,6 +44,16 @@ from mcp_evidencebase.ingestion_modules.metadata import (
 )
 from mcp_evidencebase.ingestion_modules.qdrant import QdrantIndexer
 from mcp_evidencebase.ingestion_modules.repository import RedisDocumentRepository
+from mcp_evidencebase.storage_layout import (
+    COLLECTION_MARKER_FILENAME,
+    DEFAULT_STORAGE_BUCKET_NAME,
+    build_collection_marker_object_name,
+    build_storage_object_name,
+    collect_storage_collection_names,
+    marker_payload,
+    normalize_collection_name,
+    normalize_object_name,
+)
 
 
 class DependencyConfigurationError(RuntimeError):
@@ -120,6 +131,16 @@ class DisabledQdrantIndexer:
         del args, kwargs
         self._raise("upsert_document_chunks")
 
+    def rewrite_document_source_paths(self, *args: Any, **kwargs: Any) -> int:
+        del args, kwargs
+        self._raise("rewrite_document_source_paths")
+        raise AssertionError("unreachable")
+
+    def rewrite_collection_storage_metadata(self, *args: Any, **kwargs: Any) -> int:
+        del args, kwargs
+        self._raise("rewrite_collection_storage_metadata")
+        raise AssertionError("unreachable")
+
     def search_chunks(self, *args: Any, **kwargs: Any) -> list[dict[str, Any]]:
         del args, kwargs
         self._raise("search_chunks")
@@ -182,6 +203,18 @@ class MinioClientLike(Protocol):
         """List bucket summaries."""
         ...
 
+    def bucket_exists(self, bucket_name: str) -> bool:
+        """Return whether one bucket exists."""
+        ...
+
+    def make_bucket(self, bucket_name: str, location: str | None = None) -> None:
+        """Create one bucket when missing."""
+        ...
+
+    def remove_bucket(self, bucket_name: str) -> None:
+        """Remove one bucket."""
+        ...
+
     def list_objects(
         self,
         bucket_name: str,
@@ -200,6 +233,15 @@ class MinioClientLike(Protocol):
         content_type: str,
     ) -> Any:
         """Upload one object."""
+        ...
+
+    def copy_object(
+        self,
+        bucket_name: str,
+        object_name: str,
+        source: Any,
+    ) -> Any:
+        """Copy one object from an existing bucket/object source."""
         ...
 
 
@@ -321,6 +363,7 @@ class IngestionService:
         chunk_image_text_mode: str = "placeholder",
         chunk_paragraph_break_strategy: str = "text",
         chunk_preserve_page_breaks: bool = True,
+        storage_bucket_name: str = DEFAULT_STORAGE_BUCKET_NAME,
     ) -> None:
         """Construct ingestion service dependencies.
 
@@ -344,6 +387,10 @@ class IngestionService:
         self._repository = repository
         self._partition_client = partition_client
         self._qdrant_indexer = qdrant_indexer
+        self._storage_bucket_name = (
+            str(storage_bucket_name or DEFAULT_STORAGE_BUCKET_NAME).strip()
+            or DEFAULT_STORAGE_BUCKET_NAME
+        )
         self._chunk_size_chars = chunk_size_chars
         self._chunk_overlap_chars = chunk_overlap_chars
         self._chunk_exclude_element_types = (
@@ -358,6 +405,73 @@ class IngestionService:
             str(chunk_paragraph_break_strategy or "text").strip().lower() or "text"
         )
         self._chunk_preserve_page_breaks = bool(chunk_preserve_page_breaks)
+
+    def _bucket_exists(self, bucket_name: str) -> bool:
+        normalized_bucket_name = str(bucket_name).strip()
+        if not normalized_bucket_name:
+            return False
+        if hasattr(self._minio_client, "bucket_exists"):
+            return bool(self._minio_client.bucket_exists(normalized_bucket_name))
+        bucket_names = [str(bucket.name).strip() for bucket in self._minio_client.list_buckets()]
+        return normalized_bucket_name in bucket_names
+
+    def _storage_bucket_exists(self) -> bool:
+        return self._bucket_exists(self._storage_bucket_name)
+
+    def _ensure_storage_bucket(self) -> None:
+        if self._storage_bucket_exists():
+            return
+        self._minio_client.make_bucket(self._storage_bucket_name)
+
+    def _list_storage_collection_names(self) -> list[str]:
+        if not self._storage_bucket_exists():
+            return []
+        object_names = [
+            str(getattr(item, "object_name", "")).strip()
+            for item in self._minio_client.list_objects(self._storage_bucket_name, recursive=True)
+            if str(getattr(item, "object_name", "")).strip()
+        ]
+        return collect_storage_collection_names(object_names)
+
+    def _collection_exists_in_storage(self, bucket_name: str) -> bool:
+        normalized_bucket_name = str(bucket_name).strip()
+        if not normalized_bucket_name or not self._storage_bucket_exists():
+            return False
+        prefix = f"{normalized_bucket_name}/"
+        for item in self._minio_client.list_objects(self._storage_bucket_name, recursive=True):
+            object_name = str(getattr(item, "object_name", "")).strip()
+            if object_name.startswith(prefix):
+                return True
+        return False
+
+    def _resolve_physical_location(
+        self,
+        *,
+        bucket_name: str,
+        object_name: str,
+        prefer_storage: bool = False,
+    ) -> tuple[str, str]:
+        normalized_bucket_name = normalize_collection_name(bucket_name)
+        normalized_object_name = normalize_object_name(object_name)
+        if prefer_storage or self._collection_exists_in_storage(normalized_bucket_name):
+            return (
+                self._storage_bucket_name,
+                build_storage_object_name(normalized_bucket_name, normalized_object_name),
+            )
+        return normalized_bucket_name, normalized_object_name
+
+    def _create_collection_marker(self, bucket_name: str) -> None:
+        normalized_bucket_name = normalize_collection_name(bucket_name)
+        self._ensure_storage_bucket()
+        marker_object_name = build_collection_marker_object_name(normalized_bucket_name)
+        payload = marker_payload(normalized_bucket_name)
+        self._minio_client.put_object(
+            self._storage_bucket_name,
+            marker_object_name,
+            data=io.BytesIO(payload),
+            length=len(payload),
+            content_type="application/json",
+        )
 
     def _set_state(self, document_id: str, **values: Any) -> None:
         """Convenience wrapper for repository state updates."""
@@ -698,7 +812,11 @@ class IngestionService:
 
     def _read_object_bytes(self, bucket_name: str, object_name: str) -> bytes:
         """Read and return object bytes from MinIO."""
-        object_response = self._minio_client.get_object(bucket_name, object_name)
+        physical_bucket_name, physical_object_name = self._resolve_physical_location(
+            bucket_name=bucket_name,
+            object_name=object_name,
+        )
+        object_response = self._minio_client.get_object(physical_bucket_name, physical_object_name)
         try:
             return cast(bytes, object_response.read())
         finally:
@@ -714,7 +832,11 @@ class IngestionService:
         file_bytes: bytes,
     ) -> tuple[str, str]:
         """Resolve and persist deterministic document identity and source mapping."""
-        stat_info = self._minio_client.stat_object(bucket_name, object_name)
+        physical_bucket_name, physical_object_name = self._resolve_physical_location(
+            bucket_name=bucket_name,
+            object_name=object_name,
+        )
+        stat_info = self._minio_client.stat_object(physical_bucket_name, physical_object_name)
         resolved_etag = normalize_etag(etag) or normalize_etag(getattr(stat_info, "etag", ""))
         document_id = compute_document_id(file_bytes)
 
@@ -724,16 +846,234 @@ class IngestionService:
             object_name=object_name,
             document_id=document_id,
             etag=resolved_etag,
+            storage_bucket_name=physical_bucket_name,
+            storage_object_name=physical_object_name,
         )
         return document_id, resolved_etag
 
     def _remove_object_if_exists(self, bucket_name: str, object_name: str) -> None:
         """Delete an object and ignore not-found responses."""
         try:
-            self._minio_client.remove_object(bucket_name, object_name)
+            physical_bucket_name, physical_object_name = self._resolve_physical_location(
+                bucket_name=bucket_name,
+                object_name=object_name,
+            )
+            self._minio_client.remove_object(physical_bucket_name, physical_object_name)
         except S3Error as exc:
             if exc.code not in {"NoSuchKey", "NoSuchObject"}:
                 raise
+
+    def relocate_prefix_to_bucket_root(
+        self,
+        *,
+        bucket_name: str,
+        source_prefix: str = "articles/",
+        dry_run: bool = True,
+    ) -> dict[str, Any]:
+        """Relocate one bucket prefix to the bucket root without reindexing."""
+        from minio.commonconfig import CopySource
+
+        normalized_bucket_name = bucket_name.strip()
+        normalized_source_prefix = source_prefix.strip().lstrip("/")
+        if not normalized_bucket_name:
+            raise ValueError("bucket_name must not be empty.")
+        if not normalized_source_prefix:
+            raise ValueError("source_prefix must not be empty.")
+        if not normalized_source_prefix.endswith("/"):
+            normalized_source_prefix = f"{normalized_source_prefix}/"
+
+        bucket_objects = self.list_bucket_objects(normalized_bucket_name)
+        object_etags = {object_name: etag for object_name, etag in bucket_objects}
+        source_objects = sorted(
+            object_name
+            for object_name, _etag in bucket_objects
+            if object_name.startswith(normalized_source_prefix)
+        )
+        target_name_sources: dict[str, list[str]] = defaultdict(list)
+        for object_name in source_objects:
+            target_name_sources[PurePosixPath(object_name).name].append(object_name)
+
+        report_items: list[dict[str, Any]] = []
+        report: dict[str, Any] = {
+            "bucket_name": normalized_bucket_name,
+            "source_prefix": normalized_source_prefix,
+            "dry_run": bool(dry_run),
+            "candidates_seen": len(source_objects),
+            "relocated": 0,
+            "would_relocate": 0,
+            "skipped_missing_mapping": 0,
+            "skipped_missing_document_id": 0,
+            "skipped_existing_target": 0,
+            "skipped_existing_target_mapping": 0,
+            "skipped_multiple_source_locations": 0,
+            "skipped_duplicate_target_name": 0,
+            "failed": 0,
+            "items": report_items,
+        }
+
+        for old_object_name in source_objects:
+            new_object_name = PurePosixPath(old_object_name).name
+            item_report: dict[str, Any] = {
+                "old_object_name": old_object_name,
+                "new_object_name": new_object_name,
+            }
+            report_items.append(item_report)
+
+            old_mapping = self._repository.get_object_mapping(
+                normalized_bucket_name,
+                old_object_name,
+            )
+            if not old_mapping:
+                item_report["status"] = "skipped_missing_mapping"
+                report["skipped_missing_mapping"] += 1
+                continue
+
+            document_id = str(old_mapping.get("document_id", "")).strip()
+            item_report["document_id"] = document_id
+            if not document_id:
+                item_report["status"] = "skipped_missing_document_id"
+                report["skipped_missing_document_id"] += 1
+                continue
+
+            prefixed_document_locations = [
+                location
+                for location in self._repository.get_document_locations(
+                    document_id,
+                    normalized_bucket_name,
+                )
+                if location.startswith(f"{normalized_bucket_name}/{normalized_source_prefix}")
+            ]
+            if len(prefixed_document_locations) > 1:
+                item_report["status"] = "skipped_multiple_source_locations"
+                item_report["locations"] = prefixed_document_locations
+                report["skipped_multiple_source_locations"] += 1
+                continue
+
+            if len(target_name_sources.get(new_object_name, [])) > 1:
+                item_report["status"] = "skipped_duplicate_target_name"
+                item_report["conflicting_sources"] = list(target_name_sources[new_object_name])
+                report["skipped_duplicate_target_name"] += 1
+                continue
+
+            if new_object_name in object_etags:
+                item_report["status"] = "skipped_existing_target"
+                report["skipped_existing_target"] += 1
+                continue
+
+            if self._repository.get_object_mapping(normalized_bucket_name, new_object_name):
+                item_report["status"] = "skipped_existing_target_mapping"
+                report["skipped_existing_target_mapping"] += 1
+                continue
+
+            if dry_run:
+                item_report["status"] = "dry_run"
+                report["would_relocate"] += 1
+                continue
+
+            old_etag = normalize_etag(old_mapping.get("etag", "")) or object_etags.get(
+                old_object_name,
+                "",
+            )
+            copied_object = False
+            redis_relocated = False
+            qdrant_rewritten = False
+            destination_bucket_name = normalized_bucket_name
+            destination_object_name = new_object_name
+            source_bucket_name = normalized_bucket_name
+            source_object_name = old_object_name
+            if self._collection_exists_in_storage(normalized_bucket_name):
+                destination_bucket_name = self._storage_bucket_name
+                destination_object_name = build_storage_object_name(
+                    normalized_bucket_name,
+                    new_object_name,
+                )
+                source_bucket_name = self._storage_bucket_name
+                source_object_name = build_storage_object_name(
+                    normalized_bucket_name,
+                    old_object_name,
+                )
+            try:
+                self._minio_client.copy_object(
+                    destination_bucket_name,
+                    destination_object_name,
+                    CopySource(source_bucket_name, source_object_name),
+                )
+                copied_object = True
+                stat_info = self._minio_client.stat_object(
+                    destination_bucket_name,
+                    destination_object_name,
+                )
+                new_etag = normalize_etag(getattr(stat_info, "etag", ""))
+                self._repository.relocate_source_location(
+                    bucket_name=normalized_bucket_name,
+                    document_id=document_id,
+                    old_object_name=old_object_name,
+                    new_object_name=new_object_name,
+                    etag=new_etag,
+                    storage_bucket_name=destination_bucket_name,
+                    storage_object_name=destination_object_name,
+                )
+                redis_relocated = True
+                updated_points = cast(
+                    int,
+                    self._qdrant_indexer.rewrite_document_source_paths(
+                        bucket_name=normalized_bucket_name,
+                        document_id=document_id,
+                        old_object_name=old_object_name,
+                        new_object_name=new_object_name,
+                        storage_bucket_name=(
+                            destination_bucket_name
+                            if destination_bucket_name != normalized_bucket_name
+                            else None
+                        ),
+                    ),
+                )
+                qdrant_rewritten = True
+                self._remove_object_if_exists(normalized_bucket_name, old_object_name)
+                object_etags.pop(old_object_name, None)
+                object_etags[new_object_name] = new_etag
+                item_report["status"] = "relocated"
+                item_report["updated_points"] = updated_points
+                report["relocated"] += 1
+            except Exception as exc:
+                if qdrant_rewritten:
+                    try:
+                        self._qdrant_indexer.rewrite_document_source_paths(
+                            bucket_name=normalized_bucket_name,
+                            document_id=document_id,
+                            old_object_name=new_object_name,
+                            new_object_name=old_object_name,
+                            storage_bucket_name=(
+                                destination_bucket_name
+                                if destination_bucket_name != normalized_bucket_name
+                                else None
+                            ),
+                        )
+                    except Exception:
+                        pass
+                if redis_relocated:
+                    try:
+                        self._repository.relocate_source_location(
+                            bucket_name=normalized_bucket_name,
+                            document_id=document_id,
+                            old_object_name=new_object_name,
+                            new_object_name=old_object_name,
+                            etag=old_etag,
+                            storage_bucket_name=source_bucket_name,
+                            storage_object_name=source_object_name,
+                        )
+                    except Exception:
+                        pass
+                if copied_object:
+                    try:
+                        self._remove_object_if_exists(normalized_bucket_name, new_object_name)
+                    except Exception:
+                        pass
+                item_report["status"] = "failed"
+                item_report["error"] = str(exc)
+                report["failed"] += 1
+
+        return report
 
     def list_documents(self, bucket_name: str) -> list[dict[str, Any]]:
         """Return UI-facing document records for a bucket.
@@ -772,14 +1112,18 @@ class IngestionService:
         return records
 
     def list_buckets(self) -> list[str]:
-        """Return sorted bucket names from MinIO.
+        """Return sorted logical collection names.
 
         Returns:
-            Sorted list of bucket names.
+            Sorted list of logical collection names.
         """
-        bucket_names = [bucket.name for bucket in self._minio_client.list_buckets()]
-        bucket_names.sort()
-        return bucket_names
+        bucket_names = set(self._list_storage_collection_names())
+        for bucket in self._minio_client.list_buckets():
+            current_bucket_name = str(bucket.name).strip()
+            if not current_bucket_name or current_bucket_name == self._storage_bucket_name:
+                continue
+            bucket_names.add(current_bucket_name)
+        return sorted(bucket_names)
 
     def ensure_bucket_qdrant_collection(self, bucket_name: str) -> bool:
         """Ensure the bucket-level Qdrant collection exists.
@@ -804,7 +1148,7 @@ class IngestionService:
         return cast(bool, self._qdrant_indexer.delete_bucket_collection(bucket_name))
 
     def list_bucket_objects(self, bucket_name: str) -> list[tuple[str, str]]:
-        """Return non-directory object names and ETags for one bucket.
+        """Return non-directory object names and ETags for one logical collection.
 
         Args:
             bucket_name: Bucket to scan.
@@ -812,8 +1156,25 @@ class IngestionService:
         Returns:
             List of ``(object_name, etag)`` tuples.
         """
+        normalized_bucket_name = normalize_collection_name(bucket_name)
         objects: list[tuple[str, str]] = []
-        object_iter = self._minio_client.list_objects(bucket_name, recursive=True)
+        if self._collection_exists_in_storage(normalized_bucket_name):
+            prefix = f"{normalized_bucket_name}/"
+            object_iter = self._minio_client.list_objects(self._storage_bucket_name, recursive=True)
+            for item in object_iter:
+                storage_object_name = str(getattr(item, "object_name", "")).strip()
+                if not storage_object_name.startswith(prefix):
+                    continue
+                if bool(getattr(item, "is_dir", False)):
+                    continue
+                object_name = storage_object_name[len(prefix) :]
+                if not object_name or object_name == COLLECTION_MARKER_FILENAME:
+                    continue
+                etag = normalize_etag(getattr(item, "etag", ""))
+                objects.append((object_name, etag))
+            return objects
+
+        object_iter = self._minio_client.list_objects(normalized_bucket_name, recursive=True)
         for item in object_iter:
             object_name = str(getattr(item, "object_name", "")).strip()
             if not object_name:
@@ -870,31 +1231,43 @@ class IngestionService:
         """
         if not payload:
             raise ValueError("uploaded file is empty.")
-        normalized_object_name = object_name.strip()
-        if not normalized_object_name:
-            raise ValueError("object_name must not be empty.")
+        normalized_bucket_name = normalize_collection_name(bucket_name)
+        normalized_object_name = normalize_object_name(object_name)
+
+        prefer_storage = self._collection_exists_in_storage(normalized_bucket_name) or not (
+            self._bucket_exists(normalized_bucket_name)
+        )
+        if prefer_storage:
+            self._ensure_storage_bucket()
+        physical_bucket_name, physical_object_name = self._resolve_physical_location(
+            bucket_name=normalized_bucket_name,
+            object_name=normalized_object_name,
+            prefer_storage=prefer_storage,
+        )
 
         guessed_content_type = content_type or infer_content_type(normalized_object_name)
         self._minio_client.put_object(
-            bucket_name,
-            normalized_object_name,
+            physical_bucket_name,
+            physical_object_name,
             data=io.BytesIO(payload),
             length=len(payload),
             content_type=guessed_content_type,
         )
-        stat_info = self._minio_client.stat_object(bucket_name, normalized_object_name)
+        stat_info = self._minio_client.stat_object(physical_bucket_name, physical_object_name)
         etag = normalize_etag(getattr(stat_info, "etag", ""))
 
         document_id = compute_document_id(payload)
-        self._repository.add_document(bucket_name, document_id)
+        self._repository.add_document(normalized_bucket_name, document_id)
         self._repository.mark_object(
-            bucket_name=bucket_name,
+            bucket_name=normalized_bucket_name,
             object_name=normalized_object_name,
             document_id=document_id,
             etag=etag,
+            storage_bucket_name=physical_bucket_name,
+            storage_object_name=physical_object_name,
         )
         meta_key = self._repository.set_default_metadata_if_missing(
-            bucket_name,
+            normalized_bucket_name,
             document_id,
             file_path=normalized_object_name,
         )
@@ -1207,6 +1580,11 @@ class IngestionService:
                 partition_key=partition_key,
                 meta_key=meta_key,
                 document_year=document_year,
+                storage_bucket_name=(
+                    self._storage_bucket_name
+                    if self._collection_exists_in_storage(bucket_name)
+                    else None
+                ),
             )
             sections_count = self._safe_positive_int(state.get("sections_count"))
             if sections_count is None:
@@ -1704,7 +2082,11 @@ class IngestionService:
         if not normalized_object_name:
             raise ValueError("file_path must not be empty.")
 
-        stat_info = self._minio_client.stat_object(normalized_bucket_name, normalized_object_name)
+        physical_bucket_name, physical_object_name = self._resolve_physical_location(
+            bucket_name=normalized_bucket_name,
+            object_name=normalized_object_name,
+        )
+        stat_info = self._minio_client.stat_object(physical_bucket_name, physical_object_name)
         content_type = str(getattr(stat_info, "content_type", "") or "").strip()
         if not content_type:
             content_type = infer_content_type(normalized_object_name)
@@ -2069,6 +2451,194 @@ class IngestionService:
                 keep_partitions=keep_partitions,
             ),
         )
+
+    def delete_collection(self, *, bucket_name: str, keep_partitions: bool = True) -> bool:
+        """Delete one logical collection and all related MinIO, Redis, and Qdrant state."""
+        normalized_bucket_name = normalize_collection_name(bucket_name)
+        collection_exists_in_storage = self._collection_exists_in_storage(normalized_bucket_name)
+        legacy_bucket_exists = self._bucket_exists(normalized_bucket_name)
+        if not collection_exists_in_storage and not legacy_bucket_exists:
+            return False
+
+        document_ids = self._repository.list_document_ids(normalized_bucket_name)
+        for document_id in document_ids:
+            self.delete_document(
+                bucket_name=normalized_bucket_name,
+                document_id=document_id,
+                keep_partitions=keep_partitions,
+            )
+
+        if collection_exists_in_storage:
+            prefix = f"{normalized_bucket_name}/"
+            for item in self._minio_client.list_objects(self._storage_bucket_name, recursive=True):
+                object_name = str(getattr(item, "object_name", "")).strip()
+                if not object_name.startswith(prefix):
+                    continue
+                self._minio_client.remove_object(self._storage_bucket_name, object_name)
+        elif legacy_bucket_exists:
+            for object_name, _etag in self.list_bucket_objects(normalized_bucket_name):
+                self._remove_object_if_exists(normalized_bucket_name, object_name)
+            self._minio_client.remove_bucket(normalized_bucket_name)
+
+        self.delete_bucket_qdrant_collection(normalized_bucket_name)
+        return True
+
+    def merge_buckets_into_storage(
+        self,
+        *,
+        source_bucket_names: list[str],
+        target_bucket_name: str | None = None,
+        dry_run: bool = True,
+    ) -> dict[str, Any]:
+        """Merge legacy physical buckets into the shared storage bucket."""
+        normalized_target_bucket_name = (
+            str(target_bucket_name or self._storage_bucket_name).strip() or self._storage_bucket_name
+        )
+        normalized_source_bucket_names: list[str] = []
+        seen_bucket_names: set[str] = set()
+        for bucket_name in source_bucket_names:
+            normalized_bucket_name = normalize_collection_name(bucket_name)
+            if normalized_bucket_name == normalized_target_bucket_name:
+                continue
+            if normalized_bucket_name in seen_bucket_names:
+                continue
+            normalized_source_bucket_names.append(normalized_bucket_name)
+            seen_bucket_names.add(normalized_bucket_name)
+
+        if not normalized_source_bucket_names:
+            raise ValueError("At least one source bucket is required.")
+
+        existing_target_objects: set[str] = set()
+        if self._bucket_exists(normalized_target_bucket_name):
+            for item in self._minio_client.list_objects(normalized_target_bucket_name, recursive=True):
+                object_name = str(getattr(item, "object_name", "")).strip()
+                if object_name:
+                    existing_target_objects.add(object_name)
+
+        report: dict[str, Any] = {
+            "target_bucket_name": normalized_target_bucket_name,
+            "source_bucket_names": normalized_source_bucket_names,
+            "dry_run": bool(dry_run),
+            "warnings": [
+                "Stop Celery workers and bucket scans before applying this migration."
+            ],
+            "buckets_seen": 0,
+            "source_buckets_found": 0,
+            "source_buckets_missing": 0,
+            "objects_seen": 0,
+            "objects_copied": 0,
+            "objects_deleted": 0,
+            "markers_created": 0,
+            "redis_mappings_patched": 0,
+            "redis_mappings_missing": 0,
+            "qdrant_collections_patched": 0,
+            "qdrant_points_patched": 0,
+            "conflicts": 0,
+            "removed_source_buckets": 0,
+            "items": [],
+        }
+
+        for source_bucket_name in normalized_source_bucket_names:
+            bucket_report: dict[str, Any] = {
+                "bucket_name": source_bucket_name,
+                "found": False,
+                "objects_seen": 0,
+                "objects_copied": 0,
+                "objects_deleted": 0,
+                "redis_mappings_patched": 0,
+                "redis_mappings_missing": 0,
+                "qdrant_points_patched": 0,
+                "conflicts": [],
+            }
+            report["items"].append(bucket_report)
+            report["buckets_seen"] += 1
+
+            if not self._bucket_exists(source_bucket_name):
+                report["source_buckets_missing"] += 1
+                continue
+
+            bucket_report["found"] = True
+            report["source_buckets_found"] += 1
+            source_objects = [
+                (
+                    str(getattr(item, "object_name", "")).strip(),
+                    normalize_etag(getattr(item, "etag", "")),
+                )
+                for item in self._minio_client.list_objects(source_bucket_name, recursive=True)
+                if str(getattr(item, "object_name", "")).strip()
+            ]
+            source_objects.sort(key=lambda item: item[0])
+            bucket_report["objects_seen"] = len(source_objects)
+            report["objects_seen"] += len(source_objects)
+
+            if dry_run:
+                if not self._collection_exists_in_storage(source_bucket_name):
+                    report["markers_created"] += 1
+                for object_name, _etag in source_objects:
+                    target_object_name = build_storage_object_name(source_bucket_name, object_name)
+                    if target_object_name in existing_target_objects:
+                        bucket_report["conflicts"].append(object_name)
+                        report["conflicts"] += 1
+                continue
+
+            self._ensure_storage_bucket()
+            if not self._collection_exists_in_storage(source_bucket_name):
+                self._create_collection_marker(source_bucket_name)
+                report["markers_created"] += 1
+
+            for object_name, _etag in source_objects:
+                target_object_name = build_storage_object_name(source_bucket_name, object_name)
+                if target_object_name in existing_target_objects:
+                    bucket_report["conflicts"].append(object_name)
+                    report["conflicts"] += 1
+                    continue
+                from minio.commonconfig import CopySource
+
+                self._minio_client.copy_object(
+                    normalized_target_bucket_name,
+                    target_object_name,
+                    CopySource(source_bucket_name, object_name),
+                )
+                existing_target_objects.add(target_object_name)
+                bucket_report["objects_copied"] += 1
+                report["objects_copied"] += 1
+                try:
+                    self._repository.update_storage_location(
+                        bucket_name=source_bucket_name,
+                        object_name=object_name,
+                        storage_bucket_name=normalized_target_bucket_name,
+                        storage_object_name=target_object_name,
+                    )
+                    bucket_report["redis_mappings_patched"] += 1
+                    report["redis_mappings_patched"] += 1
+                except ValueError:
+                    bucket_report["redis_mappings_missing"] += 1
+                    report["redis_mappings_missing"] += 1
+
+            rewritten_points = cast(
+                int,
+                self._qdrant_indexer.rewrite_collection_storage_metadata(
+                    bucket_name=source_bucket_name,
+                    storage_bucket_name=normalized_target_bucket_name,
+                ),
+            )
+            if rewritten_points > 0:
+                report["qdrant_collections_patched"] += 1
+                report["qdrant_points_patched"] += rewritten_points
+                bucket_report["qdrant_points_patched"] = rewritten_points
+
+            for object_name, _etag in source_objects:
+                target_object_name = build_storage_object_name(source_bucket_name, object_name)
+                if target_object_name not in existing_target_objects:
+                    continue
+                self._minio_client.remove_object(source_bucket_name, object_name)
+                bucket_report["objects_deleted"] += 1
+                report["objects_deleted"] += 1
+
+            self._minio_client.remove_bucket(source_bucket_name)
+            report["removed_source_buckets"] += 1
+
+        return report
 
     def purge_datastores(self) -> dict[str, int]:
         """Purge Redis and Qdrant data for this application prefix."""

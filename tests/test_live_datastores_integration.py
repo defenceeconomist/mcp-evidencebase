@@ -138,6 +138,7 @@ class _LiveStack:
     minio_client: Minio
     qdrant_client: QdrantClient
     qdrant_indexer: _LiveQdrantIndexer
+    partition_client: _StaticPartitionClient
     bucket_name: str
     redis_prefix: str
 
@@ -400,6 +401,7 @@ def live_stack() -> Any:
         minio_client=minio_client,
         qdrant_client=qdrant_client,
         qdrant_indexer=qdrant_indexer,
+        partition_client=partition_client,
         bucket_name=bucket_name,
         redis_prefix=redis_prefix,
     )
@@ -670,3 +672,94 @@ def test_live_api_collection_round_trip_create_upload_and_delete(
     finally:
         app.dependency_overrides.clear()
         _cleanup_collection(live_stack, bucket_name=bucket_name)
+
+
+def test_live_relocate_prefix_to_bucket_root_updates_minio_redis_and_qdrant(
+    live_stack: _LiveStack,
+) -> None:
+    """Relocation should flatten articles paths without rebuilding partitions or vectors."""
+    object_name = "articles/live-relocate.pdf"
+    relocated_object_name = "live-relocate.pdf"
+    payload = b"%PDF-1.7\nRelocation-path integration payload.\n"
+
+    uploaded_name = live_stack.service.upload_document(
+        bucket_name=live_stack.bucket_name,
+        object_name=object_name,
+        payload=payload,
+        content_type="application/pdf",
+    )
+    stage_partition = live_stack.service.partition_object(
+        bucket_name=live_stack.bucket_name,
+        object_name=uploaded_name,
+    )
+    live_stack.service.chunk_object(
+        bucket_name=live_stack.bucket_name,
+        object_name=uploaded_name,
+        document_id=stage_partition["document_id"],
+    )
+
+    document_id = stage_partition["document_id"]
+    state_before = live_stack.repository.get_state(document_id)
+    partition_call_count = len(live_stack.partition_client.calls)
+    indexed_points_before = _scroll_document_points(live_stack, document_id)
+    point_ids_before = {str(getattr(point, "id", "")) for point in indexed_points_before}
+    assert point_ids_before
+
+    summary = live_stack.service.relocate_prefix_to_bucket_root(
+        bucket_name=live_stack.bucket_name,
+        source_prefix="articles/",
+        dry_run=False,
+    )
+
+    assert summary["relocated"] == 1
+    assert summary["failed"] == 0
+    with pytest.raises(S3Error):
+        live_stack.minio_client.stat_object(live_stack.bucket_name, object_name)
+    assert live_stack.minio_client.stat_object(
+        live_stack.bucket_name,
+        relocated_object_name,
+    )
+    assert live_stack.repository.get_object_mapping(live_stack.bucket_name, object_name) == {}
+    new_mapping = live_stack.repository.get_object_mapping(
+        live_stack.bucket_name,
+        relocated_object_name,
+    )
+    assert new_mapping["document_id"] == document_id
+    assert live_stack.repository.get_metadata_by_key(
+        f"{live_stack.bucket_name}/{object_name}"
+    )["title"] == ""
+    assert live_stack.repository.get_metadata_by_key(
+        f"{live_stack.bucket_name}/{relocated_object_name}"
+    )["title"]
+    state_after = live_stack.repository.get_state(document_id)
+    assert state_after["file_path"] == relocated_object_name
+    assert state_after["meta_key"] == f"{live_stack.bucket_name}/{relocated_object_name}"
+    assert state_after["partition_key"] == state_before["partition_key"]
+    assert state_after["sections_count"] == state_before["sections_count"]
+    assert state_after["chunks_count"] == state_before["chunks_count"]
+    assert len(live_stack.partition_client.calls) == partition_call_count
+
+    indexed_points_after = _scroll_document_points(live_stack, document_id)
+    point_ids_after = {str(getattr(point, "id", "")) for point in indexed_points_after}
+    assert point_ids_after == point_ids_before
+    for point in indexed_points_after:
+        payload_mapping = getattr(point, "payload", {})
+        assert isinstance(payload_mapping, dict)
+        assert (
+            payload_mapping["minio_location"]
+            == f"{live_stack.bucket_name}/{relocated_object_name}"
+        )
+        assert payload_mapping["file_path"] == relocated_object_name
+        assert str(payload_mapping["resolver_url"]).startswith(
+            f"docs://{live_stack.bucket_name}/{relocated_object_name}"
+        )
+
+    results = live_stack.service.search_documents(
+        bucket_name=live_stack.bucket_name,
+        query="Relocation-path integration payload",
+        limit=5,
+        mode="hybrid",
+    )
+    assert results
+    assert results[0]["document_id"] == document_id
+    assert results[0]["file_path"] == relocated_object_name

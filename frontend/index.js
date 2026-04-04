@@ -1708,6 +1708,15 @@ import {
   };
 
   const resolveSearchResultBucketName = (result) => {
+    const directBucketName = normalizeText(result?.bucket_name || result?.collection_name);
+    if (directBucketName) {
+      return directBucketName;
+    }
+    const payload = getSearchResultQdrantPayload(result);
+    const payloadBucketName = normalizeText(payload?.bucket_name || payload?.collection_name);
+    if (payloadBucketName) {
+      return payloadBucketName;
+    }
     const fromLocation = parseMinioLocation(result?.minio_location);
     return normalizeText(fromLocation?.bucketName || selectedBucketName);
   };
@@ -2211,13 +2220,13 @@ import {
     if (selectedBucketName) {
       setTooltipContent(
         removeCollectionButton,
-        `Remove selected collection bucket: ${selectedBucketName}.`
+        `Remove selected collection folder: ${selectedBucketName}.`
       );
       return;
     }
     setTooltipContent(
       removeCollectionButton,
-      "Select a collection first, then remove its MinIO bucket."
+      "Select a collection first, then remove its collection folder."
     );
   };
 
@@ -3795,7 +3804,7 @@ import {
   };
 
   const addBucket = async () => {
-    const requestedBucketName = window.prompt("Enter a new collection bucket name:");
+    const requestedBucketName = window.prompt("Enter a new collection folder name:");
     if (requestedBucketName === null) {
       return;
     }
@@ -5253,7 +5262,7 @@ import {
   document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach((el) => {
     new bootstrap.Tooltip(el);
   });
-  setTooltipContent(addCollectionButton, "Create a new collection bucket in MinIO.");
+  setTooltipContent(addCollectionButton, "Create a new collection folder.");
 
   addCollectionButton.addEventListener("click", () => {
     void addBucket();

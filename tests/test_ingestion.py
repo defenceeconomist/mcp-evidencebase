@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import sys
 import types
@@ -107,8 +108,10 @@ class FakeQdrantClient:
         self.collection_names: set[str] = set()
         self.upsert_calls: list[dict[str, Any]] = []
         self.delete_calls: list[dict[str, Any]] = []
+        self.set_payload_calls: list[dict[str, Any]] = []
         self.search_calls: list[dict[str, Any]] = []
         self.search_results: dict[str, list[Any]] = {"dense": [], "keyword": []}
+        self.scroll_points: list[Any] = []
 
     def get_collections(self) -> FakeCollectionsResponse:
         return FakeCollectionsResponse(
@@ -144,6 +147,60 @@ class FakeQdrantClient:
             }
         )
 
+    def scroll(
+        self,
+        *,
+        collection_name: str,
+        scroll_filter: Any,
+        limit: int,
+        with_payload: bool,
+        with_vectors: bool,
+        offset: Any = None,
+    ) -> tuple[list[Any], None]:
+        del collection_name, limit, with_payload, with_vectors, offset
+        document_id = ""
+        must_conditions = getattr(scroll_filter, "must", None)
+        if isinstance(must_conditions, list):
+            for condition in must_conditions:
+                if getattr(condition, "key", "") != "document_id":
+                    continue
+                match = getattr(condition, "match", None)
+                document_id = str(getattr(match, "value", "")).strip()
+                break
+        points = [
+            point
+            for point in self.scroll_points
+            if str(getattr(point, "payload", {}).get("document_id", "")).strip() == document_id
+        ]
+        return points, None
+
+    def set_payload(
+        self,
+        *,
+        collection_name: str,
+        payload: dict[str, Any],
+        points: list[Any],
+        wait: bool,
+        **kwargs: Any,
+    ) -> None:
+        del kwargs
+        self.set_payload_calls.append(
+            {
+                "collection_name": collection_name,
+                "payload": dict(payload),
+                "points": list(points),
+                "wait": wait,
+            }
+        )
+        point_ids = {str(point_id) for point_id in points}
+        for point in self.scroll_points:
+            point_id = getattr(point, "id", None)
+            if point_id is None or str(point_id) not in point_ids:
+                continue
+            current_payload = getattr(point, "payload", {})
+            if isinstance(current_payload, dict):
+                current_payload.update(payload)
+
     def search(
         self,
         *,
@@ -177,16 +234,94 @@ class FakeMinioClient:
     def __init__(self, payload: bytes, *, etag: str = "etag-1") -> None:
         self._payload = payload
         self._etag = etag
+        self._buckets: dict[str, dict[str, dict[str, Any]]] = {"research-raw": {}}
+        self._etag_counter = 1
         self.get_object_calls: list[tuple[str, str]] = []
         self.stat_object_calls: list[tuple[str, str]] = []
+        self.remove_object_calls: list[tuple[str, str]] = []
+        self.copy_object_calls: list[tuple[str, str, str]] = []
+
+    def bucket_exists(self, bucket_name: str) -> bool:
+        return bucket_name in self._buckets
+
+    def make_bucket(self, bucket_name: str, location: str | None = None) -> None:
+        del location
+        self._buckets.setdefault(bucket_name, {})
+
+    def remove_bucket(self, bucket_name: str) -> None:
+        self._buckets.pop(bucket_name, None)
 
     def get_object(self, bucket_name: str, object_name: str) -> FakeMinioObjectResponse:
         self.get_object_calls.append((bucket_name, object_name))
-        return FakeMinioObjectResponse(self._payload)
+        payload = self._buckets.get(bucket_name, {}).get(object_name, {}).get("payload", self._payload)
+        return FakeMinioObjectResponse(payload)
 
     def stat_object(self, bucket_name: str, object_name: str) -> Any:
         self.stat_object_calls.append((bucket_name, object_name))
-        return types.SimpleNamespace(etag=self._etag)
+        stored_object = self._buckets.get(bucket_name, {}).get(object_name)
+        if stored_object is None:
+            return types.SimpleNamespace(etag=self._etag, content_type="application/pdf")
+        return types.SimpleNamespace(
+            etag=stored_object.get("etag", self._etag),
+            content_type=stored_object.get("content_type", "application/pdf"),
+        )
+
+    def remove_object(self, bucket_name: str, object_name: str) -> None:
+        self.remove_object_calls.append((bucket_name, object_name))
+        self._buckets.setdefault(bucket_name, {}).pop(object_name, None)
+
+    def list_buckets(self) -> list[Any]:
+        return [types.SimpleNamespace(name=name) for name in sorted(self._buckets)]
+
+    def list_objects(
+        self,
+        bucket_name: str,
+        recursive: bool = False,
+    ) -> list[Any]:
+        del recursive
+        return [
+            types.SimpleNamespace(
+                object_name=object_name,
+                etag=stored_object.get("etag", self._etag),
+                is_dir=False,
+            )
+            for object_name, stored_object in sorted(self._buckets.get(bucket_name, {}).items())
+        ]
+
+    def put_object(
+        self,
+        bucket_name: str,
+        object_name: str,
+        *,
+        data: Any,
+        length: int,
+        content_type: str,
+    ) -> Any:
+        del length
+        self._buckets.setdefault(bucket_name, {})
+        payload = bytes(data.read())
+        self._buckets[bucket_name][object_name] = {
+            "payload": payload,
+            "etag": f"etag-{self._etag_counter}",
+            "content_type": content_type,
+        }
+        self._etag_counter += 1
+        return types.SimpleNamespace(object_name=object_name)
+
+    def copy_object(self, bucket_name: str, object_name: str, source: Any) -> Any:
+        self._buckets.setdefault(bucket_name, {})
+        source_bucket_name = str(getattr(source, "bucket_name", bucket_name)).strip() or bucket_name
+        source_object_name = str(getattr(source, "object_name", "")).strip()
+        self.copy_object_calls.append((bucket_name, object_name, source_object_name))
+        stored_source = self._buckets.get(source_bucket_name, {}).get(source_object_name)
+        if stored_source is None:
+            stored_source = {
+                "payload": self._payload,
+                "etag": self._etag,
+                "content_type": "application/pdf",
+            }
+        self._buckets[bucket_name][object_name] = dict(stored_source)
+        return types.SimpleNamespace(object_name=object_name)
 
 
 class FakePartitionClient:
@@ -214,6 +349,7 @@ class FakePartitionClient:
 class RecordingQdrantIndexer:
     def __init__(self) -> None:
         self.upsert_calls: list[dict[str, Any]] = []
+        self.rewrite_calls: list[dict[str, Any]] = []
         self.search_calls: list[dict[str, Any]] = []
 
     def upsert_document_chunks(
@@ -226,6 +362,7 @@ class RecordingQdrantIndexer:
         partition_key: str,
         meta_key: str,
         document_year: str | None = None,
+        storage_bucket_name: str | None = None,
     ) -> None:
         self.upsert_calls.append(
             {
@@ -236,6 +373,7 @@ class RecordingQdrantIndexer:
                 "partition_key": partition_key,
                 "meta_key": meta_key,
                 "document_year": document_year,
+                "storage_bucket_name": storage_bucket_name,
             }
         )
 
@@ -252,6 +390,41 @@ class RecordingQdrantIndexer:
 
     def delete_document(self, bucket_name: str, document_id: str) -> None:
         del bucket_name, document_id
+
+    def rewrite_document_source_paths(
+        self,
+        *,
+        bucket_name: str,
+        document_id: str,
+        old_object_name: str,
+        new_object_name: str,
+        storage_bucket_name: str | None = None,
+    ) -> int:
+        self.rewrite_calls.append(
+            {
+                "bucket_name": bucket_name,
+                "document_id": document_id,
+                "old_object_name": old_object_name,
+                "new_object_name": new_object_name,
+                "storage_bucket_name": storage_bucket_name,
+            }
+        )
+        return 1
+
+    def rewrite_collection_storage_metadata(
+        self,
+        *,
+        bucket_name: str,
+        storage_bucket_name: str,
+    ) -> int:
+        self.rewrite_calls.append(
+            {
+                "bucket_name": bucket_name,
+                "storage_bucket_name": storage_bucket_name,
+                "scope": "collection",
+            }
+        )
+        return 0
 
     def search_chunks(
         self,
@@ -1770,6 +1943,136 @@ def test_list_documents_includes_structured_authors_field() -> None:
     assert documents[0]["author"] == "Doe, J. & Smith, J., Jr."
 
 
+def test_repository_relocate_source_location_updates_mapping_meta_and_state() -> None:
+    """Relocation should move source-scoped Redis state and preserve other aliases."""
+    redis_client = FakeRedis()
+    repository = RedisDocumentRepository(redis_client, key_prefix="test")
+    bucket_name = "offsets"
+    document_id = "doc-relocate"
+    old_object_name = "articles/relocate-me.pdf"
+    new_object_name = "relocate-me.pdf"
+    alias_object_name = "00-relocate-title.pdf"
+
+    repository.add_document(bucket_name, document_id)
+    repository.mark_object(
+        bucket_name=bucket_name,
+        object_name=old_object_name,
+        document_id=document_id,
+        etag="etag-old",
+    )
+    repository.mark_object(
+        bucket_name=bucket_name,
+        object_name=alias_object_name,
+        document_id=document_id,
+        etag="etag-alias",
+    )
+    repository.set_metadata_for_location(
+        bucket_name=bucket_name,
+        object_name=old_object_name,
+        document_id=document_id,
+        metadata={"title": "Relocation test", "year": "2025"},
+    )
+    repository.set_metadata_for_location(
+        bucket_name=bucket_name,
+        object_name=alias_object_name,
+        document_id=document_id,
+        metadata={"title": "Alias title", "year": "2024"},
+    )
+    repository.set_state(
+        document_id,
+        {
+            "file_path": old_object_name,
+            "meta_key": f"{bucket_name}/{old_object_name}",
+            "partition_key": "partition-1",
+            "sections_count": 3,
+            "chunks_count": 4,
+        },
+    )
+
+    result = repository.relocate_source_location(
+        bucket_name=bucket_name,
+        document_id=document_id,
+        old_object_name=old_object_name,
+        new_object_name=new_object_name,
+        etag="etag-new",
+    )
+
+    assert result["new_object_name"] == new_object_name
+    assert repository.get_object_mapping(bucket_name, old_object_name) == {}
+    new_mapping = repository.get_object_mapping(bucket_name, new_object_name)
+    assert new_mapping["document_id"] == document_id
+    assert new_mapping["object_name"] == new_object_name
+    assert new_mapping["etag"] == "etag-new"
+    assert (
+        repository.get_metadata_by_key(f"{bucket_name}/{new_object_name}")["title"]
+        == "Relocation test"
+    )
+    assert repository.get_metadata_by_key(f"{bucket_name}/{old_object_name}")["title"] == ""
+    assert repository.get_object_mapping(bucket_name, alias_object_name)["document_id"] == document_id
+    state = repository.get_state(document_id)
+    assert state["file_path"] == new_object_name
+    assert state["meta_key"] == f"{bucket_name}/{new_object_name}"
+    assert state["partition_key"] == "partition-1"
+    assert state["sections_count"] == "3"
+
+
+def test_repository_prefers_state_backed_file_path_and_meta_key_for_document_reads() -> None:
+    """Canonical reads should follow state-backed file path/meta key over sorted aliases."""
+    redis_client = FakeRedis()
+    repository = RedisDocumentRepository(redis_client, key_prefix="test")
+    bucket_name = "offsets"
+    document_id = "doc-canonical"
+    preferred_object_name = "article-root.pdf"
+    alias_object_name = "00-title-alias.pdf"
+
+    repository.add_document(bucket_name, document_id)
+    repository.mark_object(
+        bucket_name=bucket_name,
+        object_name=preferred_object_name,
+        document_id=document_id,
+        etag="etag-preferred",
+    )
+    repository.mark_object(
+        bucket_name=bucket_name,
+        object_name=alias_object_name,
+        document_id=document_id,
+        etag="etag-alias",
+    )
+    repository.set_metadata_for_location(
+        bucket_name=bucket_name,
+        object_name=preferred_object_name,
+        document_id=document_id,
+        metadata={"title": "Preferred title", "year": "2025"},
+    )
+    repository.set_metadata_for_location(
+        bucket_name=bucket_name,
+        object_name=alias_object_name,
+        document_id=document_id,
+        metadata={"title": "Alias title", "year": "2024"},
+    )
+    repository.set_state(
+        document_id,
+        {
+            "file_path": preferred_object_name,
+            "meta_key": f"{bucket_name}/{preferred_object_name}",
+            "processing_state": "processed",
+            "processing_stage": "processed",
+            "processing_progress": 100,
+            "processing_stage_progress": 100,
+        },
+    )
+
+    meta_key, metadata = repository.get_document_metadata(bucket_name, document_id)
+    assert meta_key == f"{bucket_name}/{preferred_object_name}"
+    assert metadata["title"] == "Preferred title"
+
+    records = repository.list_documents(bucket_name)
+    assert len(records) == 1
+    assert records[0]["file_path"] == preferred_object_name
+    assert records[0]["meta_key"] == f"{bucket_name}/{preferred_object_name}"
+    assert records[0]["title"] == "Preferred title"
+
+
 def test_remove_document_keeps_partitions_but_removes_other_redis_data() -> None:
     """Check document removal keeps partitions but clears source/meta mappings."""
     redis_client = FakeRedis()
@@ -1927,6 +2230,64 @@ def test_qdrant_indexer_purge_prefixed_collections() -> None:
     assert "evidencebase_other" not in qdrant.collection_names
 
 
+def test_qdrant_rewrite_document_source_paths_updates_payload_only() -> None:
+    """Relocation should patch only payload path fields for existing points."""
+    install_qdrant_client_stub()
+    qdrant = FakeQdrantClient()
+    qdrant.collection_names = {"evidencebase_offsets"}
+    qdrant.scroll_points = [
+        types.SimpleNamespace(
+            id="point-1",
+            payload={
+                "document_id": "doc-relocate",
+                "minio_location": "offsets/articles/relocate-me.pdf",
+                "resolver_url": "docs://offsets/articles/relocate-me.pdf?page=2",
+                "file_path": "articles/relocate-me.pdf",
+                "page_start": 2,
+            },
+        ),
+        types.SimpleNamespace(
+            id="point-2",
+            payload={
+                "document_id": "doc-relocate",
+                "minio_location": "offsets/articles/relocate-me.pdf",
+                "resolver_url": "docs://offsets/articles/relocate-me.pdf?page=5",
+                "page_start": 5,
+            },
+        ),
+    ]
+    indexer = StubQdrantIndexer(
+        qdrant_client=qdrant,
+        fastembed_model="ignored",
+        fastembed_keyword_model="ignored-keyword",
+        collection_prefix="evidencebase",
+    )
+
+    updated_count = indexer.rewrite_document_source_paths(
+        bucket_name="offsets",
+        document_id="doc-relocate",
+        old_object_name="articles/relocate-me.pdf",
+        new_object_name="relocate-me.pdf",
+    )
+
+    assert updated_count == 2
+    assert qdrant.upsert_calls == []
+    assert qdrant.delete_calls == []
+    assert len(qdrant.set_payload_calls) == 3
+    payloads = [call["payload"] for call in qdrant.set_payload_calls]
+    assert {
+        "minio_location": "offsets/relocate-me.pdf",
+        "file_path": "relocate-me.pdf",
+        "collection_name": "offsets",
+    } in payloads
+    assert {"resolver_url": "docs://offsets/relocate-me.pdf?page=2"} in payloads
+    assert {"resolver_url": "docs://offsets/relocate-me.pdf?page=5"} in payloads
+    for point in qdrant.scroll_points:
+        assert point.payload["minio_location"] == "offsets/relocate-me.pdf"
+        assert point.payload["file_path"] == "relocate-me.pdf"
+        assert str(point.payload["resolver_url"]).startswith("docs://offsets/relocate-me.pdf")
+
+
 def test_ingestion_service_purge_datastores_returns_deleted_counts() -> None:
     """Ensure service purge reports deleted Redis keys and Qdrant collections."""
     redis_client = FakeRedis()
@@ -1952,6 +2313,170 @@ def test_ingestion_service_purge_datastores_returns_deleted_counts() -> None:
     summary = service.purge_datastores()
 
     assert summary == {"redis_deleted_keys": 1, "qdrant_deleted_collections": 1}
+
+
+def test_relocate_prefix_to_bucket_root_dry_run_reports_candidates_without_mutation() -> None:
+    """Dry-run relocation should report candidates while leaving stores untouched."""
+    redis_client = FakeRedis()
+    repository = RedisDocumentRepository(redis_client, key_prefix="test")
+    minio_client = FakeMinioClient(b"%PDF-1.7 fake")
+    minio_client.put_object(
+        "offsets",
+        "articles/relocate-me.pdf",
+        data=io.BytesIO(b"%PDF-1.7 fake"),
+        length=len(b"%PDF-1.7 fake"),
+        content_type="application/pdf",
+    )
+    minio_client.put_object(
+        "offsets",
+        "articles/existing-target.pdf",
+        data=io.BytesIO(b"%PDF-1.7 fake"),
+        length=len(b"%PDF-1.7 fake"),
+        content_type="application/pdf",
+    )
+    minio_client.put_object(
+        "offsets",
+        "existing-target.pdf",
+        data=io.BytesIO(b"%PDF-1.7 fake"),
+        length=len(b"%PDF-1.7 fake"),
+        content_type="application/pdf",
+    )
+    repository.add_document("offsets", "doc-relocate")
+    repository.mark_object(
+        bucket_name="offsets",
+        object_name="articles/relocate-me.pdf",
+        document_id="doc-relocate",
+        etag="etag-1",
+    )
+    repository.set_metadata_for_location(
+        bucket_name="offsets",
+        object_name="articles/relocate-me.pdf",
+        document_id="doc-relocate",
+        metadata={"title": "Relocate me"},
+    )
+    repository.set_state(
+        "doc-relocate",
+        {
+            "file_path": "articles/relocate-me.pdf",
+            "meta_key": "offsets/articles/relocate-me.pdf",
+        },
+    )
+    repository.add_document("offsets", "doc-conflict")
+    repository.mark_object(
+        bucket_name="offsets",
+        object_name="articles/existing-target.pdf",
+        document_id="doc-conflict",
+        etag="etag-2",
+    )
+    repository.set_state(
+        "doc-conflict",
+        {
+            "file_path": "articles/existing-target.pdf",
+            "meta_key": "offsets/articles/existing-target.pdf",
+        },
+    )
+    service = IngestionService(
+        minio_client=minio_client,
+        repository=repository,
+        partition_client=FakePartitionClient([]),
+        qdrant_indexer=RecordingQdrantIndexer(),  # type: ignore[arg-type]
+        chunk_size_chars=1200,
+        chunk_overlap_chars=150,
+    )
+
+    summary = service.relocate_prefix_to_bucket_root(bucket_name="offsets", dry_run=True)
+
+    assert summary["candidates_seen"] == 2
+    assert summary["would_relocate"] == 1
+    assert summary["skipped_existing_target"] == 1
+    assert summary["relocated"] == 0
+    assert repository.get_object_mapping("offsets", "articles/relocate-me.pdf")["document_id"] == (
+        "doc-relocate"
+    )
+    assert repository.get_object_mapping("offsets", "relocate-me.pdf") == {}
+
+
+def test_relocate_prefix_to_bucket_root_moves_one_document_without_reindexing() -> None:
+    """Apply relocation should move MinIO/Redis state and patch Qdrant paths only."""
+    redis_client = FakeRedis()
+    repository = RedisDocumentRepository(redis_client, key_prefix="test")
+    minio_client = FakeMinioClient(b"%PDF-1.7 fake")
+    minio_client.put_object(
+        "offsets",
+        "articles/relocate-me.pdf",
+        data=io.BytesIO(b"%PDF-1.7 fake"),
+        length=len(b"%PDF-1.7 fake"),
+        content_type="application/pdf",
+    )
+    repository.add_document("offsets", "doc-relocate")
+    repository.mark_object(
+        bucket_name="offsets",
+        object_name="articles/relocate-me.pdf",
+        document_id="doc-relocate",
+        etag="etag-1",
+    )
+    repository.set_metadata_for_location(
+        bucket_name="offsets",
+        object_name="articles/relocate-me.pdf",
+        document_id="doc-relocate",
+        metadata={"title": "Relocate me", "year": "2025"},
+    )
+    partition_key = repository.set_partitions(
+        "offsets",
+        "doc-relocate",
+        [{"text": "Offset relocation test.", "metadata": {"page_number": 1}}],
+    )
+    repository.set_state(
+        "doc-relocate",
+        {
+            "file_path": "articles/relocate-me.pdf",
+            "meta_key": "offsets/articles/relocate-me.pdf",
+            "partition_key": partition_key,
+            "sections_count": 2,
+            "chunks_count": 3,
+            "processing_state": "processed",
+            "processing_stage": "processed",
+            "processing_progress": 100,
+            "processing_stage_progress": 100,
+        },
+    )
+    qdrant_indexer = RecordingQdrantIndexer()
+    service = IngestionService(
+        minio_client=minio_client,
+        repository=repository,
+        partition_client=FakePartitionClient([]),
+        qdrant_indexer=qdrant_indexer,  # type: ignore[arg-type]
+        chunk_size_chars=1200,
+        chunk_overlap_chars=150,
+    )
+
+    summary = service.relocate_prefix_to_bucket_root(bucket_name="offsets", dry_run=False)
+
+    assert summary["relocated"] == 1
+    assert summary["failed"] == 0
+    assert repository.get_object_mapping("offsets", "articles/relocate-me.pdf") == {}
+    assert repository.get_object_mapping("offsets", "relocate-me.pdf")["document_id"] == (
+        "doc-relocate"
+    )
+    assert repository.get_metadata_by_key("offsets/relocate-me.pdf")["title"] == "Relocate me"
+    state = repository.get_state("doc-relocate")
+    assert state["file_path"] == "relocate-me.pdf"
+    assert state["meta_key"] == "offsets/relocate-me.pdf"
+    assert state["partition_key"] == partition_key
+    assert state["sections_count"] == "2"
+    assert state["chunks_count"] == "3"
+    assert ("offsets", "relocate-me.pdf", "articles/relocate-me.pdf") in minio_client.copy_object_calls
+    assert repository.get_object_mapping("offsets", "relocate-me.pdf")["etag"].startswith("etag-")
+    assert qdrant_indexer.upsert_calls == []
+    assert qdrant_indexer.rewrite_calls == [
+        {
+            "bucket_name": "offsets",
+            "document_id": "doc-relocate",
+            "old_object_name": "articles/relocate-me.pdf",
+            "new_object_name": "relocate-me.pdf",
+            "storage_bucket_name": None,
+        }
+    ]
 
 
 def test_remove_document_can_remove_partitions() -> None:
@@ -2031,7 +2556,8 @@ def test_qdrant_payload_contains_document_partition_meta_and_resolver_keys() -> 
     assert point.payload["partition_key"] == "partition-hash"
     assert "meta_key" not in point.payload
     assert "bucket_name" not in point.payload
-    assert "file_path" not in point.payload
+    assert point.payload["collection_name"] == "research-raw"
+    assert point.payload["file_path"] == "paper.pdf"
     assert point.payload["resolver_url"] == "docs://research-raw/paper.pdf?page=1"
     assert point.payload["minio_location"] == "research-raw/paper.pdf"
     assert point.payload["section_title"] == "Methods"

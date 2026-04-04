@@ -49,6 +49,7 @@ class FakeIngestionService:
     search_results: list[dict[str, Any]] = field(default_factory=list)
     uploaded: list[tuple[str, str, bytes]] = field(default_factory=list)
     deleted: list[tuple[str, str, bool]] = field(default_factory=list)
+    deleted_collections: list[str] = field(default_factory=list)
     metadata_updates: list[tuple[str, str, dict[str, Any]]] = field(default_factory=list)
     metadata_fetches: list[tuple[str, str]] = field(default_factory=list)
     metadata_seed_fetches: list[dict[str, Any]] = field(default_factory=list)
@@ -121,6 +122,13 @@ class FakeIngestionService:
         if self.delete_error is not None:
             raise self.delete_error
         self.deleted.append((bucket_name, document_id, keep_partitions))
+        return True
+
+    def delete_collection(self, *, bucket_name: str, keep_partitions: bool = True) -> bool:
+        if self.delete_error is not None:
+            raise self.delete_error
+        del keep_partitions
+        self.deleted_collections.append(bucket_name)
         return True
 
     def update_metadata(
@@ -1060,7 +1068,8 @@ def test_delete_bucket_returns_removed_result(client: TestClient) -> None:
 
 def test_delete_bucket_maps_s3_errors_to_bad_request(client: TestClient) -> None:
     """Verify ``DELETE /buckets/{bucket}`` maps MinIO errors to HTTP 400."""
-    _override_bucket_service(FakeBucketService(delete_error=_make_s3_error()))
+    _override_bucket_service(FakeBucketService())
+    _override_ingestion_service(FakeIngestionService(delete_error=_make_s3_error()))
 
     response = client.delete("/buckets/research-raw")
 

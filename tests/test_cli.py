@@ -146,6 +146,81 @@ def test_main_search_prints_results_json(
     )
 
 
+def test_main_relocate_prefix_to_root_prints_summary_json(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Ensure relocation flags call maintenance workflow and print serialized summary."""
+
+    class FakeService:
+        def relocate_prefix_to_bucket_root(
+            self,
+            *,
+            bucket_name: str,
+            source_prefix: str = "articles/",
+            dry_run: bool = True,
+        ) -> dict[str, Any]:
+            assert bucket_name == "offsets"
+            assert source_prefix == "articles/"
+            assert dry_run is True
+            return {"bucket_name": bucket_name, "would_relocate": 3, "relocated": 0}
+
+    monkeypatch.setattr(cli, "build_ingestion_service", lambda: FakeService())
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "mcp-evidencebase",
+            "--relocate-prefix-to-root",
+            "--bucket",
+            "offsets",
+        ],
+    )
+
+    exit_code = cli.main()
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert '"bucket_name": "offsets"' in captured.out
+    assert '"would_relocate": 3' in captured.out
+    assert '"relocated": 0' in captured.out
+
+
+def test_main_relocate_prefix_to_root_returns_non_zero_on_dependency_error(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Relocation should fail cleanly when a required dependency is disabled."""
+
+    class FakeService:
+        def relocate_prefix_to_bucket_root(self, **kwargs: Any) -> dict[str, Any]:
+            del kwargs
+            raise DependencyDisabledError(
+                component="Qdrant",
+                feature="repository relocation",
+                hint="Enable Qdrant to relocate indexed documents.",
+            )
+
+    monkeypatch.setattr(cli, "build_ingestion_service", lambda: FakeService())
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "mcp-evidencebase",
+            "--relocate-prefix-to-root",
+            "--bucket",
+            "offsets",
+            "--apply",
+        ],
+    )
+
+    exit_code = cli.main()
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "Qdrant is disabled for repository relocation." in captured.out
+
+
 def test_main_search_returns_non_zero_when_qdrant_is_disabled(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],

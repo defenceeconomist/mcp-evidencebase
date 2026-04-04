@@ -41,9 +41,10 @@
 <p>Use one of these API bases depending on environment:</p>
 <ul class="simple">
 <li><p>Local via NGINX proxy: <code class="docutils literal notranslate"><span class="pre">http://localhost:52180/api</span></code></p></li>
-<li><p>Public GPT-only host (recommended): <code class="docutils literal notranslate"><span class="pre">https://open.heley.uk/api</span></code></p></li>
+<li><p>Private Meshnet host: <code class="docutils literal notranslate"><span class="pre">http://&lt;meshnet-hostname-or-ip&gt;:52180/api</span></code></p></li>
 </ul>
-<p>The GPT-only host serves only <code class="docutils literal notranslate"><span class="pre">/api/gpt/*</span></code>.</p>
+<p>Replace <code class="docutils literal notranslate"><span class="pre">&lt;meshnet-hostname-or-ip&gt;</span></code> with the NordVPN Meshnet hostname or Meshnet
+IP of the machine running the stack.</p>
 </section>
 <section id="endpoints">
 <h2>Endpoints<a class="headerlink" href="#endpoints" title="Link to this heading">¶</a></h2>
@@ -68,15 +69,17 @@
 <p>If the key is missing on the server, endpoints return <code class="docutils literal notranslate"><span class="pre">503</span></code>.
 If a supplied key is invalid, endpoints return <code class="docutils literal notranslate"><span class="pre">401</span></code>.</p>
 </section>
-<section id="chatgpt-actions-setup">
-<h2>ChatGPT Actions Setup<a class="headerlink" href="#chatgpt-actions-setup" title="Link to this heading">¶</a></h2>
+<section id="private-client-setup">
+<h2>Private Client Setup<a class="headerlink" href="#private-client-setup" title="Link to this heading">¶</a></h2>
 <p>Use:</p>
 <ul class="simple">
-<li><p>OpenAPI schema URL: <code class="docutils literal notranslate"><span class="pre">https://open.heley.uk/api/gpt/openapi.json</span></code></p></li>
+<li><p>OpenAPI schema URL: <code class="docutils literal notranslate"><span class="pre">http://&lt;meshnet-hostname-or-ip&gt;:52180/api/gpt/openapi.json</span></code></p></li>
 <li><p>Authentication type: <code class="docutils literal notranslate"><span class="pre">API</span> <span class="pre">key</span></code></p></li>
 <li><p>Auth type: <code class="docutils literal notranslate"><span class="pre">Bearer</span></code></p></li>
 <li><p>API key value: same value as <code class="docutils literal notranslate"><span class="pre">GPT_ACTIONS_API_KEY</span></code></p></li>
 </ul>
+<p>Hosted ChatGPT Actions require a public HTTPS endpoint. A Meshnet-only/private
+host works for your own devices, but not for ChatGPT’s cloud-hosted Actions runtime.</p>
 </section>
 <section id="searchcollection-function">
 <h2><code class="docutils literal notranslate"><span class="pre">searchCollection</span></code> Function<a class="headerlink" href="#searchcollection-function" title="Link to this heading">¶</a></h2>
@@ -165,7 +168,7 @@ Otherwise links are expanded from the incoming request base URL.</p>
 <p>Use <code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/gpt/ping</span></code> to validate connectivity and auth.</p>
 <p>Example:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-H<span class="w"> </span><span class="s2">&quot;Authorization: Bearer &lt;your-api-key&gt;&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">  </span><span class="s2">&quot;https://open.heley.uk/api/gpt/ping?message=hello&quot;</span>
+<span class="w">  </span><span class="s2">&quot;http://&lt;meshnet-hostname-or-ip&gt;:52180/api/gpt/ping?message=hello&quot;</span>
 </pre></div>
 </div>
 <p>Response shape:</p>
@@ -180,7 +183,7 @@ Otherwise links are expanded from the incoming request base URL.</p>
 </section>
 <section id="example-searchcollection">
 <h2>Example: <code class="docutils literal notranslate"><span class="pre">searchCollection</span></code><a class="headerlink" href="#example-searchcollection" title="Link to this heading">¶</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s2">&quot;https://open.heley.uk/api/gpt/search&quot;</span><span class="w"> </span><span class="se">\</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s2">&quot;http://&lt;meshnet-hostname-or-ip&gt;:52180/api/gpt/search&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Authorization: Bearer &lt;your-api-key&gt;&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{</span>
@@ -192,7 +195,7 @@ Otherwise links are expanded from the incoming request base URL.</p>
 </pre></div>
 </div>
 <p>Example fallback to one-pass retrieval:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s2">&quot;https://open.heley.uk/api/gpt/search&quot;</span><span class="w"> </span><span class="se">\</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s2">&quot;http://&lt;meshnet-hostname-or-ip&gt;:52180/api/gpt/search&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Authorization: Bearer &lt;your-api-key&gt;&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{</span>
@@ -250,7 +253,7 @@ Otherwise links are expanded from the incoming request base URL.</p>
 <li class="toctree-l2"><a class="reference internal" href="#base-urls">Base URLs</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#endpoints">Endpoints</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#authentication">Authentication</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#chatgpt-actions-setup">ChatGPT Actions Setup</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#private-client-setup">Private Client Setup</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#searchcollection-function"><code class="docutils literal notranslate"><span class="pre">searchCollection</span></code> Function</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#ping-function"><code class="docutils literal notranslate"><span class="pre">ping</span></code> Function</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#example-searchcollection">Example: <code class="docutils literal notranslate"><span class="pre">searchCollection</span></code></a></li>

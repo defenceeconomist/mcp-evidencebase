@@ -21,6 +21,7 @@ from mcp_evidencebase.ingestion_modules.metadata import (
     normalize_metadata,
     utc_now_iso,
 )
+from mcp_evidencebase.storage_layout import build_storage_object_name
 
 
 class RedisDocumentRepository:
@@ -120,16 +121,34 @@ class RedisDocumentRepository:
         object_name: str,
         document_id: str,
         etag: str,
+        storage_bucket_name: str | None = None,
+        storage_object_name: str | None = None,
     ) -> dict[str, str]:
         """Build the canonical source mapping payload."""
         location_reference = self._location_reference(bucket_name, object_name)
+        resolved_storage_bucket_name = str(storage_bucket_name or bucket_name).strip()
+        resolved_storage_object_name = str(storage_object_name or object_name).strip().lstrip("/")
+        if (
+            resolved_storage_bucket_name
+            and resolved_storage_bucket_name != bucket_name
+            and not resolved_storage_object_name.startswith(f"{bucket_name}/")
+        ):
+            resolved_storage_object_name = build_storage_object_name(bucket_name, object_name)
+        storage_location = self._location_reference(
+            resolved_storage_bucket_name or bucket_name,
+            resolved_storage_object_name or object_name,
+        )
         return {
             "bucket_name": bucket_name,
+            "collection_name": bucket_name,
             "object_name": object_name,
             "location": location_reference,
             "document_id": document_id,
             "etag": normalize_etag(etag),
             "resolver_url": build_resolver_url(bucket_name, object_name),
+            "storage_bucket_name": resolved_storage_bucket_name or bucket_name,
+            "storage_object_name": resolved_storage_object_name or object_name,
+            "storage_location": storage_location,
             "updated_at": utc_now_iso(),
         }
 
@@ -165,6 +184,8 @@ class RedisDocumentRepository:
         object_name: str,
         document_id: str,
         etag: str,
+        storage_bucket_name: str | None = None,
+        storage_object_name: str | None = None,
     ) -> None:
         """Save source mapping and reverse document/source references."""
         mapping_key = self._source_mapping_key(bucket_name, object_name)
@@ -185,6 +206,8 @@ class RedisDocumentRepository:
             object_name=object_name,
             document_id=document_id,
             etag=etag,
+            storage_bucket_name=storage_bucket_name,
+            storage_object_name=storage_object_name,
         )
         self._redis.hset(mapping_key, mapping=payload)
         self._redis.sadd(
@@ -207,6 +230,28 @@ class RedisDocumentRepository:
                 object_names.append(split_location[1])
         object_names.sort()
         return object_names
+
+    def _resolve_preferred_object_name(
+        self,
+        *,
+        bucket_name: str,
+        document_id: str,
+        state: Mapping[str, str] | None = None,
+        object_names: list[str] | None = None,
+    ) -> str:
+        """Return canonical object name, preferring stored document state when valid."""
+        resolved_state = state or self.get_state(document_id)
+        resolved_object_names = (
+            list(object_names)
+            if object_names is not None
+            else self.get_document_object_names(bucket_name, document_id)
+        )
+        preferred_object_name = str(resolved_state.get("file_path", "")).strip()
+        if preferred_object_name and preferred_object_name in resolved_object_names:
+            return preferred_object_name
+        if resolved_object_names:
+            return resolved_object_names[0]
+        return preferred_object_name
 
     def get_document_locations(self, document_id: str, bucket_name: str | None = None) -> list[str]:
         """Return location references for one document hash."""
@@ -296,20 +341,43 @@ class RedisDocumentRepository:
         document_id: str,
     ) -> tuple[str, dict[str, str]]:
         """Return source-scoped metadata key and payload for one bucket/document pair."""
+        state = self.get_state(document_id)
         object_names = self.get_document_object_names(bucket_name, document_id)
+        preferred_object_name = self._resolve_preferred_object_name(
+            bucket_name=bucket_name,
+            document_id=document_id,
+            state=state,
+            object_names=object_names,
+        )
+
+        candidate_object_names: list[str] = []
+        if preferred_object_name:
+            candidate_object_names.append(preferred_object_name)
         for object_name in object_names:
+            if object_name not in candidate_object_names:
+                candidate_object_names.append(object_name)
+
+        state_meta_key = state.get("meta_key", "")
+        if state_meta_key:
+            split_state_meta_key = self._split_location_reference(state_meta_key)
+            if (
+                split_state_meta_key
+                and split_state_meta_key[0] == bucket_name
+                and split_state_meta_key[1] not in candidate_object_names
+            ):
+                candidate_object_names.append(split_state_meta_key[1])
+
+        for object_name in candidate_object_names:
             meta_key = self._location_reference(bucket_name, object_name)
             if self._redis.hlen(self._source_meta_key(bucket_name, object_name)) <= 0:
                 continue
             return meta_key, self.get_metadata_by_key(meta_key)
 
-        state = self.get_state(document_id)
-        state_meta_key = state.get("meta_key", "")
         state_meta_redis_key = self._source_meta_key_from_meta_key(state_meta_key)
         if state_meta_redis_key and self._redis.hlen(state_meta_redis_key) > 0:
             return state_meta_key, self.get_metadata_by_key(state_meta_key)
 
-        file_path = object_names[0] if object_names else state.get("file_path", document_id)
+        file_path = preferred_object_name or state.get("file_path", document_id)
         return "", build_default_metadata(file_path, document_id)
 
     def set_default_metadata_if_missing(
@@ -356,10 +424,12 @@ class RedisDocumentRepository:
         merged["document_type"] = merged.get("document_type", "") or "misc"
 
         object_names = self.get_document_object_names(bucket_name, document_id)
-        file_path = (
-            object_names[0]
-            if object_names
-            else self.get_state(document_id).get("file_path", "")
+        state = self.get_state(document_id)
+        file_path = self._resolve_preferred_object_name(
+            bucket_name=bucket_name,
+            document_id=document_id,
+            state=state,
+            object_names=object_names,
         )
         if not merged.get("citation_key"):
             merged["citation_key"] = build_default_citation_key(
@@ -379,8 +449,166 @@ class RedisDocumentRepository:
                 document_id=document_id,
                 metadata=merged,
             )
-        self.set_state(document_id, {"meta_key": last_meta_key})
+        preferred_object_name = self._resolve_preferred_object_name(
+            bucket_name=bucket_name,
+            document_id=document_id,
+            state=state,
+            object_names=object_names,
+        )
+        preferred_meta_key = (
+            self._location_reference(bucket_name, preferred_object_name)
+            if preferred_object_name
+            else last_meta_key
+        )
+        self.set_state(document_id, {"meta_key": preferred_meta_key})
         return merged
+
+    def relocate_source_location(
+        self,
+        *,
+        bucket_name: str,
+        document_id: str,
+        old_object_name: str,
+        new_object_name: str,
+        etag: str,
+        storage_bucket_name: str | None = None,
+        storage_object_name: str | None = None,
+    ) -> dict[str, str]:
+        """Move Redis source and metadata state from one object path to another."""
+        normalized_bucket_name = bucket_name.strip()
+        normalized_document_id = document_id.strip()
+        normalized_old_object_name = old_object_name.strip().lstrip("/")
+        normalized_new_object_name = new_object_name.strip().lstrip("/")
+        if not normalized_bucket_name:
+            raise ValueError("bucket_name must not be empty.")
+        if not normalized_document_id:
+            raise ValueError("document_id must not be empty.")
+        if not normalized_old_object_name or not normalized_new_object_name:
+            raise ValueError("old_object_name and new_object_name must not be empty.")
+        if normalized_old_object_name == normalized_new_object_name:
+            raise ValueError("old_object_name and new_object_name must differ.")
+
+        old_mapping = self.get_object_mapping(normalized_bucket_name, normalized_old_object_name)
+        if not old_mapping:
+            raise ValueError(
+                "Source mapping was not found for "
+                f"'{normalized_bucket_name}/{normalized_old_object_name}'."
+            )
+        if old_mapping.get("document_id", "") != normalized_document_id:
+            raise ValueError(
+                "Source mapping document_id does not match relocation target for "
+                f"'{normalized_bucket_name}/{normalized_old_object_name}'."
+            )
+
+        old_meta_key = self._location_reference(normalized_bucket_name, normalized_old_object_name)
+        new_meta_key = self._location_reference(normalized_bucket_name, normalized_new_object_name)
+        old_meta_redis_key = self._source_meta_key(
+            normalized_bucket_name,
+            normalized_old_object_name,
+        )
+        raw_metadata = {
+            str(key): str(value)
+            for key, value in self._redis.hgetall(old_meta_redis_key).items()
+        }
+
+        self._redis.hset(
+            self._source_mapping_key(normalized_bucket_name, normalized_new_object_name),
+            mapping=self._build_source_mapping_payload(
+                bucket_name=normalized_bucket_name,
+                object_name=normalized_new_object_name,
+                document_id=normalized_document_id,
+                etag=etag,
+                storage_bucket_name=storage_bucket_name,
+                storage_object_name=storage_object_name,
+            ),
+        )
+        if raw_metadata:
+            raw_metadata["document_id"] = normalized_document_id
+            raw_metadata["source"] = new_meta_key
+            raw_metadata["updated_at"] = utc_now_iso()
+            self._redis.hset(
+                self._source_meta_key(normalized_bucket_name, normalized_new_object_name),
+                mapping=raw_metadata,
+            )
+
+        old_location_reference = self._location_reference(
+            normalized_bucket_name,
+            normalized_old_object_name,
+        )
+        new_location_reference = self._location_reference(
+            normalized_bucket_name,
+            normalized_new_object_name,
+        )
+        self._redis.srem(self._source_bucket_key(normalized_bucket_name), old_location_reference)
+        self._redis.sadd(self._source_bucket_key(normalized_bucket_name), new_location_reference)
+        self._redis.srem(self._document_sources_key(normalized_document_id), old_location_reference)
+        self._redis.sadd(self._document_sources_key(normalized_document_id), new_location_reference)
+        self._redis.delete(self._source_mapping_key(normalized_bucket_name, normalized_old_object_name))
+        self._redis.delete(old_meta_redis_key)
+        self.set_state(
+            normalized_document_id,
+            {
+                "file_path": normalized_new_object_name,
+                "meta_key": new_meta_key,
+            },
+        )
+        return {
+            "bucket_name": normalized_bucket_name,
+            "document_id": normalized_document_id,
+            "old_object_name": normalized_old_object_name,
+            "new_object_name": normalized_new_object_name,
+            "meta_key": new_meta_key,
+        }
+
+    def update_storage_location(
+        self,
+        *,
+        bucket_name: str,
+        object_name: str,
+        storage_bucket_name: str,
+        storage_object_name: str,
+    ) -> dict[str, str]:
+        """Patch physical storage fields for one logical source mapping."""
+        normalized_bucket_name = bucket_name.strip()
+        normalized_object_name = object_name.strip().lstrip("/")
+        normalized_storage_bucket_name = storage_bucket_name.strip()
+        normalized_storage_object_name = storage_object_name.strip().lstrip("/")
+        if not normalized_bucket_name:
+            raise ValueError("bucket_name must not be empty.")
+        if not normalized_object_name:
+            raise ValueError("object_name must not be empty.")
+        if not normalized_storage_bucket_name or not normalized_storage_object_name:
+            raise ValueError("storage bucket/object must not be empty.")
+
+        existing_mapping = self.get_object_mapping(normalized_bucket_name, normalized_object_name)
+        if not existing_mapping:
+            raise ValueError(
+                "Source mapping was not found for "
+                f"'{normalized_bucket_name}/{normalized_object_name}'."
+            )
+
+        existing_mapping.update(
+            {
+                "bucket_name": normalized_bucket_name,
+                "collection_name": normalized_bucket_name,
+                "object_name": normalized_object_name,
+                "location": self._location_reference(normalized_bucket_name, normalized_object_name),
+                "storage_bucket_name": normalized_storage_bucket_name,
+                "storage_object_name": normalized_storage_object_name,
+                "storage_location": self._location_reference(
+                    normalized_storage_bucket_name,
+                    normalized_storage_object_name,
+                ),
+                "updated_at": utc_now_iso(),
+            }
+        )
+        self._redis.hset(
+            self._source_mapping_key(normalized_bucket_name, normalized_object_name),
+            mapping=existing_mapping,
+        )
+        return {
+            str(key): str(value) for key, value in existing_mapping.items()
+        }
 
     def set_partitions(
         self,
@@ -658,7 +886,12 @@ class RedisDocumentRepository:
             meta_key, metadata = self.get_document_metadata(bucket_name, document_id)
 
             object_names = self.get_document_object_names(bucket_name, document_id)
-            file_path = object_names[0] if object_names else state.get("file_path", "")
+            file_path = self._resolve_preferred_object_name(
+                bucket_name=bucket_name,
+                document_id=document_id,
+                state=state,
+                object_names=object_names,
+            )
             records.append(
                 self._build_document_record(
                     document_id=document_id,

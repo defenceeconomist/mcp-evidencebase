@@ -35,6 +35,7 @@ class IngestionSettings:
     """Runtime settings for document ingestion components."""
 
     minio: MinioSettings
+    storage_bucket_name: str
     redis_url: str
     redis_prefix: str
     qdrant_url: str
@@ -110,6 +111,7 @@ def build_ingestion_settings(env: Mapping[str, str] | None = None) -> IngestionS
 
     return IngestionSettings(
         minio=minio_settings,
+        storage_bucket_name=minio_settings.storage_bucket_name,
         redis_url=str(source.get("REDIS_URL", "")).strip(),
         redis_prefix=source.get("REDIS_PREFIX", "evidencebase"),
         qdrant_url=str(source.get("QDRANT_URL", "")).strip(),
@@ -213,6 +215,7 @@ def build_ingestion_service(
         repository=repository,
         partition_client=partition_client,
         qdrant_indexer=qdrant_indexer,
+        storage_bucket_name=resolved_settings.storage_bucket_name,
         chunk_size_chars=resolved_settings.chunk_size_chars,
         chunk_overlap_chars=resolved_settings.chunk_overlap_chars,
         chunk_exclude_element_types=resolved_settings.chunk_exclude_element_types,
