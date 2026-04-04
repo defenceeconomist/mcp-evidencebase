@@ -1580,6 +1580,85 @@ def test_list_documents_populates_chunks_tree_for_processed_documents() -> None:
     assert "chunk_id" in chunks[0]
 
 
+def test_list_documents_can_skip_debug_payloads_for_summary_views() -> None:
+    """Ensure summary document listing omits partitions/chunks payloads when requested."""
+    payload = b"%PDF-1.7 fake"
+    partitions = [{"text": "A" * 220, "metadata": {"page_number": 1}}]
+    minio_client = FakeMinioClient(payload, etag="etag-remote")
+    repository = RedisDocumentRepository(FakeRedis(), key_prefix="test")
+    partition_client = FakePartitionClient(partitions)
+    qdrant_indexer = RecordingQdrantIndexer()
+    service = IngestionService(
+        minio_client=minio_client,
+        repository=repository,
+        partition_client=partition_client,
+        qdrant_indexer=qdrant_indexer,  # type: ignore[arg-type]
+        chunk_size_chars=128,
+        chunk_overlap_chars=32,
+    )
+
+    partition_stage = service.partition_object(
+        bucket_name="research-raw",
+        object_name="paper.pdf",
+        etag="etag-incoming",
+    )
+    service.chunk_object(
+        bucket_name="research-raw",
+        object_name="paper.pdf",
+        document_id=partition_stage["document_id"],
+    )
+
+    documents = service.list_documents(
+        "research-raw",
+        include_debug=False,
+        include_locations=False,
+    )
+
+    assert len(documents) == 1
+    assert "partitions_tree" not in documents[0]
+    assert "chunks_tree" not in documents[0]
+    assert "locations" not in documents[0]
+    assert documents[0]["document_id"] == partition_stage["document_id"]
+
+
+def test_get_document_debug_payload_returns_partitions_and_chunks() -> None:
+    """Ensure on-demand debug payload returns one document's partitions and computed chunks."""
+    payload = b"%PDF-1.7 fake"
+    partitions = [{"text": "A" * 220, "metadata": {"page_number": 1}}]
+    minio_client = FakeMinioClient(payload, etag="etag-remote")
+    repository = RedisDocumentRepository(FakeRedis(), key_prefix="test")
+    partition_client = FakePartitionClient(partitions)
+    qdrant_indexer = RecordingQdrantIndexer()
+    service = IngestionService(
+        minio_client=minio_client,
+        repository=repository,
+        partition_client=partition_client,
+        qdrant_indexer=qdrant_indexer,  # type: ignore[arg-type]
+        chunk_size_chars=128,
+        chunk_overlap_chars=32,
+    )
+
+    partition_stage = service.partition_object(
+        bucket_name="research-raw",
+        object_name="paper.pdf",
+        etag="etag-incoming",
+    )
+    service.chunk_object(
+        bucket_name="research-raw",
+        object_name="paper.pdf",
+        document_id=partition_stage["document_id"],
+    )
+
+    payload = service.get_document_debug_payload(
+        bucket_name="research-raw",
+        document_id=partition_stage["document_id"],
+    )
+
+    assert payload["document_id"] == partition_stage["document_id"]
+    assert payload["partitions_tree"]["partitions"]
+    assert payload["chunks_tree"]["chunks"]
+
+
 def test_extract_pdf_title_author_reads_pdf_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify PDF title/author extraction reads embedded metadata values."""
 

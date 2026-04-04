@@ -1107,16 +1107,34 @@ class IngestionService:
 
         return report
 
-    def list_documents(self, bucket_name: str) -> list[dict[str, Any]]:
+    def list_documents(
+        self,
+        bucket_name: str,
+        *,
+        include_debug: bool = True,
+        include_locations: bool = True,
+    ) -> list[dict[str, Any]]:
         """Return UI-facing document records for a bucket.
 
         Args:
             bucket_name: Bucket to query.
+            include_debug: Whether to include partitions/chunks payloads.
+            include_locations: Whether to include all object locations.
 
         Returns:
             List of document records for the bucket.
         """
-        records = cast(list[dict[str, Any]], self._repository.list_documents(bucket_name))
+        records = cast(
+            list[dict[str, Any]],
+            self._repository.list_documents(
+                bucket_name,
+                include_debug=include_debug,
+                include_locations=include_locations,
+            ),
+        )
+        if not include_debug:
+            return records
+
         for record in records:
             processing_state = str(record.get("processing_state", "")).strip().lower()
             if processing_state != "processed":
@@ -1142,6 +1160,72 @@ class IngestionService:
             chunks = self._build_partition_chunks(normalized_partitions)
             record["chunks_tree"] = {"chunks": chunks}
         return records
+
+    def get_document_debug_payload(
+        self,
+        *,
+        bucket_name: str,
+        document_id: str,
+    ) -> dict[str, Any]:
+        """Return on-demand partitions/chunks payload for one document."""
+        normalized_bucket_name = bucket_name.strip()
+        normalized_document_id = document_id.strip()
+        if not normalized_bucket_name:
+            raise ValueError("bucket_name must not be empty.")
+        if not normalized_document_id:
+            raise ValueError("document_id must not be empty.")
+
+        if not self._repository.get_document_object_names(
+            normalized_bucket_name,
+            normalized_document_id,
+        ):
+            raise ValueError(
+                "Document "
+                f"'{normalized_document_id}' was not found in bucket "
+                f"'{normalized_bucket_name}'."
+            )
+
+        record = cast(
+            dict[str, Any] | None,
+            self._repository.get_document_record(
+                normalized_bucket_name,
+                normalized_document_id,
+                include_debug=True,
+                include_locations=False,
+            ),
+        )
+        if record is None:
+            raise ValueError(
+                "Document "
+                f"'{normalized_document_id}' was not found in bucket "
+                f"'{normalized_bucket_name}'."
+            )
+
+        processing_state = str(record.get("processing_state", "")).strip().lower()
+        raw_partitions_tree = record.get("partitions_tree")
+        raw_partitions = (
+            raw_partitions_tree.get("partitions")
+            if isinstance(raw_partitions_tree, Mapping)
+            else None
+        )
+        partitions = (
+            [partition for partition in raw_partitions if isinstance(partition, Mapping)]
+            if isinstance(raw_partitions, list)
+            else []
+        )
+
+        chunks: list[dict[str, Any]] = []
+        if processing_state == "processed" and partitions:
+            normalized_partitions = [
+                {str(key): value for key, value in partition.items()} for partition in partitions
+            ]
+            chunks = self._build_partition_chunks(normalized_partitions)
+
+        return {
+            "document_id": normalized_document_id,
+            "partitions_tree": {"partitions": partitions},
+            "chunks_tree": {"chunks": chunks},
+        }
 
     def list_buckets(self) -> list[str]:
         """Return sorted logical collection names.

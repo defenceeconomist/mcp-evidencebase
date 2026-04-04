@@ -47,6 +47,7 @@ class FakeIngestionService:
     bucket_names: list[str] = field(default_factory=lambda: ["research-raw"])
     documents: list[dict[str, Any]] = field(default_factory=list)
     search_results: list[dict[str, Any]] = field(default_factory=list)
+    debug_payload: dict[str, Any] = field(default_factory=dict)
     uploaded: list[tuple[str, str, bytes]] = field(default_factory=list)
     deleted: list[tuple[str, str, bool]] = field(default_factory=list)
     deleted_collections: list[str] = field(default_factory=list)
@@ -54,6 +55,8 @@ class FakeIngestionService:
     metadata_fetches: list[tuple[str, str]] = field(default_factory=list)
     metadata_seed_fetches: list[dict[str, Any]] = field(default_factory=list)
     resolved_documents: list[tuple[str, str]] = field(default_factory=list)
+    list_document_calls: list[tuple[str, bool, bool]] = field(default_factory=list)
+    debug_payload_calls: list[tuple[str, str]] = field(default_factory=list)
     search_calls: list[tuple[str, str, int, str, int]] = field(default_factory=list)
     search_variant_calls: list[tuple[str, tuple[str, ...], int, str, int]] = field(
         default_factory=list
@@ -82,10 +85,32 @@ class FakeIngestionService:
     def list_buckets(self) -> list[str]:
         return self.bucket_names
 
-    def list_documents(self, bucket_name: str) -> list[dict[str, Any]]:
+    def list_documents(
+        self,
+        bucket_name: str,
+        *,
+        include_debug: bool = True,
+        include_locations: bool = True,
+    ) -> list[dict[str, Any]]:
         if self.documents_error is not None:
             raise self.documents_error
+        self.list_document_calls.append((bucket_name, include_debug, include_locations))
         return self.documents
+
+    def get_document_debug_payload(
+        self,
+        *,
+        bucket_name: str,
+        document_id: str,
+    ) -> dict[str, Any]:
+        if self.documents_error is not None:
+            raise self.documents_error
+        self.debug_payload_calls.append((bucket_name, document_id))
+        return {
+            "document_id": document_id,
+            "partitions_tree": self.debug_payload.get("partitions_tree", {"partitions": []}),
+            "chunks_tree": self.debug_payload.get("chunks_tree", {"chunks": []}),
+        }
 
     def search_documents(
         self,
@@ -1145,6 +1170,22 @@ def test_get_documents_returns_documents(client: TestClient) -> None:
     assert response.status_code == 200
     assert response.json()["bucket_name"] == "research-raw"
     assert response.json()["documents"][0]["document_id"] == "doc-1"
+    assert service.list_document_calls == [("research-raw", True, True)]
+
+
+def test_get_documents_supports_lightweight_flags(client: TestClient) -> None:
+    """Assert the documents route forwards lightweight query flags to the service."""
+    service = FakeIngestionService(documents=[{"document_id": "doc-1", "file_path": "paper.pdf"}])
+    _override_ingestion_service(service)
+
+    response = client.get(
+        "/collections/research-raw/documents",
+        params={"include_debug": "false", "include_locations": "false"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["documents"][0]["document_id"] == "doc-1"
+    assert service.list_document_calls == [("research-raw", False, False)]
 
 
 def test_get_documents_returns_503_when_redis_is_disabled(client: TestClient) -> None:
@@ -1162,6 +1203,28 @@ def test_get_documents_returns_503_when_redis_is_disabled(client: TestClient) ->
 
     assert response.status_code == 503
     assert "Redis is disabled for document listing." in response.json()["detail"]
+
+
+def test_get_document_debug_payload_returns_on_demand_payload(client: TestClient) -> None:
+    """Assert the per-document debug route returns partitions/chunks on demand."""
+    service = FakeIngestionService(
+        debug_payload={
+            "partitions_tree": {"partitions": [{"text": "Section A"}]},
+            "chunks_tree": {"chunks": [{"chunk_id": "chunk-1", "text": "Chunk A"}]},
+        }
+    )
+    _override_ingestion_service(service)
+
+    response = client.get("/collections/research-raw/documents/doc-1/debug")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "bucket_name": "research-raw",
+        "document_id": "doc-1",
+        "partitions_tree": {"partitions": [{"text": "Section A"}]},
+        "chunks_tree": {"chunks": [{"chunk_id": "chunk-1", "text": "Chunk A"}]},
+    }
+    assert service.debug_payload_calls == [("research-raw", "doc-1")]
 
 
 def test_download_collection_bibliography_returns_bibtex_attachment(client: TestClient) -> None:

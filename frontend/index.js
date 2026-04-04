@@ -1,4 +1,6 @@
 import { createApiRequest } from "./js/api-client.mjs";
+import { createCollectionLoader } from "./js/collection-loader.mjs";
+import { createDocumentDebugLoader } from "./js/document-debug-loader.mjs";
 import {
   buildFallbackCitationKey as buildFallbackCitationKeyFromModule,
   getBulkBibtexFieldOrder as getBulkBibtexFieldOrderFromModule,
@@ -28,7 +30,7 @@ import {
 } from "./js/table-ui.mjs";
 
 (function () {
-  window.__EVIDENCEBASE_UI_BUILD__ = "2026-04-03-book-folder-ui-a";
+  window.__EVIDENCEBASE_UI_BUILD__ = "2026-04-04-collection-cache-a";
   const origin = window.location.origin;
   const deriveAppBasePath = (pathname) => {
     const normalizedPath = String(pathname || "/").trim() || "/";
@@ -315,6 +317,7 @@ import {
   let wasMobileLayout = window.matchMedia("(max-width: 991.98px)").matches;
   let documentTable = null;
   let docJsonModalInstance = null;
+  let docJsonModalLoadToken = 0;
   let searchSectionModalInstance = null;
   let pdfSplitModalInstance = null;
   let documentRefreshTimerId = null;
@@ -343,6 +346,8 @@ import {
   };
   const expandedFolderKeys = new Set();
   const isMobileViewport = () => window.matchMedia("(max-width: 991.98px)").matches;
+  let collectionLoader = null;
+  let documentDebugLoader = null;
 
   const setCookie = (name, value, maxAgeSeconds) => {
     setCookieValue(name, value, maxAgeSeconds);
@@ -359,6 +364,7 @@ import {
   const setSelectedBucketName = (bucketName) => {
     flushPendingMetadataSaveTimers();
     selectedBucketName = bucketName;
+    collectionLoader?.abortAllPendingExcept(bucketName || "");
     selectedItemId = null;
     expandedFolderKeys.clear();
     uiState.set("selectedBucketName", bucketName);
@@ -1199,14 +1205,11 @@ import {
     );
     const normalizedChunksCount = Number.parseInt(normalizeText(rawDocument.chunks_count), 10);
     const normalizedSectionsCount = Number.parseInt(normalizeText(rawDocument.sections_count), 10);
-    const partitionsTree =
-      rawDocument.partitions_tree && typeof rawDocument.partitions_tree === "object"
-        ? rawDocument.partitions_tree
-        : { partitions: [] };
-    const chunksTree =
-      rawDocument.chunks_tree && typeof rawDocument.chunks_tree === "object"
-        ? rawDocument.chunks_tree
-        : { chunks: [] };
+    const hasPartitionsTree =
+      rawDocument.partitions_tree && typeof rawDocument.partitions_tree === "object";
+    const hasChunksTree = rawDocument.chunks_tree && typeof rawDocument.chunks_tree === "object";
+    const partitionsTree = hasPartitionsTree ? rawDocument.partitions_tree : { partitions: [] };
+    const chunksTree = hasChunksTree ? rawDocument.chunks_tree : { chunks: [] };
 
     const record = {
       document_id: normalizeText(rawDocument.id) || `${filename}-${index}`,
@@ -1229,6 +1232,7 @@ import {
       sections_count: Number.isNaN(normalizedSectionsCount) ? 0 : normalizedSectionsCount,
       partitions_tree: partitionsTree,
       chunks_tree: chunksTree,
+      debug_payload_loaded: hasPartitionsTree || hasChunksTree,
       parse_status: normalizedProcessingState,
       bibtex_fields: {},
       authors: normalizedAuthorEntries,
@@ -1295,6 +1299,35 @@ import {
   };
 
   const apiRequest = createApiRequest({ apiBasePath });
+  const buildCollectionDocumentsPath = (bucketName) =>
+    `/collections/${encodeURIComponent(bucketName)}/documents?include_debug=false&include_locations=false`;
+
+  collectionLoader = createCollectionLoader({
+    apiRequest,
+    buildDocumentsPath: buildCollectionDocumentsPath,
+    normalizeDocument: normalizeDocumentRecord,
+    applyDocuments({ bucketName, documents: nextDocuments, preserveSelection }) {
+      if (bucketName !== selectedBucketName) {
+        return;
+      }
+      clearDocumentRefreshTimer();
+      documents = Array.isArray(nextDocuments) ? nextDocuments : [];
+      uiState.set("documents", documents);
+      if (!preserveSelection) {
+        selectedItemId = null;
+      }
+      renderDocumentMeta();
+      scheduleDocumentRefresh();
+    },
+    isBucketActive(bucketName) {
+      return bucketName === selectedBucketName;
+    },
+  });
+
+  documentDebugLoader = createDocumentDebugLoader({
+    apiRequest,
+    cache: collectionLoader.cache,
+  });
 
   const buildMetadataUpdatePayload = (record) => {
     if (!record || typeof record !== "object") {
@@ -2120,7 +2153,12 @@ import {
       return;
     }
     documentRefreshTimerId = window.setTimeout(() => {
-      void refreshDocuments({ silent: true, preserveSelection: true });
+      void refreshDocuments({
+        silent: true,
+        preserveSelection: true,
+        force: true,
+        background: true,
+      });
     }, 2500);
   };
 
@@ -2260,14 +2298,22 @@ import {
       item.addEventListener("click", () => {
         setSelectedBucketName(bucketName);
         renderBuckets();
-        void refreshDocuments();
+        void refreshDocuments({
+          bucketName,
+          force: false,
+          preserveSelection: true,
+        });
       });
       item.addEventListener("keydown", (event) => {
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
           setSelectedBucketName(bucketName);
           renderBuckets();
-          void refreshDocuments();
+          void refreshDocuments({
+            bucketName,
+            force: false,
+            preserveSelection: true,
+          });
         }
       });
       bucketList.appendChild(item);
@@ -2382,17 +2428,76 @@ import {
     docJsonModalInstance.show();
   };
 
-  const openDocJsonModal = (documentRecord, payloadType) => {
+  const getDocumentDebugFallbackPayload = (documentRecord) => {
+    if (!documentRecord || typeof documentRecord !== "object") {
+      return null;
+    }
+    if (!documentRecord.debug_payload_loaded) {
+      return null;
+    }
+    const hasPartitionsTree =
+      documentRecord.partitions_tree && typeof documentRecord.partitions_tree === "object";
+    const hasChunksTree = documentRecord.chunks_tree && typeof documentRecord.chunks_tree === "object";
+    if (!hasPartitionsTree && !hasChunksTree) {
+      return null;
+    }
+    return {
+      document_id: normalizeText(documentRecord.document_id),
+      partitions_tree: hasPartitionsTree ? documentRecord.partitions_tree : { partitions: [] },
+      chunks_tree: hasChunksTree ? documentRecord.chunks_tree : { chunks: [] },
+    };
+  };
+
+  const openDocJsonModal = async (documentRecord, payloadType) => {
+    if (!docJsonModalElement || !docJsonModalTitle || !docJsonModalSubtitle || !docJsonModalTree) {
+      return;
+    }
+
     const isPartitions = payloadType === "partitions";
-    const payload = isPartitions ? documentRecord.partitions_tree : documentRecord.chunks_tree;
     const count = isPartitions ? documentRecord.partitions_count : documentRecord.chunks_count;
-    openJsonModal({
-      title: isPartitions ? "Partitions JSON Tree" : "Chunks JSON Tree",
-      subtitle: `${filenameFromPath(documentRecord.file_path)} | ${
-        isPartitions ? "Partitions" : "Chunks"
-      }: ${count}`,
-      payload,
-    });
+    const bucketName = selectedBucketName;
+    const title = isPartitions ? "Partitions JSON Tree" : "Chunks JSON Tree";
+    const subtitle = `${filenameFromPath(documentRecord.file_path)} | ${
+      isPartitions ? "Partitions" : "Chunks"
+    }: ${count}`;
+    docJsonModalTitle.textContent = title;
+    docJsonModalSubtitle.textContent = `${subtitle} | Loading...`;
+    docJsonModalTree.innerHTML = '<p class="mb-0 text-body-secondary">Loading JSON payload...</p>';
+
+    if (!docJsonModalInstance) {
+      docJsonModalInstance = bootstrap.Modal.getOrCreateInstance(docJsonModalElement);
+    }
+    docJsonModalInstance.show();
+
+    const requestToken = docJsonModalLoadToken + 1;
+    docJsonModalLoadToken = requestToken;
+
+    try {
+      const debugPayload = await documentDebugLoader.loadDocumentDebugPayload({
+        bucketName,
+        documentId: documentRecord.document_id,
+        fallbackPayload: getDocumentDebugFallbackPayload(documentRecord),
+      });
+      if (docJsonModalLoadToken !== requestToken) {
+        return;
+      }
+
+      documentRecord.partitions_tree = debugPayload.partitions_tree;
+      documentRecord.chunks_tree = debugPayload.chunks_tree;
+      documentRecord.debug_payload_loaded = true;
+      openJsonModal({
+        title,
+        subtitle,
+        payload: isPartitions ? debugPayload.partitions_tree : debugPayload.chunks_tree,
+      });
+    } catch (error) {
+      if (docJsonModalLoadToken !== requestToken) {
+        return;
+      }
+      docJsonModalSubtitle.textContent = `${subtitle} | Failed to load`;
+      docJsonModalTree.innerHTML =
+        '<p class="mb-0 text-danger">Could not load debug JSON for this document.</p>';
+    }
   };
 
   const buildDocumentSectionModalResult = (documentRecord) => {
@@ -3723,35 +3828,49 @@ import {
     renderDocumentTable();
   };
 
-  const refreshDocuments = async ({ silent = false, preserveSelection = true } = {}) => {
-    if (!selectedBucketName) {
-      clearDocumentRefreshTimer();
-      documents = [];
-      uiState.set("documents", []);
-      selectedItemId = null;
-      renderDocumentMeta();
-      return;
+  const clearDisplayedDocuments = () => {
+    clearDocumentRefreshTimer();
+    documents = [];
+    uiState.set("documents", []);
+    selectedItemId = null;
+    renderDocumentMeta();
+  };
+
+  const refreshDocuments = async ({
+    silent = false,
+    preserveSelection = true,
+    force = true,
+    background = false,
+    bucketName = selectedBucketName,
+  } = {}) => {
+    const normalizedBucketName = normalizeText(bucketName);
+    if (!normalizedBucketName) {
+      clearDisplayedDocuments();
+      return [];
+    }
+
+    const cacheEntry = collectionLoader?.cache?.getEntry(normalizedBucketName);
+    if (
+      !background &&
+      normalizedBucketName === selectedBucketName &&
+      (!cacheEntry || cacheEntry.loadedAt <= 0)
+    ) {
+      clearDisplayedDocuments();
     }
 
     try {
-      const payload = await apiRequest(
-        `/collections/${encodeURIComponent(selectedBucketName)}/documents`
-      );
-      const rawDocuments = Array.isArray(payload.documents) ? payload.documents : [];
-      documents = rawDocuments.map((rawDocument, index) => normalizeDocumentRecord(rawDocument, index));
-      uiState.set("documents", documents);
-
-      if (!preserveSelection) {
-        selectedItemId = null;
-      }
-
-      renderDocumentMeta();
-      scheduleDocumentRefresh();
+      return await collectionLoader.loadCollectionDocuments({
+        bucketName: normalizedBucketName,
+        force,
+        background,
+        preserveSelection,
+      });
     } catch (error) {
       clearDocumentRefreshTimer();
       if (!silent) {
         window.alert(`Could not load documents: ${error.message}`);
       }
+      return [];
     }
   };
 
@@ -3789,16 +3908,21 @@ import {
       }
 
       renderBuckets();
-      await refreshDocuments();
+      if (!selectedBucketName) {
+        clearDisplayedDocuments();
+        return;
+      }
+      await refreshDocuments({
+        bucketName: selectedBucketName,
+        force: false,
+        preserveSelection: true,
+      });
     } catch (error) {
       minioBuckets = [];
       setSelectedBucketName(null);
       renderBuckets();
       setEmptyState("Failed to load collections from API.");
-      documents = [];
-      uiState.set("documents", []);
-      selectedItemId = null;
-      renderDocumentMeta();
+      clearDisplayedDocuments();
       window.alert(`Could not load collections: ${error.message}`);
     }
   };
@@ -5378,6 +5502,9 @@ import {
   pdfSplitUploadButton?.addEventListener("click", () => {
     void createPdfSplitFolder();
   });
+  docJsonModalElement?.addEventListener("hidden.bs.modal", () => {
+    docJsonModalLoadToken += 1;
+  });
   searchSectionModalElement?.addEventListener("hidden.bs.modal", () => {
     searchSectionModalLoadToken += 1;
     clearSearchSectionNavigationState();
@@ -5477,7 +5604,7 @@ import {
         (documentRecord) => documentRecord.document_id === documentId
       );
       if (targetDocument) {
-        openDocJsonModal(targetDocument, payloadType);
+        void openDocJsonModal(targetDocument, payloadType);
       }
       return;
     }
@@ -5557,7 +5684,7 @@ import {
     if (!targetDocument) {
       return;
     }
-    openDocJsonModal(targetDocument, payloadType);
+    void openDocJsonModal(targetDocument, payloadType);
   });
   documentHotContainer?.addEventListener("change", (event) => {
     const selectAllCheckbox = event.target.closest("input.bulk-select-all-checkbox");
@@ -5621,7 +5748,6 @@ import {
   updateRemoveDocumentButtonState();
   window.requestAnimationFrame(setIndependentScrollHeights);
   void (async () => {
-    await loadCitationSchema();
-    await refreshBuckets();
+    await Promise.all([loadCitationSchema(), refreshBuckets()]);
   })();
 })();

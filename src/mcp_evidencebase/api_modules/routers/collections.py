@@ -83,10 +83,16 @@ def get_metadata_schema() -> dict[str, Any]:
 def get_documents(
     bucket_name: str,
     service: Annotated[IngestionService, Depends(get_ingestion_service)],
+    include_debug: bool = True,
+    include_locations: bool = True,
 ) -> dict[str, Any]:
     """List document records for one bucket."""
     try:
-        documents = service.list_documents(bucket_name.strip())
+        documents = service.list_documents(
+            bucket_name.strip(),
+            include_debug=include_debug,
+            include_locations=include_locations,
+        )
     except Exception as exc:
         raise_document_http_error(exc)
     return {"bucket_name": bucket_name.strip(), "documents": documents}
@@ -199,6 +205,27 @@ def get_document_section(
         "document_id": document_id.strip(),
         "section_id": section_id.strip(),
         "section": section,
+    }
+
+
+@router.get("/collections/{bucket_name}/documents/{document_id}/debug")
+def get_document_debug_payload(
+    bucket_name: str,
+    document_id: str,
+    service: Annotated[IngestionService, Depends(get_ingestion_service)],
+) -> dict[str, Any]:
+    """Return one document's partitions/chunks payload on demand."""
+    try:
+        payload = service.get_document_debug_payload(
+            bucket_name=bucket_name.strip(),
+            document_id=document_id.strip(),
+        )
+    except Exception as exc:
+        raise_document_http_error(exc)
+    return {
+        "bucket_name": bucket_name.strip(),
+        "document_id": document_id.strip(),
+        **payload,
     }
 
 

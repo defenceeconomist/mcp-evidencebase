@@ -339,25 +339,32 @@ class RedisDocumentRepository:
         self,
         bucket_name: str,
         document_id: str,
+        *,
+        state: Mapping[str, str] | None = None,
+        object_names: list[str] | None = None,
     ) -> tuple[str, dict[str, str]]:
         """Return source-scoped metadata key and payload for one bucket/document pair."""
-        state = self.get_state(document_id)
-        object_names = self.get_document_object_names(bucket_name, document_id)
+        resolved_state = dict(state or self.get_state(document_id))
+        resolved_object_names = (
+            list(object_names)
+            if object_names is not None
+            else self.get_document_object_names(bucket_name, document_id)
+        )
         preferred_object_name = self._resolve_preferred_object_name(
             bucket_name=bucket_name,
             document_id=document_id,
-            state=state,
-            object_names=object_names,
+            state=resolved_state,
+            object_names=resolved_object_names,
         )
 
         candidate_object_names: list[str] = []
         if preferred_object_name:
             candidate_object_names.append(preferred_object_name)
-        for object_name in object_names:
+        for object_name in resolved_object_names:
             if object_name not in candidate_object_names:
                 candidate_object_names.append(object_name)
 
-        state_meta_key = state.get("meta_key", "")
+        state_meta_key = resolved_state.get("meta_key", "")
         if state_meta_key:
             split_state_meta_key = self._split_location_reference(state_meta_key)
             if (
@@ -377,7 +384,7 @@ class RedisDocumentRepository:
         if state_meta_redis_key and self._redis.hlen(state_meta_redis_key) > 0:
             return state_meta_key, self.get_metadata_by_key(state_meta_key)
 
-        file_path = preferred_object_name or state.get("file_path", document_id)
+        file_path = preferred_object_name or resolved_state.get("file_path", document_id)
         return "", build_default_metadata(file_path, document_id)
 
     def set_default_metadata_if_missing(
@@ -876,34 +883,72 @@ class RedisDocumentRepository:
         state = self.get_state(document_id).get("processing_state", "")
         return state not in {"processing", "processed"}
 
-    def list_documents(self, bucket_name: str) -> list[dict[str, Any]]:
+    def get_document_record(
+        self,
+        bucket_name: str,
+        document_id: str,
+        *,
+        include_debug: bool = True,
+        include_locations: bool = True,
+    ) -> dict[str, Any] | None:
+        """Return one UI-facing document record for a bucket/document pair."""
+        state = self.get_state(document_id)
+        object_names = (
+            self.get_document_object_names(bucket_name, document_id)
+            if include_locations or not state.get("file_path", "").strip() or not state.get("meta_key", "").strip()
+            else []
+        )
+        if not object_names and not state:
+            return None
+
+        partitions: list[dict[str, Any]] = []
+        partition_key = state.get("partition_key", "")
+        if include_debug:
+            partitions = self._get_partitions_for_document(document_id)
+
+        meta_key, metadata = self.get_document_metadata(
+            bucket_name,
+            document_id,
+            state=state,
+            object_names=object_names,
+        )
+        file_path = self._resolve_preferred_object_name(
+            bucket_name=bucket_name,
+            document_id=document_id,
+            state=state,
+            object_names=object_names,
+        )
+        return self._build_document_record(
+            document_id=document_id,
+            file_path=file_path,
+            object_names=object_names,
+            state=state,
+            partition_key=partition_key,
+            partitions=partitions,
+            meta_key=meta_key,
+            metadata=metadata,
+            include_debug=include_debug,
+            include_locations=include_locations,
+        )
+
+    def list_documents(
+        self,
+        bucket_name: str,
+        *,
+        include_debug: bool = True,
+        include_locations: bool = True,
+    ) -> list[dict[str, Any]]:
         """Read UI-facing document records for one bucket."""
         records: list[dict[str, Any]] = []
         for document_id in self.list_document_ids(bucket_name):
-            state = self.get_state(document_id)
-            partition_key = state.get("partition_key", "")
-            partitions = self._get_partitions_for_document(document_id)
-            meta_key, metadata = self.get_document_metadata(bucket_name, document_id)
-
-            object_names = self.get_document_object_names(bucket_name, document_id)
-            file_path = self._resolve_preferred_object_name(
-                bucket_name=bucket_name,
-                document_id=document_id,
-                state=state,
-                object_names=object_names,
+            record = self.get_document_record(
+                bucket_name,
+                document_id,
+                include_debug=include_debug,
+                include_locations=include_locations,
             )
-            records.append(
-                self._build_document_record(
-                    document_id=document_id,
-                    file_path=file_path,
-                    object_names=object_names,
-                    state=state,
-                    partition_key=partition_key,
-                    partitions=partitions,
-                    meta_key=meta_key,
-                    metadata=metadata,
-                )
-            )
+            if record is not None:
+                records.append(record)
 
         records.sort(key=lambda record: str(record.get("file_path", "")).lower())
         return records
@@ -919,6 +964,8 @@ class RedisDocumentRepository:
         partitions: list[dict[str, Any]],
         meta_key: str,
         metadata: Mapping[str, str],
+        include_debug: bool,
+        include_locations: bool,
     ) -> dict[str, Any]:
         """Build one UI-facing document record."""
         processing_state = state.get("processing_state", "processed")
@@ -939,7 +986,6 @@ class RedisDocumentRepository:
             "partition_key": partition_key,
             "meta_key": meta_key,
             "file_path": file_path,
-            "locations": object_names,
             "processing_state": processing_state,
             "processing_stage": processing_stage,
             "processing_stage_progress": processing_stage_progress,
@@ -947,8 +993,6 @@ class RedisDocumentRepository:
             "partitions_count": self._safe_int(state.get("partitions_count"), len(partitions)),
             "chunks_count": self._safe_int(state.get("chunks_count"), 0),
             "sections_count": self._safe_int(state.get("sections_count"), 0),
-            "partitions_tree": {"partitions": partitions},
-            "chunks_tree": {"chunks": []},
             "error": state.get("error", ""),
             "document_type": metadata.get("document_type", "misc") or "misc",
             "citation_key": metadata.get("citation_key", ""),
@@ -958,6 +1002,11 @@ class RedisDocumentRepository:
                 for field_name in BIBTEX_FIELDS
             },
         }
+        if include_locations:
+            record["locations"] = object_names
+        if include_debug:
+            record["partitions_tree"] = {"partitions": partitions}
+            record["chunks_tree"] = {"chunks": []}
         for field_name in BIBTEX_FIELDS:
             record[field_name] = metadata.get(field_name, "")
         return record

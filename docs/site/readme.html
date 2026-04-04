@@ -321,8 +321,9 @@ docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> 
 docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>-d<span class="w"> </span>--build
 </pre></div>
 </div>
-<p>The default local workflow uses the shared base file plus
-<code class="docutils literal notranslate"><span class="pre">docker-compose.override.yml</span></code>, which supplies the local <code class="docutils literal notranslate"><span class="pre">build:</span></code> directives.</p>
+<p>The repository now uses a single <code class="docutils literal notranslate"><span class="pre">docker-compose.yml</span></code> file. It includes both
+the default image tags and the local <code class="docutils literal notranslate"><span class="pre">build:</span></code> directives, so you do not need
+compose overrides for local development.</p>
 <p>Services include:</p>
 <ul class="simple">
 <li><p>NGINX reverse proxy (<code class="docutils literal notranslate"><span class="pre">52180</span></code> default)</p></li>
@@ -361,16 +362,15 @@ docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> 
 </section>
 <section id="prebuilt-image-stack">
 <h3>Prebuilt Image Stack<a class="headerlink" href="#prebuilt-image-stack" title="Link to this heading">¶</a></h3>
-<p>Use the shared base file plus <code class="docutils literal notranslate"><span class="pre">docker-compose.images.yml</span></code> when deploying with
-prebuilt images. The images override replaces the local build settings and
-expects image tags to be provided instead:</p>
+<p>Use the same <code class="docutils literal notranslate"><span class="pre">docker-compose.yml</span></code> when deploying with prebuilt images. Set the
+image tags in the environment and start the stack without <code class="docutils literal notranslate"><span class="pre">--build</span></code>:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>APP_IMAGE=ghcr.io/your-org/mcp-evidencebase-app:latest
 PROXY_IMAGE=ghcr.io/your-org/mcp-evidencebase-proxy:latest
 SHARED_DATASTORE_NETWORK_NAME=shared-datastores
 </pre></div>
 </div>
 <p>Set those variables in your deployment environment before starting the stack:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docker<span class="w"> </span>compose<span class="w"> </span>-f<span class="w"> </span>docker-compose.yml<span class="w"> </span>-f<span class="w"> </span>docker-compose.images.yml<span class="w"> </span>up<span class="w"> </span>-d
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>-d
 </pre></div>
 </div>
 </section>

@@ -1,6 +1,19 @@
 x-app-image: &app-image
   image: ${APP_IMAGE:-mcp-evidencebase-app:latest}
 
+x-app-build: &app-build
+  build:
+    context: .
+    dockerfile: docker/app/Dockerfile
+
+x-proxy-image: &proxy-image
+  image: ${PROXY_IMAGE:-mcp-evidencebase-proxy:latest}
+
+x-proxy-build: &proxy-build
+  build:
+    context: .
+    dockerfile: docker/proxy/Dockerfile
+
 x-backend-environment: &backend-environment
   CELERY_BROKER_URL: ${CELERY_BROKER_URL:?CELERY_BROKER_URL must be set in .env or the environment}
   CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:?CELERY_RESULT_BACKEND must be set in .env or the environment}
@@ -21,7 +34,7 @@ x-backend-environment: &backend-environment
   MCP_EVIDENCEBASE_REQUIRE_CELERY_RESULT_BACKEND: ${MCP_EVIDENCEBASE_REQUIRE_CELERY_RESULT_BACKEND:-true}
   UNSTRUCTURED_API_URL: ${UNSTRUCTURED_API_URL:-https://api.unstructuredapp.io/general/v0/general}
   UNSTRUCTURED_API_KEY: ${UNSTRUCTURED_API_KEY:-}
-  UNSTRUCTURED_STRATEGY: ${UNSTRUCTURED_STRATEGY:-hi_res}
+  UNSTRUCTURED_STRATEGY: ${UNSTRU1CTURED_STRATEGY:-hi_res}
   UNSTRUCTURED_TIMEOUT_SECONDS: ${UNSTRUCTURED_TIMEOUT_SECONDS:-900}
   FASTEMBED_MODEL: ${FASTEMBED_MODEL:-BAAI/bge-small-en-v1.5}
   FASTEMBED_KEYWORD_MODEL: ${FASTEMBED_KEYWORD_MODEL:-Qdrant/bm25}
@@ -41,7 +54,7 @@ x-backend-environment: &backend-environment
 
 services:
   celery:
-    <<: *app-image
+    <<: [*app-image, *app-build]
     container_name: evidencebase-celery
     restart: unless-stopped
     environment:
@@ -64,7 +77,7 @@ services:
       - datastores
 
   api:
-    <<: *app-image
+    <<: [*app-image, *app-build]
     container_name: evidencebase-api
     restart: unless-stopped
     environment:
@@ -79,7 +92,7 @@ services:
       - datastores
 
   proxy:
-    image: ${PROXY_IMAGE:-mcp-evidencebase-proxy:latest}
+    <<: [*proxy-image, *proxy-build]
     container_name: evidencebase-proxy
     restart: unless-stopped
     depends_on:

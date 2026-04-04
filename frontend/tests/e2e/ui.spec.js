@@ -2,11 +2,15 @@ const { test, expect } = require("@playwright/test");
 
 test("renders collections, documents, and semantic search results", async ({ page }) => {
   let lastSearchUrl = null;
+  let lastDocumentsUrl = null;
 
   await page.addInitScript(() => {
     window.bootstrap = window.bootstrap || {
       Tooltip: {
         getOrCreateInstance: () => ({ setContent: () => {} }),
+      },
+      Modal: {
+        getOrCreateInstance: () => ({ show: () => {}, hide: () => {} }),
       },
     };
     window.alert = () => {};
@@ -32,6 +36,7 @@ test("renders collections, documents, and semantic search results", async ({ pag
       method === "GET" &&
       pathname.endsWith("/api/collections/demo-collection/documents")
     ) {
+      lastDocumentsUrl = url;
       return route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -101,6 +106,12 @@ test("renders collections, documents, and semantic search results", async ({ pag
   await expect(page.locator("#bucket-list")).toContainText("demo-collection");
   await expect(page.locator("#document-meta-count")).toHaveText("1 documents");
   await expect(page.locator("#detail-document-tbody")).toContainText("Offset policy evidence");
+  await expect
+    .poll(() => (lastDocumentsUrl ? lastDocumentsUrl.searchParams.get("include_debug") : null))
+    .toBe("false");
+  await expect
+    .poll(() => (lastDocumentsUrl ? lastDocumentsUrl.searchParams.get("include_locations") : null))
+    .toBe("false");
 
   await page.getByRole("tab", { name: "Semantic Search" }).click();
   await page.fill("#semantic-search-query", "offsets evidence");
@@ -330,4 +341,129 @@ test("bulk edit shows expandable parent rows for split pdf folders", async ({ pa
   await rowCheckbox.check();
   await page.click("#remove-selected-docs-btn");
   await expect.poll(() => deleteRequests.length).toBe(2);
+});
+
+test("switching collections reuses cached data and loads debug JSON on demand", async ({ page }) => {
+  let alphaRequestCount = 0;
+  let debugRequestCount = 0;
+
+  await page.addInitScript(() => {
+    window.bootstrap = window.bootstrap || {
+      Tooltip: {
+        getOrCreateInstance: () => ({ setContent: () => {} }),
+      },
+      Modal: {
+        getOrCreateInstance: () => ({ show: () => {}, hide: () => {} }),
+      },
+    };
+    window.alert = () => {};
+    window.confirm = () => true;
+    window.prompt = () => null;
+  });
+
+  await page.route("**/api/**", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const method = request.method();
+    const pathname = url.pathname;
+
+    if (method === "GET" && pathname.endsWith("/api/buckets")) {
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ buckets: ["alpha", "beta"] }),
+      });
+    }
+
+    if (method === "GET" && pathname.endsWith("/api/collections/alpha/documents")) {
+      alphaRequestCount += 1;
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          documents: [
+            {
+              id: "doc-a",
+              file_path: "alpha-paper.pdf",
+              title: "Alpha Cached",
+              year: "2024",
+              authors: [{ first_name: "Ada", last_name: "Lovelace", suffix: "" }],
+              processing_state: "processed",
+              processing_progress: 100,
+              partitions_count: 1,
+              chunks_count: 1,
+              bibtex_fields: {
+                title: "Alpha Cached",
+                author: "Lovelace, Ada",
+                year: "2024",
+              },
+            },
+          ],
+        }),
+      });
+    }
+
+    if (method === "GET" && pathname.endsWith("/api/collections/beta/documents")) {
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          documents: [
+            {
+              id: "doc-b",
+              file_path: "beta-paper.pdf",
+              title: "Beta Fresh",
+              year: "2025",
+              authors: [{ first_name: "Grace", last_name: "Hopper", suffix: "" }],
+              processing_state: "processed",
+              processing_progress: 100,
+              partitions_count: 1,
+              chunks_count: 1,
+              bibtex_fields: {
+                title: "Beta Fresh",
+                author: "Hopper, Grace",
+                year: "2025",
+              },
+            },
+          ],
+        }),
+      });
+    }
+
+    if (method === "GET" && pathname.endsWith("/api/collections/alpha/documents/doc-a/debug")) {
+      debugRequestCount += 1;
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          document_id: "doc-a",
+          partitions_tree: { partitions: [{ text: "Alpha partition" }] },
+          chunks_tree: { chunks: [{ chunk_id: "chunk-a", text: "Alpha chunk" }] },
+        }),
+      });
+    }
+
+    return route.fulfill({
+      status: 404,
+      contentType: "application/json",
+      body: JSON.stringify({ detail: `Unhandled mock route: ${method} ${pathname}` }),
+    });
+  });
+
+  await page.goto("/");
+  await expect(page.locator("#detail-document-tbody")).toContainText("Alpha Cached");
+
+  await page.locator("#bucket-list li").filter({ hasText: "beta" }).click();
+  await expect(page.locator("#detail-document-tbody")).toContainText("Beta Fresh");
+
+  await page.locator("#bucket-list li").filter({ hasText: "alpha" }).click();
+  await expect(page.locator("#detail-document-tbody")).toContainText("Alpha Cached");
+  await expect.poll(() => alphaRequestCount).toBe(1);
+
+  await page.locator(".parse-action-btn[data-json-action='partitions']").first().click();
+  await expect.poll(() => debugRequestCount).toBe(1);
+  await page.locator("#doc-json-modal .btn-close").click();
+
+  await page.locator(".parse-action-btn[data-json-action='partitions']").first().click();
+  await expect.poll(() => debugRequestCount).toBe(1);
 });

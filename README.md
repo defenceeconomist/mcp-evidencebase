@@ -344,8 +344,9 @@ cd /Users/lukeheley/Developer/mcp-evidencebase
 docker compose up -d --build
 ```
 
-The default local workflow uses the shared base file plus
-`docker-compose.override.yml`, which supplies the local `build:` directives.
+The repository now uses a single `docker-compose.yml` file. It includes both
+the default image tags and the local `build:` directives, so you do not need
+compose overrides for local development.
 
 Services include:
 
@@ -389,9 +390,8 @@ docker compose --profile tunnel up -d
 
 ### Prebuilt Image Stack
 
-Use the shared base file plus `docker-compose.images.yml` when deploying with
-prebuilt images. The images override replaces the local build settings and
-expects image tags to be provided instead:
+Use the same `docker-compose.yml` when deploying with prebuilt images. Set the
+image tags in the environment and start the stack without `--build`:
 
 ```text
 APP_IMAGE=ghcr.io/your-org/mcp-evidencebase-app:latest
@@ -402,7 +402,7 @@ SHARED_DATASTORE_NETWORK_NAME=shared-datastores
 Set those variables in your deployment environment before starting the stack:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.images.yml up -d
+docker compose up -d
 ```
 
 ### Service URLs
