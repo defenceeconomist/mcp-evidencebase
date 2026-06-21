@@ -286,10 +286,24 @@
   height: 1rem;
 }
 
+.document-processing-status {
+  display: flex;
+  flex-direction: column;
+  gap: 0.22rem;
+  min-width: 8rem;
+}
+
 .document-processing-progress .progress-bar {
   font-size: 0.62rem;
   letter-spacing: 0.015em;
   white-space: nowrap;
+}
+
+.document-processing-detail {
+  color: var(--bs-secondary-color);
+  font-size: 0.68rem;
+  line-height: 1.2;
+  white-space: normal;
 }
 
 .json-tree {

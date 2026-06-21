@@ -23,6 +23,11 @@ import {
   setCookieValue,
 } from "./js/state-store.mjs";
 import {
+  getProcessingStatusPresentation,
+  normalizeProcessingStage,
+  normalizeProcessingStageProgress,
+} from "./js/progress-ui.mjs";
+import {
   buildFolderMetadataPatch,
   buildGroupedDocumentItems,
   computeFolderSelectionState,
@@ -179,23 +184,6 @@ import {
     recommended: { label: "Recommended", className: "bibtex-status-recommended" },
     optional: { label: "Optional", className: "bibtex-status-optional" },
     mixed: { label: "Mixed", className: "bibtex-status-mixed" },
-  };
-  const processingStageLabels = {
-    queued: "Queued",
-    partition: "Partition",
-    meta: "Metadata",
-    section: "Section",
-    chunk: "Chunk",
-    upsert: "Upsert",
-    processed: "Done",
-    failed: "Failed",
-  };
-  const processingStageRanges = {
-    partition: [0, 20],
-    meta: [20, 40],
-    section: [40, 60],
-    chunk: [60, 80],
-    upsert: [80, 100],
   };
   const folderMetadataFieldMap = {
     title: "booktitle",
@@ -514,90 +502,42 @@ import {
     return Math.min(100, Math.max(0, parsed));
   };
 
-  const inferProcessingStageFromProgress = (processingProgress) => {
-    const percent = Number.isFinite(processingProgress)
-      ? Math.min(100, Math.max(0, processingProgress))
-      : 0;
-    if (percent <= 20) {
-      return "partition";
-    }
-    if (percent <= 40) {
-      return "meta";
-    }
-    if (percent <= 60) {
-      return "section";
-    }
-    if (percent <= 80) {
-      return "chunk";
-    }
-    return "upsert";
-  };
-
-  const normalizeProcessingStage = ({ rawStage, processingState, processingProgress }) => {
-    const normalizedState = normalizeText(processingState).toLowerCase();
-    const normalizedRawStage = normalizeText(rawStage).toLowerCase();
-    if (normalizedRawStage && Object.prototype.hasOwnProperty.call(processingStageLabels, normalizedRawStage)) {
-      return normalizedRawStage;
-    }
-    if (normalizedState === "processed") {
-      return "processed";
-    }
-    if (normalizedState === "failed") {
-      return "failed";
-    }
-    return inferProcessingStageFromProgress(processingProgress);
-  };
-
-  const normalizeProcessingStageProgress = ({
-    rawStageProgress,
-    processingStage,
-    processingProgress,
-  }) => {
-    const directStageProgress = clampPercent(rawStageProgress, -1);
-    if (directStageProgress >= 0) {
-      return directStageProgress;
-    }
-    if (processingStage === "processed" || processingStage === "failed") {
-      return 100;
-    }
-    const stageRange = processingStageRanges[processingStage];
-    if (!Array.isArray(stageRange) || stageRange.length !== 2) {
-      return 0;
-    }
-    const start = stageRange[0];
-    const end = stageRange[1];
-    const width = Math.max(1, end - start);
-    const normalizedProgress = Math.min(100, Math.max(0, processingProgress));
-    const stageProgress = Math.round(((normalizedProgress - start) / width) * 100);
-    return Math.min(100, Math.max(0, stageProgress));
-  };
-
-  const getProcessingStageLabel = (stageName) => {
-    const normalizedStageName = normalizeText(stageName).toLowerCase();
-    if (Object.prototype.hasOwnProperty.call(processingStageLabels, normalizedStageName)) {
-      return processingStageLabels[normalizedStageName];
-    }
-    return "Processing";
-  };
-
   const createDocumentProgressBar = (record, { minWidth = "" } = {}) => {
+    const progressStatus = document.createElement("div");
+    progressStatus.className = "document-processing-status";
+
     const progressWrap = document.createElement("div");
     progressWrap.className = "progress document-processing-progress";
     if (minWidth) {
       progressWrap.style.minWidth = minWidth;
     }
 
+    const progressPresentation = getProcessingStatusPresentation({
+      processingState: record.processing_state,
+      processingStage: record.processing_stage,
+      processingProgress: record.processing_progress,
+      processingStageProgress: record.processing_stage_progress,
+    });
     const progressBar = document.createElement("div");
     progressBar.className = "progress-bar progress-bar-striped progress-bar-animated";
-    progressBar.style.width = `${record.processing_progress}%`;
-    const stageLabel = getProcessingStageLabel(record.processing_stage);
-    const barLabel = `${stageLabel} ${record.processing_progress}%`;
-    progressBar.textContent = barLabel;
-    progressBar.setAttribute("aria-valuetext", barLabel);
-    progressBar.title = `Stage ${stageLabel} (${record.processing_stage_progress}%)`;
+    progressBar.style.width = `${progressPresentation.visibleProgress}%`;
+    progressBar.setAttribute("role", "progressbar");
+    progressBar.setAttribute("aria-valuemin", "0");
+    progressBar.setAttribute("aria-valuemax", "100");
+    progressBar.setAttribute("aria-valuenow", String(progressPresentation.actualProgress));
+    progressBar.textContent = progressPresentation.progressText;
+    progressBar.setAttribute("aria-valuetext", progressPresentation.title);
+    progressBar.title = progressPresentation.title;
+
+    const progressDetail = document.createElement("div");
+    progressDetail.className = "document-processing-detail";
+    progressDetail.textContent = progressPresentation.detailText;
+    progressDetail.title = progressPresentation.title;
 
     progressWrap.appendChild(progressBar);
-    return progressWrap;
+    progressStatus.appendChild(progressWrap);
+    progressStatus.appendChild(progressDetail);
+    return progressStatus;
   };
 
   const normalizeObjectPath = (value) => {
@@ -2279,7 +2219,7 @@ import {
         force: true,
         background: true,
       });
-    }, 2500);
+    }, 1000);
   };
 
   const syncTableViewLabels = () => {
