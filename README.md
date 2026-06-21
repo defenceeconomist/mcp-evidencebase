@@ -41,6 +41,7 @@
       </ul>
     </li>
     <li><a href="#usage">Usage</a></li>
+    <li><a href="#archive-restore">Archive Restore</a></li>
     <li><a href="#project-structure">Project Structure</a></li>
     <li><a href="#roadmap">Roadmap</a></li>
     <li><a href="#contributing">Contributing</a></li>
@@ -902,6 +903,91 @@ Qdrant point payload fields include:
 
 Search results are hydrated from Redis section mappings (when available) to include:
 `parent_section_id`, `parent_section_index`, `parent_section_title`, and `parent_section_text`.
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+## Archive Restore
+
+The archived project data is stored in OneDrive, outside the git working tree.
+The June 21, 2026 archive created for this repository is:
+
+```text
+~/OneDrive/Backups/mcp-evidencebase/evidencebase-archive-20260621T090000Z.tar.gz
+```
+
+It contains:
+
+- MinIO bucket mirror for `evidence-base`
+- Redis DB 2 dump for keys matching `evidencebase*`
+- Qdrant snapshot for the `evidence-base` collection
+- `MANIFEST.json` and `SHA256SUMS`
+
+Restore from a fresh checkout:
+
+```bash
+# 1) Copy the archive into the ignored local backups folder.
+mkdir -p backups
+cp ~/OneDrive/Backups/mcp-evidencebase/evidencebase-archive-20260621T090000Z.tar.gz backups/
+cp ~/OneDrive/Backups/mcp-evidencebase/evidencebase-archive-20260621T090000Z.tar.gz.sha256 backups/
+
+# 2) Unpack the archive from the repository root.
+tar -xzf backups/evidencebase-archive-20260621T090000Z.tar.gz -C backups
+
+# 3) Start the shared datastore stack.
+cd /Users/lukeheley/Developer/shared-datastores
+docker compose up -d
+
+# 4) Return to this repository and verify the archive checksum.
+cd /Users/lukeheley/Developer/mcp-evidencebase
+(cd backups && shasum -a 256 -c evidencebase-archive-20260621T090000Z.tar.gz.sha256)
+```
+
+Restore MinIO objects:
+
+```bash
+docker run --rm --network shared-datastores \
+  --env-file .env \
+  -v "$PWD/backups/evidencebase-archive-20260621T090000Z/minio:/backup" \
+  --entrypoint /bin/sh \
+  minio/mc -c '
+    set -eu
+    bucket="${EVIDENCEBASE_STORAGE_BUCKET:-evidence-base}"
+    mc alias set shared "http://shared-minio:9000" "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null
+    mc mb --ignore-existing "shared/$bucket"
+    mc mirror --overwrite "/backup/$bucket" "shared/$bucket"
+  '
+```
+
+Restore Redis state:
+
+```bash
+python3 backups/evidencebase-archive-20260621T090000Z/redis/restore_redis_dump.py \
+  backups/evidencebase-archive-20260621T090000Z/redis/evidencebase-db2-dump.jsonl \
+  --host localhost \
+  --port 6379 \
+  --db 2 \
+  --replace
+```
+
+Restore Qdrant vectors:
+
+```bash
+curl -fsS -X POST \
+  "http://localhost:6333/collections/evidence-base/snapshots/upload?priority=snapshot" \
+  -F "snapshot=@backups/evidencebase-archive-20260621T090000Z/qdrant/evidence-base-3786862537210533-2026-06-21-09-00-40.snapshot"
+```
+
+After restoring the datastores, start the application stack:
+
+```bash
+docker compose up -d --build api celery proxy
+curl -fsS http://localhost:52180/healthz
+```
+
+If the restore target already contains Evidence Base data, restore into an
+empty shared datastore stack or remove the existing `evidence-base` MinIO
+bucket, Redis DB 2 `evidencebase*` keys, and Qdrant `evidence-base` collection
+first.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
